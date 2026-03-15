@@ -84,6 +84,24 @@
     .tool-name { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--green); margin-bottom: 3px; }
     .tool-desc { font-size: 11px; color: var(--muted); line-height: 1.3; }
 
+    /* Settings */
+    .settings-grid { display: grid; gap: 16px; }
+    .setting { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+    .setting label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .setting-hint { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+    .setting-hint code { font-size: 11px; }
+    .setting input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; }
+    .setting input:focus { border-color: var(--blue); }
+    .setting input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .setting-row { display: flex; gap: 8px; }
+    .setting-row input { flex: 1; }
+    .cfg-save { padding: 8px 16px; background: var(--green); color: #000; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .cfg-save:hover { opacity: 0.9; }
+    .setting-note { font-size: 11px; color: var(--dim); margin-top: 6px; }
+    .setting-status { font-size: 12px; margin-top: 10px; min-height: 18px; }
+    .setting-status.ok { color: var(--green); }
+    .setting-status.err { color: #ef4444; }
+
     /* Footer */
     footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; font-size: 13px; color: var(--dim); margin-top: 60px; }
     footer a { color: var(--muted); }
@@ -99,6 +117,7 @@
     <div class="nav-links">
       <a href="#download">Download</a>
       <a href="#connect">Connect</a>
+      <a href="#settings">Settings</a>
       <a href="https://github.com/A2ABaseAI/AgentChrome">GitHub</a>
       <a href="/dashboard" class="nav-btn">Dashboard</a>
     </div>
@@ -129,6 +148,47 @@
     <div class="right">
       <a href="/dashboard">Open Dashboard &rarr;</a>
     </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="section" id="settings">
+    <div class="label">Settings</div>
+    <h2>Server Configuration</h2>
+    <p class="desc">Configure your API keys. These are saved on the server and persist across restarts.</p>
+
+    <div class="settings-grid">
+      <div class="setting">
+        <label>Server API Key</label>
+        <div class="setting-hint">Used by browsers and MCP clients to authenticate. Set via <code>API_KEYS</code> env var at deploy time.</div>
+        <input type="password" id="cfg-api-key" placeholder="Set via env var" disabled>
+        <div class="setting-note">Managed via environment variable — cannot be changed from UI</div>
+      </div>
+      <div class="setting">
+        <label>OpenAI API Key</label>
+        <div class="setting-hint">Required for the Chat feature. Supports OpenAI, or any compatible API.</div>
+        <div class="setting-row">
+          <input type="password" id="cfg-openai-key" placeholder="sk-...">
+          <button class="cfg-save" id="save-openai-key">Save</button>
+        </div>
+      </div>
+      <div class="setting">
+        <label>Chat Model</label>
+        <div class="setting-hint">Model used for the chat feature.</div>
+        <div class="setting-row">
+          <input type="text" id="cfg-model" placeholder="gpt-4o-mini">
+          <button class="cfg-save" id="save-model">Save</button>
+        </div>
+      </div>
+      <div class="setting">
+        <label>OpenAI Base URL</label>
+        <div class="setting-hint">Override for compatible APIs (Anthropic, local LLMs, etc.).</div>
+        <div class="setting-row">
+          <input type="text" id="cfg-base-url" placeholder="https://api.openai.com/v1" spellcheck="false">
+          <button class="cfg-save" id="save-base-url">Save</button>
+        </div>
+      </div>
+    </div>
+    <div class="setting-status" id="setting-status"></div>
   </div>
 
   <!-- How it works -->
@@ -256,6 +316,47 @@ const host = window.location.host;
 const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
 document.getElementById('ws-url').textContent = `${proto}://${host}/ws`;
 document.getElementById('mcp-url').textContent = `"${window.location.protocol}//${host}/mcp/BROWSER_ID"`;
+
+// Settings — need API key from localStorage (same as dashboard)
+const savedKey = localStorage.getItem('ac_api_key') || '';
+const cfgHeaders = () => ({ 'Authorization': `Bearer ${savedKey}`, 'Content-Type': 'application/json' });
+
+// Load config
+if (savedKey) {
+  fetch('/config', { headers: cfgHeaders() }).then(r => r.ok ? r.json() : null).then(cfg => {
+    if (!cfg) return;
+    document.getElementById('cfg-openai-key').placeholder = cfg.has_openai_key ? cfg.openai_api_key || 'Configured' : 'sk-...';
+    document.getElementById('cfg-model').value = cfg.chat_model || '';
+    document.getElementById('cfg-base-url').value = cfg.openai_base_url || '';
+  }).catch(() => {});
+}
+
+function saveCfg(updates) {
+  const key = savedKey || prompt('Enter server API key:');
+  if (!key) return;
+  localStorage.setItem('ac_api_key', key);
+  const st = document.getElementById('setting-status');
+  fetch('/config', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  }).then(r => {
+    if (r.ok) { st.textContent = 'Saved'; st.className = 'setting-status ok'; }
+    else { st.textContent = 'Error — check API key'; st.className = 'setting-status err'; }
+    setTimeout(() => { st.textContent = ''; }, 3000);
+  }).catch(() => { st.textContent = 'Failed to save'; st.className = 'setting-status err'; });
+}
+
+document.getElementById('save-openai-key').addEventListener('click', () => {
+  const v = document.getElementById('cfg-openai-key').value.trim();
+  if (v) saveCfg({ openai_api_key: v });
+});
+document.getElementById('save-model').addEventListener('click', () => {
+  saveCfg({ chat_model: document.getElementById('cfg-model').value.trim() });
+});
+document.getElementById('save-base-url').addEventListener('click', () => {
+  saveCfg({ openai_base_url: document.getElementById('cfg-base-url').value.trim() });
+});
 </script>
 </body>
 </html>

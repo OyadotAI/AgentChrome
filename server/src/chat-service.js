@@ -4,9 +4,7 @@
 
 import { sendCommand } from './ws-handler.js';
 import { BROWSER_TOOLS } from './chat-tools.js';
-
-const OPENAI_BASE = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const MODEL = process.env.CHAT_MODEL || 'gpt-5.4';
+import { runtimeConfig } from './runtime-config.js';
 
 const SYSTEM_PROMPT = `You control a real browser via tools. The browser belongs to the user — it has their cookies, logins, and sessions.
 
@@ -118,10 +116,12 @@ async function executeTool(browserId, name, args) {
  * Streams the final text response.
  */
 export async function runChat(browserId, messages, { onToolCall, onText } = {}) {
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const openaiKey = runtimeConfig.getOpenAIKey();
   if (!openaiKey) {
-    throw new Error('OPENAI_API_KEY required for chat. Add it to server .env');
+    throw new Error('OpenAI API key not configured. Go to Settings on the landing page or set OPENAI_API_KEY env var.');
   }
+  const OPENAI_BASE = runtimeConfig.getOpenAIBase();
+  const MODEL = runtimeConfig.getChatModel();
 
   const allMessages = [
     { role: 'system', content: SYSTEM_PROMPT },

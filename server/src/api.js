@@ -7,6 +7,7 @@ import { authMiddleware } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
+import { runtimeConfig } from './runtime-config.js';
 
 export const router = Router();
 
@@ -17,6 +18,16 @@ router.get('/health', (req, res) => {
     browsers: registry.list().length,
     uptime: process.uptime(),
   });
+});
+
+// Runtime config — get/set server configuration from the dashboard
+router.get('/config', authMiddleware, (req, res) => {
+  res.json(runtimeConfig.get());
+});
+
+router.post('/config', authMiddleware, (req, res) => {
+  runtimeConfig.set(req.body);
+  res.json({ ok: true });
 });
 
 // List connected browsers

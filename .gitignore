@@ -5,3 +5,4 @@ dist/
 .DS_Store
 k8s/secrets.yaml
 k8s/ghcr.env
+server/data/
