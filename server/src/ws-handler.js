@@ -59,7 +59,7 @@ export function handleConnection(ws) {
         destroyMcpServer(browserId);
       }
 
-      registry.add(browserId, { ws, name: msg.browser_name || 'Browser' });
+      registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser' });
 
       ws.send(JSON.stringify({
         type: 'auth_ok',

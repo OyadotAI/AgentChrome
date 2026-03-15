@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
+import { isAdminKey } from './auth.js';
 
 /** @type {Map<string, McpServer>} */
 const mcpServers = new Map();
@@ -319,8 +320,15 @@ Use element IDs with click/type tools. The output includes:
  */
 export async function handleMcpRequest(req, res) {
   const { browserId } = req.params;
+  const apiKey = req.headers.authorization?.slice(7) || '';
 
   if (!registry.isConnected(browserId)) {
+    res.status(404).json({ error: `Browser ${browserId} not connected` });
+    return;
+  }
+
+  // Scope check — only the key that owns this browser (or admin) can access its MCP
+  if (apiKey && !isAdminKey(apiKey) && !registry.belongsTo(browserId, apiKey)) {
     res.status(404).json({ error: `Browser ${browserId} not connected` });
     return;
   }

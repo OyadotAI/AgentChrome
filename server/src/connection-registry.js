@@ -1,5 +1,6 @@
 /**
- * Browser session registry — tracks connected browsers.
+ * Browser session registry — tracks connected browsers, scoped by API key.
+ * Each key only sees its own browsers.
  */
 
 import { EventEmitter } from 'events';
@@ -7,20 +8,21 @@ import { EventEmitter } from 'events';
 class ConnectionRegistry extends EventEmitter {
   constructor() {
     super();
-    /** @type {Map<string, { ws: WebSocket, name: string, connectedAt: Date, lastSeen: Date, currentUrl: string }>} */
+    /** @type {Map<string, { ws: WebSocket, apiKey: string, name: string, connectedAt: Date, lastSeen: Date, currentUrl: string, lastFrame: string|null, lastFrameAt: number|null, streamViewers: Set }>} */
     this.browsers = new Map();
   }
 
-  add(browserId, { ws, name }) {
+  add(browserId, { ws, apiKey, name }) {
     this.browsers.set(browserId, {
       ws,
+      apiKey: apiKey || '',
       name: name || 'Unknown Browser',
       connectedAt: new Date(),
       lastSeen: new Date(),
       currentUrl: '',
-      lastFrame: null,       // latest JPEG frame (data URL)
-      lastFrameAt: null,     // timestamp of last frame
-      streamViewers: new Set(), // SSE response objects watching this browser
+      lastFrame: null,
+      lastFrameAt: null,
+      streamViewers: new Set(),
     });
     this.emit('browser:connected', { id: browserId, name });
   }
@@ -28,7 +30,6 @@ class ConnectionRegistry extends EventEmitter {
   remove(browserId) {
     const browser = this.browsers.get(browserId);
     if (browser) {
-      // Close all SSE viewers for this browser
       for (const res of browser.streamViewers) {
         try { res.end(); } catch {}
       }
@@ -46,6 +47,12 @@ class ConnectionRegistry extends EventEmitter {
     return this.browsers.has(browserId);
   }
 
+  /** Check if a browser belongs to a specific API key */
+  belongsTo(browserId, apiKey) {
+    const browser = this.browsers.get(browserId);
+    return browser ? browser.apiKey === apiKey : false;
+  }
+
   updateLastSeen(browserId) {
     const browser = this.browsers.get(browserId);
     if (browser) browser.lastSeen = new Date();
@@ -56,42 +63,29 @@ class ConnectionRegistry extends EventEmitter {
     if (browser) browser.currentUrl = url;
   }
 
-  /** Store a frame and push to all SSE viewers */
   pushFrame(browserId, dataUrl) {
     const browser = this.browsers.get(browserId);
     if (!browser) return;
     browser.lastFrame = dataUrl;
     browser.lastFrameAt = Date.now();
     for (const res of browser.streamViewers) {
-      try {
-        res.write(`data: ${dataUrl}\n\n`);
-      } catch {
-        browser.streamViewers.delete(res);
-      }
+      try { res.write(`data: ${dataUrl}\n\n`); } catch { browser.streamViewers.delete(res); }
     }
   }
 
-  /** Add an SSE viewer for a browser's stream */
   addViewer(browserId, res) {
     const browser = this.browsers.get(browserId);
     if (!browser) return false;
     browser.streamViewers.add(res);
-    // Start streaming on the extension if this is the first viewer
-    if (browser.streamViewers.size === 1) {
-      this.emit('stream:start', { id: browserId });
-    }
+    if (browser.streamViewers.size === 1) this.emit('stream:start', { id: browserId });
     return true;
   }
 
-  /** Remove an SSE viewer */
   removeViewer(browserId, res) {
     const browser = this.browsers.get(browserId);
     if (!browser) return;
     browser.streamViewers.delete(res);
-    // Stop streaming if no viewers left
-    if (browser.streamViewers.size === 0) {
-      this.emit('stream:stop', { id: browserId });
-    }
+    if (browser.streamViewers.size === 0) this.emit('stream:stop', { id: browserId });
   }
 
   hasViewers(browserId) {
@@ -99,9 +93,11 @@ class ConnectionRegistry extends EventEmitter {
     return browser ? browser.streamViewers.size > 0 : false;
   }
 
-  list() {
+  /** List browsers visible to a specific API key */
+  list(apiKey) {
     const result = [];
     for (const [id, b] of this.browsers) {
+      if (apiKey && b.apiKey !== apiKey) continue;
       result.push({
         id,
         name: b.name,

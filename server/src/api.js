@@ -3,13 +3,25 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware, registerApiKey } from './auth.js';
+import { authMiddleware, registerApiKey, isAdminKey } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
 import { runtimeConfig } from './runtime-config.js';
 
 export const router = Router();
+
+/** Extract API key from Authorization header */
+function getKey(req) {
+  return req.headers.authorization?.slice(7) || '';
+}
+
+/** Check if caller owns this browser (or is admin) */
+function canAccess(req, browserId) {
+  const key = getKey(req);
+  if (isAdminKey(key)) return true;
+  return registry.belongsTo(browserId, key);
+}
 
 // Health check (no auth required)
 router.get('/health', (req, res) => {
@@ -40,9 +52,10 @@ router.post('/config', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// List connected browsers
+// List connected browsers — scoped to caller's API key (admin sees all)
 router.get('/browsers', authMiddleware, (req, res) => {
-  res.json(registry.list());
+  const key = getKey(req);
+  res.json(registry.list(isAdminKey(key) ? null : key));
 });
 
 // Live view — SSE stream of JPEG frames
@@ -56,7 +69,7 @@ router.get('/live/:browserId', (req, res, next) => {
 }, (req, res) => {
   const { browserId } = req.params;
 
-  if (!registry.isConnected(browserId)) {
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
 
@@ -88,7 +101,7 @@ router.post('/browsers/:browserId/command', authMiddleware, async (req, res) => 
     return res.status(400).json({ error: 'Missing action' });
   }
 
-  if (!registry.isConnected(browserId)) {
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
 
@@ -109,7 +122,7 @@ router.post('/browsers/:browserId/chat', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'messages array required' });
   }
 
-  if (!registry.isConnected(browserId)) {
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
 
