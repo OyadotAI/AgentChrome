@@ -1,0 +1,8 @@
+node_modules
+.git
+.env
+*.log
+.DS_Store
+extension
+.claude
+README.md

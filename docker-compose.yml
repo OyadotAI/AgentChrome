@@ -1,0 +1,9 @@
+services:
+  server:
+    build: .
+    ports:
+      - "${PORT:-3100}:3100"
+    environment:
+      - PORT=3100
+      - API_KEYS=${API_KEYS:-}
+    restart: unless-stopped

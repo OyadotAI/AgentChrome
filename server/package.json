@@ -1,0 +1,18 @@
+{
+  "name": "agentchrome-server",
+  "version": "1.0.0",
+  "description": "AgentChrome — MCP server for browser control via Chrome extension",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.1"
+  }
+}

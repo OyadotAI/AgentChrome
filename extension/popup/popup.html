@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AgentChrome</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>AgentChrome</h1>
+      <div class="status" id="status-dot"></div>
+    </div>
+
+    <div class="form-group">
+      <label for="server-url">Server URL</label>
+      <input type="text" id="server-url" placeholder="ws://localhost:3100/ws" spellcheck="false">
+    </div>
+
+    <div class="form-group">
+      <label for="api-key">API Key</label>
+      <input type="password" id="api-key" placeholder="Enter your API key" spellcheck="false">
+    </div>
+
+    <div class="form-group">
+      <label for="browser-name">Browser Name</label>
+      <input type="text" id="browser-name" placeholder="Chrome on macOS" spellcheck="false">
+    </div>
+
+    <div class="actions">
+      <button id="btn-connect" class="btn btn-primary">Connect</button>
+      <button id="btn-disconnect" class="btn btn-secondary" style="display:none">Disconnect</button>
+    </div>
+
+    <div class="info" id="info" style="display:none">
+      <div class="info-row">
+        <span class="info-label">Browser ID</span>
+        <span class="info-value" id="info-browser-id">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Status</span>
+        <span class="info-value" id="info-status">—</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
