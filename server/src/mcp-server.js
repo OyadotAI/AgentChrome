@@ -16,7 +16,7 @@ const mcpServers = new Map();
  */
 function createMcpServer(browserId) {
   const browser = registry.get(browserId);
-  const serverName = browser ? `AgentChrome — ${browser.name}` : `AgentChrome — ${browserId}`;
+  const serverName = browser ? `Oya Browser — ${browser.name}` : `Oya Browser — ${browserId}`;
 
   const server = new McpServer({
     name: serverName,

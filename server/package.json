@@ -1,7 +1,7 @@
 {
-  "name": "agentchrome-server",
+  "name": "oya-browser-server",
   "version": "1.0.0",
-  "description": "AgentChrome — MCP server for browser control via Chrome extension",
+  "description": "Oya Browser — MCP server for browser control via Chrome extension",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

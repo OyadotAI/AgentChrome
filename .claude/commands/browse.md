@@ -1,6 +1,6 @@
 # Browser Automation Skill
 
-You have access to a real Chrome browser via AgentChrome MCP tools. Use them to browse the web, interact with pages, and complete tasks the user asks for.
+You have access to a real Chrome browser via Oya Browser MCP tools. Use them to browse the web, interact with pages, and complete tasks the user asks for.
 
 ## Available Tools
 

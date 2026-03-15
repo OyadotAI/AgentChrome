@@ -1,5 +1,5 @@
 /**
- * AgentChrome popup — configure and manage browser connection.
+ * Oya Browser popup — configure and manage browser connection.
  */
 
 const serverUrlInput = document.getElementById('server-url');

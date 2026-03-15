@@ -1,5 +1,5 @@
 /**
- * AgentChrome server — HTTP + WebSocket entry point.
+ * Oya Browser server — HTTP + WebSocket entry point.
  */
 
 import 'dotenv/config';
@@ -55,16 +55,16 @@ wss.on('connection', (ws, req) => {
 
 // Log browser events
 registry.on('browser:connected', ({ id, name }) => {
-  console.log(`[server] Browser connected: ${name} (${id})`);
+  console.log(`[oya] Browser connected: ${name} (${id})`);
 });
 
 registry.on('browser:disconnected', ({ id, name }) => {
-  console.log(`[server] Browser disconnected: ${name} (${id})`);
+  console.log(`[oya] Browser disconnected: ${name} (${id})`);
 });
 
 server.listen(PORT, () => {
-  console.log(`[server] AgentChrome server listening on port ${PORT}`);
-  console.log(`[server] WebSocket: ws://localhost:${PORT}/ws`);
-  console.log(`[server] MCP endpoint: http://localhost:${PORT}/mcp/:browserId`);
-  console.log(`[server] Browsers API: http://localhost:${PORT}/browsers`);
+  console.log(`[oya] Oya Browser server listening on port ${PORT}`);
+  console.log(`[oya] WebSocket: ws://localhost:${PORT}/ws`);
+  console.log(`[oya] MCP endpoint: http://localhost:${PORT}/mcp/:browserId`);
+  console.log(`[oya] Browsers API: http://localhost:${PORT}/browsers`);
 });

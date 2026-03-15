@@ -1,5 +1,5 @@
 /**
- * AgentChrome service worker — manages WebSocket lifecycle, tab routing,
+ * Oya Browser service worker — manages WebSocket lifecycle, tab routing,
  * and message relay between popup/content scripts and the server.
  */
 
@@ -120,7 +120,7 @@ async function connect() {
           browser_name: browserName,
         }));
       } catch (e) {
-        console.error('[ac-ext] Failed to send auth:', e);
+        console.error('[oya] Failed to send auth:', e);
       }
     };
 
@@ -137,14 +137,14 @@ async function connect() {
         ws = null;
         wsReady = false;
         clearInterval(pingInterval);
-        console.log(`[ac-ext] WS closed: ${event.reason || `code=${event.code}`}`);
+        console.log(`[oya] WS closed: ${event.reason || `code=${event.code}`}`);
         broadcastToPopup({ type: 'ws_status', status: 'disconnected' });
         scheduleReconnect();
       }
     };
 
     socket.onerror = (e) => {
-      console.error('[ac-ext] WebSocket error:', e);
+      console.error('[oya] WebSocket error:', e);
     };
 
     ws = socket;
@@ -193,7 +193,7 @@ function scheduleReconnect() {
   const jitter = Math.random() * 500;
   const delayMs = Math.round(base + jitter);
   reconnectAttempts++;
-  console.log(`[ac-ext] Reconnecting in ${delayMs}ms (attempt ${reconnectAttempts})`);
+  console.log(`[oya] Reconnecting in ${delayMs}ms (attempt ${reconnectAttempts})`);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect();
@@ -208,7 +208,7 @@ function startPingLoop() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       missedPongs++;
       if (missedPongs > MAX_MISSED_PONGS) {
-        console.log(`[ac-ext] ${missedPongs} pings without pong — forcing reconnect`);
+        console.log(`[oya] ${missedPongs} pings without pong — forcing reconnect`);
         forceCleanup();
         broadcastToPopup({ type: 'ws_status', status: 'disconnected' });
         scheduleReconnect();
@@ -236,7 +236,7 @@ function handleServerMessage(msg) {
       chrome.alarms.create('ac-keepalive', { periodInMinutes: 0.5 });
       ensureOffscreen();
       if (msg.browser_id) currentBrowserId = msg.browser_id;
-      console.log('[ac-ext] Connected, browser_id:', currentBrowserId);
+      console.log('[oya] Connected, browser_id:', currentBrowserId);
       broadcastToPopup({
         type: 'ws_status',
         status: 'connected',
@@ -274,7 +274,7 @@ function handleServerMessage(msg) {
       break;
 
     default:
-      console.log('[ac-ext] Unknown server message:', msg.type);
+      console.log('[oya] Unknown server message:', msg.type);
   }
 }
 
@@ -372,7 +372,7 @@ async function handleBrowserCommand(msg) {
       error: response?.error ?? null,
     });
   } catch (err) {
-    console.error('[ac-ext] Command failed:', action, err);
+    console.error('[oya] Command failed:', action, err);
     sendToServer({ type: MSG_CMD_RESULT, id, ok: false, error: err.message || 'Failed to execute browser command' });
   }
 }
@@ -403,7 +403,7 @@ async function ensureContentScript(tabId) {
       await ping();
     }
   } catch (e) {
-    console.log('[ac-ext] executeScript failed, reloading tab:', e.message);
+    console.log('[oya] executeScript failed, reloading tab:', e.message);
     try {
       await chrome.tabs.reload(tabId);
       await waitForTabLoad(tabId, 10000);
@@ -482,7 +482,7 @@ function startStream(fps) {
   stopStream();
   streamActive = true;
   const intervalMs = Math.max(200, Math.round(1000 / fps)); // min 200ms (5fps cap)
-  console.log(`[ac-ext] Stream started at ${Math.round(1000 / intervalMs)}fps`);
+  console.log(`[oya] Stream started at ${Math.round(1000 / intervalMs)}fps`);
 
   streamInterval = setInterval(async () => {
     if (!streamActive || !ws || ws.readyState !== WebSocket.OPEN) return;
@@ -510,7 +510,7 @@ function sendToServer(msg) {
     try {
       ws.send(JSON.stringify(msg));
     } catch (e) {
-      console.error('[ac-ext] Failed to send:', e);
+      console.error('[oya] Failed to send:', e);
     }
   }
 }
@@ -606,7 +606,7 @@ async function ensureOffscreen() {
     });
   } catch (e) {
     if (!e.message?.includes('already exists')) {
-      console.log('[ac-ext] Offscreen creation failed:', e.message);
+      console.log('[oya] Offscreen creation failed:', e.message);
     }
   }
   offscreenCreating = false;

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "AgentChrome",
+  "name": "Oya Browser",
   "version": "1.0.0",
   "description": "Connect your browser to AI tools via MCP",
   "permissions": [

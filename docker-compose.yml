@@ -7,3 +7,19 @@ services:
       - PORT=3100
       - API_KEYS=${API_KEYS:-}
     restart: unless-stopped
+
+  browser:
+    build: ./browser
+    depends_on:
+      - server
+    environment:
+      - OYA_SERVER_URL=ws://server:3100/ws
+      - OYA_API_KEY=${API_KEYS:-}
+      - OYA_BROWSER_NAME=${BROWSER_NAME:-Oya Browser Docker}
+      - OYA_HEADLESS=1
+    volumes:
+      - browser-data:/app/data  # persists cookies, localStorage, sessions across restarts
+    restart: unless-stopped
+
+volumes:
+  browser-data:

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgentChrome Dashboard</title>
+  <title>Oya Browser Dashboard</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -478,7 +478,7 @@
 
 <div class="shell">
   <div class="header">
-    <h1>AgentChrome</h1>
+    <h1>Oya Browser</h1>
     <span class="badge" id="status-badge">offline</span>
   </div>
 
@@ -905,10 +905,10 @@
     const hasKey = !!apiKey;
     const authEntry = hasKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {};
     const cursorConfig = selectedBrowser
-      ? JSON.stringify({ mcpServers: { agentchrome: { url: mcpUrl, transport: 'streamable-http', ...authEntry } } }, null, 2)
+      ? JSON.stringify({ mcpServers: { "oya-browser": { url: mcpUrl, transport: 'streamable-http', ...authEntry } } }, null, 2)
       : '// Select a browser first';
     const claudeConfig = selectedBrowser
-      ? JSON.stringify({ mcpServers: { agentchrome: { url: mcpUrl, transport: 'streamable-http', ...authEntry } } }, null, 2)
+      ? JSON.stringify({ mcpServers: { "oya-browser": { url: mcpUrl, transport: 'streamable-http', ...authEntry } } }, null, 2)
       : '// Select a browser first';
 
     document.getElementById('mcp-cursor-config').textContent = cursorConfig;

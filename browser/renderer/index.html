@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Oya Browser</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+      background: #09090b;
+      color: #fafafa;
+      overflow: hidden;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+
+    /* ── Setup mode — full page ── */
+
+    body.mode-setup { height: 100vh; }
+
+    .setup-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      -webkit-app-region: drag;
+    }
+    body.mode-browsing .setup-screen { display: none; }
+
+    .setup-card {
+      background: #111113;
+      border: 1px solid #27272a;
+      border-radius: 16px;
+      padding: 36px;
+      width: 420px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+      -webkit-app-region: no-drag;
+    }
+
+    .setup-card .logo {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      margin-bottom: 4px;
+    }
+    .setup-card .sub {
+      font-size: 13px;
+      color: #71717a;
+      margin-bottom: 28px;
+    }
+
+    .field { margin-bottom: 18px; }
+    .field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: #a1a1aa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      background: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #fafafa;
+      font-size: 13px;
+      outline: none;
+    }
+    .field input:focus { border-color: #3b82f6; }
+    .field input::placeholder { color: #3f3f46; }
+    .field .hint { font-size: 11px; color: #52525b; margin-top: 4px; }
+
+    .setup-error {
+      font-size: 12px;
+      color: #ef4444;
+      min-height: 20px;
+      margin-bottom: 8px;
+    }
+
+    .setup-btns { display: flex; gap: 10px; }
+    .setup-btns button {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .setup-btns button:disabled { opacity: 0.5; cursor: wait; }
+    .btn-connect { background: #3b82f6; color: #fff; }
+    .btn-connect:hover:not(:disabled) { background: #2563eb; }
+    .btn-skip { background: #27272a; color: #a1a1aa; }
+    .btn-skip:hover { background: #3f3f46; color: #fafafa; }
+
+    /* ── Browsing mode — toolbar only ── */
+
+    body.mode-browsing { height: 52px; }
+
+    .toolbar {
+      display: none;
+      align-items: center;
+      height: 52px;
+      padding: 0 12px 0 80px;
+      gap: 8px;
+      border-bottom: 1px solid #27272a;
+    }
+    body.mode-browsing .toolbar { display: flex; }
+
+    .nav-btn {
+      width: 30px;
+      height: 30px;
+      background: none;
+      border: none;
+      color: #a1a1aa;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: no-drag;
+    }
+    .nav-btn:hover { background: #27272a; color: #fafafa; }
+
+    .url-bar {
+      flex: 1;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 6px 12px;
+      color: #fafafa;
+      font-size: 13px;
+      outline: none;
+      -webkit-app-region: no-drag;
+    }
+    .url-bar:focus { border-color: #3b82f6; }
+
+    .conn-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #a1a1aa;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-app-region: no-drag;
+    }
+    .conn-pill:hover { border-color: #3f3f46; color: #fafafa; }
+    .conn-pill .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #ef4444;
+      flex-shrink: 0;
+    }
+    .conn-pill.ok .dot { background: #22c55e; box-shadow: 0 0 6px #22c55e80; }
+    .conn-pill.trying .dot { background: #f59e0b; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .dev-btn {
+      width: 30px;
+      height: 30px;
+      background: none;
+      border: 1px solid transparent;
+      color: #525252;
+      font-size: 14px;
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: no-drag;
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+    }
+    .dev-btn:hover { background: #27272a; color: #a1a1aa; }
+    .dev-btn.active { color: #3b82f6; border-color: #3b82f6; background: #172554; }
+
+    /* ── Dev Panel ── */
+
+    .dev-panel {
+      position: fixed;
+      top: 52px;
+      right: 0;
+      bottom: 0;
+      width: 380px;
+      background: #0a0a0a;
+      border-left: 1px solid #27272a;
+      display: none;
+      flex-direction: column;
+      z-index: 50;
+      -webkit-app-region: no-drag;
+    }
+    .dev-panel.open { display: flex; }
+
+    .dev-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-bottom: 1px solid #27272a;
+      flex-shrink: 0;
+    }
+    .dev-panel-header .title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #a1a1aa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .dev-panel-header .clear-btn {
+      background: none;
+      border: none;
+      color: #525252;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .dev-panel-header .clear-btn:hover { color: #a1a1aa; }
+
+    .dev-log {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+      padding: 4px 0;
+    }
+
+    .dev-entry {
+      padding: 6px 12px;
+      border-bottom: 1px solid #18181b;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      cursor: pointer;
+      user-select: text;
+    }
+    .dev-entry:hover { background: #111; }
+
+    .dev-entry .head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dev-entry .ts { color: #3f3f46; font-size: 10px; }
+    .dev-entry .dir {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    .dev-entry .dir.in { background: #172554; color: #60a5fa; }
+    .dev-entry .dir.out { background: #14532d; color: #4ade80; }
+    .dev-entry .msg-type { color: #e4e4e7; font-weight: 500; }
+    .dev-entry .body {
+      display: none;
+      margin-top: 6px;
+      padding: 6px 8px;
+      background: #18181b;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #a1a1aa;
+      font-size: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .dev-entry.expanded .body { display: block; }
+
+    /* ── Reconnect dialog (overlay in browsing mode) ── */
+    .reconnect-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,.7);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: no-drag;
+    }
+    .reconnect-overlay.open { display: flex; }
+  </style>
+</head>
+<body class="mode-setup">
+
+  <!-- ── Full-page setup screen ── -->
+  <div class="setup-screen">
+    <div class="setup-card">
+      <div class="logo">Oya Browser</div>
+      <div class="sub">Connect to your Oya Browser server to let AI control this browser</div>
+
+      <div class="field">
+        <label>Server URL</label>
+        <input id="cfg-server" type="text" placeholder="ws://localhost:3100/ws" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input id="cfg-key" type="password" placeholder="Enter API key">
+        <div class="hint">The key from your server's .env file</div>
+      </div>
+      <div class="field">
+        <label>Browser Name</label>
+        <input id="cfg-name" type="text" placeholder="Oya Browser" spellcheck="false">
+        <div class="hint">How this browser shows up in the dashboard</div>
+      </div>
+
+      <div class="setup-error" id="setup-error"></div>
+
+      <div class="setup-btns">
+        <button class="btn-skip" id="btn-skip">Browse offline</button>
+        <button class="btn-connect" id="btn-connect">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toolbar (browsing mode) ── -->
+  <div class="toolbar">
+    <button class="nav-btn" id="btn-back" title="Back">&#8592;</button>
+    <button class="nav-btn" id="btn-forward" title="Forward">&#8594;</button>
+    <button class="nav-btn" id="btn-reload" title="Reload">&#8635;</button>
+    <input class="url-bar" id="url-bar" type="text" placeholder="Search or enter URL" spellcheck="false">
+    <div class="conn-pill" id="conn-pill" title="Not connected">
+      <span class="dot"></span>
+      <span id="conn-label">Offline</span>
+    </div>
+    <button class="dev-btn" id="btn-dev" title="Dev Panel">{}</button>
+  </div>
+
+  <!-- ── Dev Panel (right side) ── -->
+  <div class="dev-panel" id="dev-panel">
+    <div class="dev-panel-header">
+      <span class="title">Dev Mode</span>
+      <button class="clear-btn" id="dev-clear">Clear</button>
+    </div>
+    <div class="dev-log" id="dev-log"></div>
+  </div>
+
+  <!-- ── Reconnect overlay (shown when clicking pill in browsing mode) ── -->
+  <div class="reconnect-overlay" id="reconnect-overlay">
+    <div class="setup-card">
+      <div class="logo">Server Connection</div>
+      <div class="sub" id="reconn-sub">Update connection settings</div>
+
+      <div class="field">
+        <label>Server URL</label>
+        <input id="reconn-server" type="text" placeholder="ws://localhost:3100/ws" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input id="reconn-key" type="password" placeholder="API key">
+      </div>
+      <div class="field">
+        <label>Browser Name</label>
+        <input id="reconn-name" type="text" placeholder="Oya Browser" spellcheck="false">
+      </div>
+
+      <div class="setup-error" id="reconn-error"></div>
+
+      <div class="setup-btns">
+        <button class="btn-skip" id="reconn-cancel">Cancel</button>
+        <button class="btn-connect" id="reconn-save">Save &amp; Reconnect</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const body = document.body;
+    const urlBar = document.getElementById('url-bar');
+    const connPill = document.getElementById('conn-pill');
+    const connLabel = document.getElementById('conn-label');
+    const errorEl = document.getElementById('setup-error');
+
+    let connected = false;
+
+    // ── Setup screen actions ──
+
+    document.getElementById('btn-connect').addEventListener('click', async () => {
+      const server = document.getElementById('cfg-server').value.trim();
+      const key = document.getElementById('cfg-key').value.trim();
+      const name = document.getElementById('cfg-name').value.trim();
+
+      if (!server) { errorEl.textContent = 'Server URL is required'; return; }
+      if (!key) { errorEl.textContent = 'API key is required'; return; }
+      errorEl.textContent = '';
+
+      const btn = document.getElementById('btn-connect');
+      btn.disabled = true;
+      btn.textContent = 'Connecting...';
+
+      await oyaBrowser.saveConfig({ serverUrl: server, apiKey: key, browserName: name || undefined });
+
+      // Wait for ws-status callback to switch modes, but timeout after 5s
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+        if (!connected) {
+          errorEl.textContent = 'Could not connect — check URL and API key';
+        }
+      }, 5000);
+    });
+
+    document.getElementById('btn-skip').addEventListener('click', () => {
+      oyaBrowser.enterBrowsing();
+    });
+
+    // Enter in setup fields triggers connect
+    document.querySelectorAll('.setup-card input').forEach(input => {
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') document.getElementById('btn-connect').click();
+      });
+    });
+
+    // ── Toolbar actions ──
+
+    urlBar.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        oyaBrowser.navigate(urlBar.value.trim());
+        urlBar.blur();
+      }
+    });
+
+    document.getElementById('btn-back').addEventListener('click', () => oyaBrowser.goBack());
+    document.getElementById('btn-forward').addEventListener('click', () => oyaBrowser.goForward());
+    document.getElementById('btn-reload').addEventListener('click', () => oyaBrowser.reload());
+
+    oyaBrowser.onUrlChanged(url => { urlBar.value = url; });
+    oyaBrowser.onTitleChanged(title => { document.title = title ? `${title} — Oya Browser` : 'Oya Browser'; });
+
+    // ── Connection pill ──
+
+    function openReconnectDialog() {
+      oyaBrowser.showOverlay();
+      oyaBrowser.getConfig().then(cfg => {
+        document.getElementById('reconn-server').value = cfg.serverUrl || '';
+        document.getElementById('reconn-key').value = cfg.apiKey || '';
+        document.getElementById('reconn-name').value = cfg.browserName || '';
+        document.getElementById('reconn-error').textContent = '';
+        document.getElementById('reconnect-overlay').classList.add('open');
+      });
+    }
+
+    function closeReconnectDialog() {
+      document.getElementById('reconnect-overlay').classList.remove('open');
+      oyaBrowser.hideOverlay();
+    }
+
+    connPill.addEventListener('click', openReconnectDialog);
+
+    document.getElementById('reconn-cancel').addEventListener('click', closeReconnectDialog);
+
+    document.getElementById('reconn-save').addEventListener('click', async () => {
+      const server = document.getElementById('reconn-server').value.trim();
+      const key = document.getElementById('reconn-key').value.trim();
+      const name = document.getElementById('reconn-name').value.trim();
+      if (!server || !key) { document.getElementById('reconn-error').textContent = 'Server URL and API key required'; return; }
+      await oyaBrowser.saveConfig({ serverUrl: server, apiKey: key, browserName: name || undefined });
+      closeReconnectDialog();
+    });
+
+    document.getElementById('reconnect-overlay').addEventListener('click', e => {
+      if (e.target.id === 'reconnect-overlay') closeReconnectDialog();
+    });
+
+    // ── Status updates ──
+
+    function updatePill(isConnected, browserId) {
+      connected = isConnected;
+      if (isConnected) {
+        connPill.className = 'conn-pill ok';
+        connLabel.textContent = browserId ? browserId.slice(0, 8) + '\u2026' : 'Connected';
+        connPill.title = 'Connected' + (browserId ? ` — ${browserId}` : '');
+      } else {
+        connPill.className = 'conn-pill';
+        connLabel.textContent = 'Offline';
+        connPill.title = 'Not connected — click to configure';
+      }
+    }
+
+    oyaBrowser.onWsStatus(s => {
+      updatePill(s.connected, s.browserId);
+      if (s.connected) {
+        errorEl.textContent = '';
+        document.getElementById('btn-connect').disabled = false;
+        document.getElementById('btn-connect').textContent = 'Connect';
+        // Close reconnect dialog if open
+        if (document.getElementById('reconnect-overlay').classList.contains('open')) {
+          closeReconnectDialog();
+        }
+      }
+    });
+
+    // Main process tells us to switch modes
+    oyaBrowser.onModeChanged(mode => {
+      body.className = mode === 'browsing' ? 'mode-browsing' : 'mode-setup';
+    });
+
+    // ── Init ──
+
+    oyaBrowser.getConfig().then(cfg => {
+      document.getElementById('cfg-server').value = cfg.serverUrl || '';
+      document.getElementById('cfg-key').value = cfg.apiKey || '';
+      document.getElementById('cfg-name').value = cfg.browserName || '';
+
+      // If already configured, show setup briefly — ws-status will switch to browsing
+      if (cfg.apiKey) {
+        connPill.className = 'conn-pill trying';
+        connLabel.textContent = 'Connecting\u2026';
+      }
+    });
+
+    oyaBrowser.getStatus().then(s => {
+      if (s.url) urlBar.value = s.url;
+      updatePill(s.connected, s.browserId);
+    });
+
+    // ── Dev Panel ──
+
+    const devBtn = document.getElementById('btn-dev');
+    const devPanel = document.getElementById('dev-panel');
+    const devLog = document.getElementById('dev-log');
+    let devOpen = false;
+
+    devBtn.addEventListener('click', () => {
+      oyaBrowser.toggleDevPanel();
+    });
+
+    oyaBrowser.onDevPanelState(open => {
+      devOpen = open;
+      devPanel.classList.toggle('open', open);
+      devBtn.classList.toggle('active', open);
+    });
+
+    document.getElementById('dev-clear').addEventListener('click', () => {
+      devLog.innerHTML = '';
+    });
+
+    oyaBrowser.onDevLog(entry => {
+      const div = document.createElement('div');
+      div.className = 'dev-entry';
+
+      const ts = new Date(entry.ts);
+      const timeStr = [ts.getHours(), ts.getMinutes(), ts.getSeconds()]
+        .map(n => String(n).padStart(2, '0')).join(':') + '.' + String(ts.getMilliseconds()).padStart(3, '0');
+
+      div.innerHTML = `<div class="head">
+        <span class="ts">${timeStr}</span>
+        <span class="dir ${entry.dir}">${entry.dir === 'in' ? '\u25BC IN' : '\u25B2 OUT'}</span>
+        <span class="msg-type">${esc(entry.type)}</span>
+      </div>
+      <div class="body">${esc(entry.data || '')}</div>`;
+
+      div.addEventListener('click', () => div.classList.toggle('expanded'));
+      devLog.appendChild(div);
+
+      // Auto-scroll if near bottom
+      if (devLog.scrollHeight - devLog.scrollTop - devLog.clientHeight < 60) {
+        devLog.scrollTop = devLog.scrollHeight;
+      }
+
+      // Cap at 500 entries
+      while (devLog.children.length > 500) devLog.removeChild(devLog.firstChild);
+    });
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+  </script>
+</body>
+</html>

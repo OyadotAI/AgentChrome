@@ -1,6 +1,6 @@
-# AgentChrome
+# Oya Browser
 
-![AgentChrome analyzing Google — every interactive element is highlighted and numbered](docs/analyze-google.png)
+![Oya Browser analyzing Google — every interactive element is highlighted and numbered](docs/analyze-google.png)
 
 Every element on the page gets a number. Want to click "Google Search"? `click(element_id=13)`. Want to type in the search box? `type(element_id=9, text="hello")`. No CSS selectors. No HTML parsing. No pixel coordinates. Just the number.
 
@@ -26,7 +26,7 @@ The AI never sees HTML. Never writes CSS selectors. Never parses screenshots. It
 
 ## Comparison
 
-| | AgentChrome | Browser-use | Playwright / Puppeteer | Selenium |
+| | Oya Browser | Browser-use | Playwright / Puppeteer | Selenium |
 |---|---|---|---|---|
 | **Real browser** | Yes — your Chrome, your cookies, your logins | No — Playwright underneath | No — spawns new browser | No — spawns new browser |
 | **Bot detection** | Invisible — it IS a real browser | Detected — recommends paid proxies to work around it | Detected by Cloudflare, Akamai, etc. | Detected |
@@ -76,9 +76,9 @@ When sites detect the bot, they recommend their **paid cloud** with stealth brow
 
 **The open-source library creates the problems. The paid cloud solves them.**
 
-### What AgentChrome does instead
+### What Oya Browser does instead
 
-| | browser-use | AgentChrome |
+| | browser-use | Oya Browser |
 |---|---|---|
 | **Browser** | Spawns fresh Chromium — no cookies, no sessions | Your real Chrome — already logged in everywhere |
 | **DOM extraction** | 3-source CDP fusion (AX tree + DOM + DOMSnapshot) per step | Single DOM walk in content script, on demand |
@@ -107,19 +107,19 @@ In browser-use, when the AI says `click(index=5)`:
 
 Six CDP round-trips. If the page changed between analysis and click — DOM mutation, lazy-loaded content, SPA navigation — the `backendNodeId` may be stale and the click fails. The index has no physical presence on the page; it's a number in a serialized tree that has to be resolved back through the protocol.
 
-In AgentChrome, when the AI says `click(element_id=5)`:
+In Oya Browser, when the AI says `click(element_id=5)`:
 
 1. The extension runs `document.querySelector('[data-ac-id="5"]')` — done
 
 That's it. During `analyze_page`, the extension wrote `data-ac-id="5"` directly onto the HTML element in the live DOM. The number isn't an abstract index in a serialized tree — it's a **real attribute on the real element**. `querySelector` finds it instantly. No CDP. No coordinate calculation. No stale references. The element is tagged on the page itself, like a sticky note.
 
-This is why AgentChrome actions are fast and reliable. There's no translation layer between "the number the AI knows" and "the element on the page." They're the same thing.
+This is why Oya Browser actions are fast and reliable. There's no translation layer between "the number the AI knows" and "the element on the page." They're the same thing.
 
 ### The architectural insight
 
 Browser-use builds a **complex agent loop around the LLM** because browser interaction through CDP is so heavy that the model needs scaffolding — history management, compaction, planning state, retry logic, 13 watchdogs, a 600-line system prompt. The framework does the thinking for the model because the model alone can't handle the raw complexity.
 
-AgentChrome doesn't need any of that. The tools are simple: `analyze_page` returns clean markdown with elements tagged directly on the DOM, `click(13)` runs one querySelector, `type(9, "hello")` types into the element. The MCP tool descriptions are enough. Claude, Cursor, or any MCP client already knows how to call tools, reason about results, and decide next steps. The intelligence is in the AI, not in a wrapper.
+Oya Browser doesn't need any of that. The tools are simple: `analyze_page` returns clean markdown with elements tagged directly on the DOM, `click(13)` runs one querySelector, `type(9, "hello")` types into the element. The MCP tool descriptions are enough. Claude, Cursor, or any MCP client already knows how to call tools, reason about results, and decide next steps. The intelligence is in the AI, not in a wrapper.
 
 browser-use's complexity isn't a feature — it's a consequence of fighting the browser from the outside. When you're inside the browser, the fight disappears.
 
@@ -132,7 +132,7 @@ browser-use's complexity isn't a feature — it's a consequence of fighting the 
 [#3]  link: Gmail → mail.google.com
 ```
 
-`type(element_id=9, text="AgentChrome")` then `click(element_id=13)`. No agent loop. No 600-line system prompt. No watchdogs. No screenshots. No SDK. No cloud. Just your browser, described clearly, controlled by number.
+`type(element_id=9, text="Oya Browser")` then `click(element_id=13)`. No agent loop. No 600-line system prompt. No watchdogs. No screenshots. No SDK. No cloud. Just your browser, described clearly, controlled by number.
 
 ## Quick Start
 
@@ -168,7 +168,7 @@ Or configure manually:
 ```json
 {
   "mcpServers": {
-    "agentchrome": {
+    "oya-browser": {
       "url": "http://localhost:3100/mcp/BROWSER_ID",
       "transport": "streamable-http",
       "headers": {
