@@ -8,11 +8,15 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { readFileSync } from 'fs';
+import swaggerUi from 'swagger-ui-express';
 import { router as apiRouter } from './api.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest } from './mcp-server.js';
 import { validateApiKey } from './auth.js';
 import { registry } from './connection-registry.js';
+
+const openapiSpec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'public', 'openapi.json'), 'utf8'));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3100', 10);
@@ -23,6 +27,9 @@ app.use(express.json());
 // Static files (dist/public in production, src/public in dev)
 const publicDir = join(__dirname, 'public');
 app.use(express.static(publicDir));
+
+// Swagger UI at /swagger
+app.use('/swagger', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 // Dashboard at /dashboard
 app.get('/dashboard', (req, res) => {
