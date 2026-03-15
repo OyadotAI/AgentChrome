@@ -25,6 +25,10 @@ let currentBrowserName = null;
 // Pending cmd results: cmdId -> callback
 const pendingCmdResults = new Map();
 
+// ─── Live Stream State ───
+let streamInterval = null;
+let streamActive = false;
+
 // ─── Configuration ───
 
 async function getConfig() {
@@ -166,6 +170,7 @@ function forceCleanup() {
 }
 
 function disconnect() {
+  stopStream();
   clearTimeout(reconnectTimer);
   clearInterval(pingInterval);
   reconnectTimer = null;
@@ -254,6 +259,14 @@ function handleServerMessage(msg) {
     case 'pong':
       missedPongs = 0;
       lastPongAt = Date.now();
+      break;
+
+    case 'stream_start':
+      startStream(msg.fps || 2);
+      break;
+
+    case 'stream_stop':
+      stopStream();
       break;
 
     case 'cmd':
@@ -461,6 +474,33 @@ function waitForTabLoad(tabId, timeout = 15000) {
     );
     setTimeout(done, timeout);
   });
+}
+
+// ─── Live Stream ───
+
+function startStream(fps) {
+  stopStream();
+  streamActive = true;
+  const intervalMs = Math.max(200, Math.round(1000 / fps)); // min 200ms (5fps cap)
+  console.log(`[ac-ext] Stream started at ${Math.round(1000 / intervalMs)}fps`);
+
+  streamInterval = setInterval(async () => {
+    if (!streamActive || !ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'jpeg', quality: 40 });
+      ws.send(JSON.stringify({ type: 'frame', data: dataUrl }));
+    } catch {
+      // Tab might be chrome:// or unavailable — skip frame
+    }
+  }, intervalMs);
+}
+
+function stopStream() {
+  if (streamInterval) {
+    clearInterval(streamInterval);
+    streamInterval = null;
+  }
+  streamActive = false;
 }
 
 // ─── Send to Server ───

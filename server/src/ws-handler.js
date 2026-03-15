@@ -90,6 +90,14 @@ export function handleConnection(ws) {
       return;
     }
 
+    // ── Live frame from browser ──
+    if (msg.type === 'frame') {
+      if (msg.data) {
+        registry.pushFrame(browserId, msg.data);
+      }
+      return;
+    }
+
     // ── Command result ──
     if (msg.type === 'cmd_result') {
       const pending = pendingCommands.get(msg.id);
@@ -153,6 +161,26 @@ export function handleConnection(ws) {
     }, PING_INTERVAL);
   }
 }
+
+// ── Stream control: start/stop frame capture on the extension ──
+
+registry.on('stream:start', ({ id }) => {
+  const browser = registry.get(id);
+  if (browser?.ws) {
+    try {
+      browser.ws.send(JSON.stringify({ type: 'stream_start', fps: 2 }));
+    } catch {}
+  }
+});
+
+registry.on('stream:stop', ({ id }) => {
+  const browser = registry.get(id);
+  if (browser?.ws) {
+    try {
+      browser.ws.send(JSON.stringify({ type: 'stream_stop' }));
+    } catch {}
+  }
+});
 
 /**
  * Send a command to a browser and wait for the result.
