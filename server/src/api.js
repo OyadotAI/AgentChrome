@@ -94,6 +94,10 @@ router.get('/live/:browserId', (req, res, next) => {
 
 // Send command to a browser
 router.post('/browsers/:browserId/command', authMiddleware, async (req, res) => {
+  // Navigate can take up to 90s — disable socket timeout for this request
+  req.setTimeout(0);
+  res.setTimeout(0);
+
   const { browserId } = req.params;
   const { action, params } = req.body;
 
@@ -115,6 +119,9 @@ router.post('/browsers/:browserId/command', authMiddleware, async (req, res) => 
 
 // Chat — LLM + MCP tools for natural-language browser control
 router.post('/browsers/:browserId/chat', authMiddleware, async (req, res) => {
+  req.setTimeout(0);
+  res.setTimeout(0);
+
   const { browserId } = req.params;
   const { messages } = req.body;
 

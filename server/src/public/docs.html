@@ -112,6 +112,8 @@
     <div class="sidebar-section">
       <div class="sidebar-label">API</div>
       <a href="#rest-api">REST API</a>
+      <a href="#command-api">Command Reference</a>
+      <a href="/swagger">Swagger UI ↗</a>
       <a href="#websocket">WebSocket Protocol</a>
     </div>
 
@@ -309,7 +311,7 @@ analyze_page()</code></pre>
 
     <!-- REST API -->
     <h2 id="rest-api">REST API</h2>
-    <p>All endpoints require <code>Authorization: Bearer YOUR_API_KEY</code> header (except health and register).</p>
+    <p>All endpoints require <code>Authorization: Bearer YOUR_API_KEY</code> header (except health and register). Interactive API testing available at <a href="/swagger">/swagger</a>.</p>
     <table>
       <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
       <tr><td><code>GET</code></td><td><code>/health</code></td><td>Server status + browser count</td></tr>
@@ -322,6 +324,84 @@ analyze_page()</code></pre>
       <tr><td><code>GET</code></td><td><code>/config</code></td><td>Get server settings</td></tr>
       <tr><td><code>POST</code></td><td><code>/config</code></td><td>Update server settings</td></tr>
     </table>
+
+    <h3 id="command-api">Command API Reference</h3>
+    <p>Send commands via <code>POST /browsers/:id/command</code>. Each action uses only specific params — the rest are ignored.</p>
+
+    <h3>Navigation Actions</h3>
+    <table>
+      <tr><th>Action</th><th>Params</th><th>Description</th></tr>
+      <tr><td><code>navigate</code></td><td><code>url</code> (required)</td><td>Navigate to a URL</td></tr>
+      <tr><td><code>open_tab</code></td><td><code>url</code> (optional)</td><td>Open a new tab</td></tr>
+      <tr><td><code>switch_tab</code></td><td><code>tab_id</code> (required)</td><td>Activate a tab by ID</td></tr>
+      <tr><td><code>close_tab</code></td><td><code>tab_id</code> (optional, defaults to active)</td><td>Close a tab</td></tr>
+      <tr><td><code>list_tabs</code></td><td><em>none</em></td><td>List all open tabs</td></tr>
+    </table>
+
+    <h3>Page Analysis Actions</h3>
+    <table>
+      <tr><th>Action</th><th>Params</th><th>Description</th></tr>
+      <tr><td><code>analyze</code></td><td><em>none</em></td><td>Full page as markdown + numbered elements</td></tr>
+      <tr><td><code>read_page</code></td><td><code>selector</code> (optional), <code>limit</code> (default 50)</td><td>Lightweight element listing</td></tr>
+      <tr><td><code>screenshot</code></td><td><em>none</em></td><td>Capture page as PNG</td></tr>
+    </table>
+
+    <h3>Interaction Actions</h3>
+    <table>
+      <tr><th>Action</th><th>Params</th><th>Description</th></tr>
+      <tr><td><code>click</code></td><td><code>selector</code> (e.g. <code>[data-ac-id="3"]</code>)</td><td>Click an element</td></tr>
+      <tr><td><code>type</code></td><td><code>selector</code> + <code>text</code></td><td>Type into an input</td></tr>
+      <tr><td><code>press_key</code></td><td><code>key</code> (e.g. Enter, Tab, Escape)</td><td>Press a keyboard key</td></tr>
+      <tr><td><code>scroll</code></td><td><code>direction</code> (up/down), <code>amount</code> (px, default 500)</td><td>Scroll the page</td></tr>
+      <tr><td><code>wait</code></td><td><code>selector</code>, <code>timeout</code> (ms, default 10000)</td><td>Wait for element to appear</td></tr>
+    </table>
+
+    <h3>Examples</h3>
+    <pre><code>// Navigate to a page
+{ "action": "navigate", "params": { "url": "https://google.com" } }
+
+// Analyze current page (no params needed)
+{ "action": "analyze" }
+
+// Click element #3 from analyze results
+{ "action": "click", "params": { "selector": "[data-ac-id=\"3\"]" } }
+
+// Type into element #9
+{ "action": "type", "params": { "selector": "[data-ac-id=\"9\"]", "text": "hello world" } }
+
+// Press Enter
+{ "action": "press_key", "params": { "key": "Enter" } }
+
+// Scroll down
+{ "action": "scroll", "params": { "direction": "down", "amount": 500 } }
+
+// Screenshot (no params needed)
+{ "action": "screenshot" }
+
+// List all tabs
+{ "action": "list_tabs" }
+
+// Open new tab
+{ "action": "open_tab", "params": { "url": "https://gmail.com" } }
+
+// Switch to tab
+{ "action": "switch_tab", "params": { "tab_id": 2 } }
+
+// Close tab (omit tab_id to close active tab)
+{ "action": "close_tab", "params": { "tab_id": 3 } }
+
+// Wait for element
+{ "action": "wait", "params": { "selector": ".results", "timeout": 10000 } }
+
+// Read page elements (lightweight)
+{ "action": "read_page", "params": { "limit": 20 } }</code></pre>
+
+    <h3>Typical Workflow</h3>
+    <pre><code>1. navigate → go to the page
+2. analyze  → understand the page, get element IDs
+3. click / type / press_key / scroll → interact
+4. analyze  → re-analyze after page changes (old IDs are invalid)
+5. repeat until task is done</code></pre>
 
     <!-- WebSocket -->
     <h2 id="websocket">WebSocket Protocol</h2>

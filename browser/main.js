@@ -421,8 +421,15 @@ async function handleCommand(msg) {
     // Navigate
     if (action === 'navigate' && params?.url) {
       const view = getActiveView();
-      view.webContents.loadURL(params.url);
-      await waitForLoad();
+      try {
+        await view.webContents.loadURL(params.url);
+      } catch (navErr) {
+        // loadURL rejects on redirects or cert errors that still land on a page — ignore
+        if (!navErr.message?.includes('ERR_ABORTED')) {
+          sendResult(id, false, null, navErr.message);
+          return;
+        }
+      }
       await injectScripts(view);
       sendResult(id, true, { url: view.webContents.getURL(), title: view.webContents.getTitle() });
       return;

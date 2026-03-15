@@ -154,14 +154,14 @@
                       "switch_tab",
                       "close_tab"
                     ],
-                    "description": "The browser action to execute"
+                    "description": "The browser action to execute. Each action uses only specific params (see examples)."
                   },
                   "params": {
                     "type": "object",
-                    "description": "Action-specific parameters",
+                    "description": "Action-specific parameters. Only include params relevant to the chosen action.",
                     "properties": {
                       "url": { "type": "string", "description": "URL (for navigate, open_tab)" },
-                      "selector": { "type": "string", "description": "CSS selector (for click, type, wait)" },
+                      "selector": { "type": "string", "description": "CSS selector, e.g. [data-ac-id=\"3\"] (for click, type, wait, read_page)" },
                       "text": { "type": "string", "description": "Text to type (for type)" },
                       "key": { "type": "string", "description": "Key to press (for press_key): Enter, Escape, Tab, Backspace, ArrowDown, ArrowUp, etc." },
                       "direction": { "type": "string", "enum": ["up", "down"], "description": "Scroll direction (for scroll)" },
@@ -171,7 +171,22 @@
                       "limit": { "type": "number", "description": "Max elements (for read_page, default 50)" }
                     }
                   }
-                }
+                },
+                "examples": [
+                  { "action": "navigate", "params": { "url": "https://google.com" } },
+                  { "action": "analyze" },
+                  { "action": "click", "params": { "selector": "[data-ac-id=\"3\"]" } },
+                  { "action": "type", "params": { "selector": "[data-ac-id=\"9\"]", "text": "hello world" } },
+                  { "action": "press_key", "params": { "key": "Enter" } },
+                  { "action": "scroll", "params": { "direction": "down", "amount": 500 } },
+                  { "action": "screenshot" },
+                  { "action": "list_tabs" },
+                  { "action": "open_tab", "params": { "url": "https://gmail.com" } },
+                  { "action": "switch_tab", "params": { "tab_id": 2 } },
+                  { "action": "close_tab", "params": { "tab_id": 3 } },
+                  { "action": "wait", "params": { "selector": ".results", "timeout": 10000 } },
+                  { "action": "read_page", "params": { "limit": 20 } }
+                ]
               }
             }
           }

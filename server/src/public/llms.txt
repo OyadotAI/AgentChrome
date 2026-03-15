@@ -123,6 +123,7 @@ Element IDs are real attributes (data-ac-id) on the DOM — click(5) resolves vi
 ## REST API
 
 All endpoints require Authorization: Bearer API_KEY header (except /health and /register-key).
+Interactive API testing (Swagger UI): GET /swagger
 
     GET  /health                    Server status + browser count
     POST /register-key              Register new API key (body: { "key": "..." })
@@ -134,6 +135,44 @@ All endpoints require Authorization: Bearer API_KEY header (except /health and /
     POST /mcp/:id                   MCP Streamable HTTP endpoint
     GET  /config                    Get server settings
     POST /config                    Update server settings
+
+### Command API — POST /browsers/:id/command
+
+Each action uses only specific params. Send { "action": "...", "params": { ... } }.
+
+Navigation actions:
+  navigate    — params: url (required)              — Navigate to a URL
+  open_tab    — params: url (optional)              — Open a new tab
+  switch_tab  — params: tab_id (required)           — Activate a tab by ID
+  close_tab   — params: tab_id (optional)           — Close a tab (defaults to active)
+  list_tabs   — no params                           — List all open tabs
+
+Page analysis actions:
+  analyze     — no params                           — Full page as markdown + numbered elements
+  read_page   — params: selector, limit (default 50) — Lightweight element listing
+  screenshot  — no params                           — Capture page as PNG
+
+Interaction actions:
+  click       — params: selector (e.g. [data-ac-id="3"])       — Click an element
+  type        — params: selector + text                        — Type into an input
+  press_key   — params: key (Enter, Tab, Escape, etc.)         — Press a keyboard key
+  scroll      — params: direction (up/down), amount (default 500) — Scroll the page
+  wait        — params: selector, timeout (ms, default 10000)  — Wait for element to appear
+
+Examples:
+  { "action": "navigate", "params": { "url": "https://google.com" } }
+  { "action": "analyze" }
+  { "action": "click", "params": { "selector": "[data-ac-id=\"3\"]" } }
+  { "action": "type", "params": { "selector": "[data-ac-id=\"9\"]", "text": "hello" } }
+  { "action": "press_key", "params": { "key": "Enter" } }
+  { "action": "scroll", "params": { "direction": "down", "amount": 500 } }
+  { "action": "screenshot" }
+  { "action": "list_tabs" }
+  { "action": "open_tab", "params": { "url": "https://gmail.com" } }
+  { "action": "switch_tab", "params": { "tab_id": 2 } }
+  { "action": "close_tab", "params": { "tab_id": 3 } }
+  { "action": "wait", "params": { "selector": ".results", "timeout": 10000 } }
+  { "action": "read_page", "params": { "limit": 20 } }
 
 ## WebSocket Protocol
 

@@ -64,6 +64,10 @@ app.delete('/mcp/:browserId', handleMcpRequest);
 
 const server = createServer(app);
 
+// Disable HTTP server timeout so long-running commands (navigate=90s) aren't killed
+server.timeout = 0;
+server.requestTimeout = 0;
+
 // WebSocket server at /ws
 const wss = new WebSocketServer({
   server,
