@@ -487,8 +487,38 @@
 
   <div class="api-key-bar">
     <label>API Key</label>
-    <input type="password" id="api-key" placeholder="Enter API key" spellcheck="false">
+    <input type="password" id="api-key" placeholder="Enter or generate an API key" spellcheck="false">
+    <button id="gen-key" style="background:#27272a;color:#a1a1aa;border:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;">Generate</button>
     <button id="save-key">Save</button>
+    <button id="btn-settings" style="background:none;border:none;color:#71717a;font-size:16px;cursor:pointer;padding:4px 8px;" title="Settings">&#9881;</button>
+  </div>
+
+  <!-- Settings panel (hidden by default) -->
+  <div id="settings-panel" style="display:none;margin-bottom:16px;">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="font-size:13px;font-weight:600;">Server Settings</span>
+        <button id="close-settings" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;">&times;</button>
+      </div>
+      <div style="display:grid;gap:10px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:11px;color:var(--text-dim);min-width:90px;text-transform:uppercase;">OpenAI Key</label>
+          <input type="password" id="cfg-openai-key" placeholder="sk-..." style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+          <button class="cfg-btn" data-cfg="openai_api_key" data-from="cfg-openai-key" style="padding:6px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Save</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:11px;color:var(--text-dim);min-width:90px;text-transform:uppercase;">Chat Model</label>
+          <input type="text" id="cfg-model" placeholder="gpt-4o-mini" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+          <button class="cfg-btn" data-cfg="chat_model" data-from="cfg-model" style="padding:6px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Save</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:11px;color:var(--text-dim);min-width:90px;text-transform:uppercase;">Base URL</label>
+          <input type="text" id="cfg-base-url" placeholder="https://api.openai.com/v1" spellcheck="false" style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+          <button class="cfg-btn" data-cfg="openai_base_url" data-from="cfg-base-url" style="padding:6px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Save</button>
+        </div>
+      </div>
+      <div id="cfg-status" style="font-size:11px;margin-top:8px;min-height:16px;"></div>
+    </div>
   </div>
 
   <div class="grid">
@@ -623,6 +653,63 @@
     apiKey = apiKeyInput.value.trim();
     localStorage.setItem('ac_api_key', apiKey);
     fetchBrowsers();
+    loadSettings();
+  });
+
+  // Generate API key
+  document.getElementById('gen-key').addEventListener('click', async () => {
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const key = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    try {
+      const res = await fetch('/register-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      if (!res.ok) throw new Error();
+    } catch { alert('Failed to register key'); return; }
+    apiKeyInput.value = key;
+    apiKey = key;
+    localStorage.setItem('ac_api_key', key);
+    fetchBrowsers();
+    loadSettings();
+  });
+
+  // Settings panel
+  document.getElementById('btn-settings').addEventListener('click', () => {
+    const panel = document.getElementById('settings-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    if (panel.style.display === 'block') loadSettings();
+  });
+  document.getElementById('close-settings').addEventListener('click', () => {
+    document.getElementById('settings-panel').style.display = 'none';
+  });
+
+  function loadSettings() {
+    if (!apiKey) return;
+    fetch('/config', { headers: headers() }).then(r => r.ok ? r.json() : null).then(cfg => {
+      if (!cfg) return;
+      document.getElementById('cfg-openai-key').placeholder = cfg.has_openai_key ? cfg.openai_api_key || 'Configured' : 'sk-...';
+      document.getElementById('cfg-model').value = cfg.chat_model || '';
+      document.getElementById('cfg-base-url').value = cfg.openai_base_url || '';
+    }).catch(() => {});
+  }
+
+  document.querySelectorAll('.cfg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const field = btn.dataset.cfg;
+      const input = document.getElementById(btn.dataset.from);
+      const val = input.value.trim();
+      if (!val && field === 'openai_api_key') return;
+      const st = document.getElementById('cfg-status');
+      fetch('/config', { method: 'POST', headers: headers(), body: JSON.stringify({ [field]: val }) })
+        .then(r => {
+          st.textContent = r.ok ? 'Saved' : 'Error';
+          st.style.color = r.ok ? 'var(--green)' : 'var(--red)';
+          setTimeout(() => { st.textContent = ''; }, 2000);
+        });
+    });
   });
 
   function headers() {
