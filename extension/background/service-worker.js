@@ -320,6 +320,68 @@ async function handleBrowserCommand(msg) {
       return;
     }
 
+    // ── Tab management — handled via Chrome APIs, not content scripts ──
+    if (action === 'list_tabs') {
+      const allTabs = await chrome.tabs.query({});
+      const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const tabList = allTabs
+        .filter(t => t.url && (t.url.startsWith('http://') || t.url.startsWith('https://')))
+        .map(t => ({
+          id: t.id,
+          title: t.title || '',
+          url: t.url || '',
+          active: t.id === activeTab?.id,
+        }));
+      sendToServer({ type: MSG_CMD_RESULT, id, ok: true, data: { tabs: tabList } });
+      return;
+    }
+
+    if (action === 'open_tab') {
+      const tab = await chrome.tabs.create({ url: params?.url || 'about:blank', active: true });
+      if (params?.url && params.url !== 'about:blank') {
+        await waitForTabLoad(tab.id, 30000);
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ['content/analyzer.js', 'content/agent.js'],
+          });
+        } catch {}
+      }
+      sendToServer({ type: MSG_CMD_RESULT, id, ok: true, data: { tab_id: tab.id, url: params?.url || 'about:blank' } });
+      return;
+    }
+
+    if (action === 'switch_tab') {
+      const tabId = params?.tab_id;
+      if (!tabId) {
+        sendToServer({ type: MSG_CMD_RESULT, id, ok: false, error: 'tab_id is required' });
+        return;
+      }
+      try {
+        const tab = await chrome.tabs.update(tabId, { active: true });
+        await chrome.windows.update(tab.windowId, { focused: true });
+        sendToServer({ type: MSG_CMD_RESULT, id, ok: true, data: { tab_id: tabId } });
+      } catch (err) {
+        sendToServer({ type: MSG_CMD_RESULT, id, ok: false, error: `Tab ${tabId} not found` });
+      }
+      return;
+    }
+
+    if (action === 'close_tab') {
+      try {
+        if (params?.tab_id) {
+          await chrome.tabs.remove(params.tab_id);
+        } else {
+          const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          if (activeTab) await chrome.tabs.remove(activeTab.id);
+        }
+        sendToServer({ type: MSG_CMD_RESULT, id, ok: true, data: { closed: true } });
+      } catch (err) {
+        sendToServer({ type: MSG_CMD_RESULT, id, ok: false, error: err.message });
+      }
+      return;
+    }
+
     // ── All other actions go through content scripts ──
     const tabId = await resolveTab(action, params);
     await ensureContentScript(tabId);

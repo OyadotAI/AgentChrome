@@ -1,0 +1,577 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Oya Browser API",
+    "description": "REST API for controlling browsers connected to the Oya Browser server. Browsers connect via WebSocket; AI tools and clients use this REST API (or MCP) to send commands.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://browser.oya.ai",
+      "description": "Production"
+    },
+    {
+      "url": "http://localhost:3100",
+      "description": "Local development"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "browsers": { "type": "integer", "description": "Number of connected browsers" },
+                    "uptime": { "type": "number", "description": "Server uptime in seconds" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/register-key": {
+      "post": {
+        "summary": "Register a new API key",
+        "operationId": "registerKey",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["key"],
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 32,
+                    "description": "API key (at least 32 characters)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid key",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/browsers": {
+      "get": {
+        "summary": "List connected browsers",
+        "description": "Returns browsers connected with the caller's API key. Admin keys see all browsers.",
+        "operationId": "listBrowsers",
+        "responses": {
+          "200": {
+            "description": "List of connected browsers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Browser" }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/browsers/{browserId}/command": {
+      "post": {
+        "summary": "Send a command to a browser",
+        "description": "Execute a browser action (analyze, navigate, click, type, press_key, screenshot, scroll, wait, list_tabs, open_tab, switch_tab, close_tab, read_page).",
+        "operationId": "sendCommand",
+        "parameters": [
+          { "$ref": "#/components/parameters/browserId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["action"],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "analyze",
+                      "navigate",
+                      "click",
+                      "type",
+                      "press_key",
+                      "screenshot",
+                      "scroll",
+                      "wait",
+                      "read_page",
+                      "list_tabs",
+                      "open_tab",
+                      "switch_tab",
+                      "close_tab"
+                    ],
+                    "description": "The browser action to execute"
+                  },
+                  "params": {
+                    "type": "object",
+                    "description": "Action-specific parameters",
+                    "properties": {
+                      "url": { "type": "string", "description": "URL (for navigate, open_tab)" },
+                      "selector": { "type": "string", "description": "CSS selector (for click, type, wait)" },
+                      "text": { "type": "string", "description": "Text to type (for type)" },
+                      "key": { "type": "string", "description": "Key to press (for press_key): Enter, Escape, Tab, Backspace, ArrowDown, ArrowUp, etc." },
+                      "direction": { "type": "string", "enum": ["up", "down"], "description": "Scroll direction (for scroll)" },
+                      "amount": { "type": "number", "description": "Pixels to scroll (for scroll, default 500)" },
+                      "timeout": { "type": "number", "description": "Timeout in ms (for wait, default 10000)" },
+                      "tab_id": { "type": "number", "description": "Tab ID (for switch_tab, close_tab)" },
+                      "limit": { "type": "number", "description": "Max elements (for read_page, default 50)" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Command result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/CommandResult" }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing action",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Browser not connected",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Command failed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/browsers/{browserId}/chat": {
+      "post": {
+        "summary": "Chat with LLM-controlled browser",
+        "description": "Send a conversation to the LLM which uses browser tools to complete tasks. The LLM autonomously calls analyze_page, click, type, etc. until the task is done.",
+        "operationId": "chat",
+        "parameters": [
+          { "$ref": "#/components/parameters/browserId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["messages"],
+                "properties": {
+                  "messages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["role", "content"],
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": ["user", "assistant", "system"]
+                        },
+                        "content": { "type": "string" }
+                      }
+                    },
+                    "description": "OpenAI-format chat messages"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chat response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "text": { "type": "string", "description": "LLM's final text response" },
+                    "toolCalls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "args": { "type": "object" }
+                        }
+                      },
+                      "description": "Tools the LLM called during execution"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Browser not connected",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "500": {
+            "description": "Chat error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live/{browserId}": {
+      "get": {
+        "summary": "Live view stream",
+        "description": "Server-Sent Events stream of JPEG frames from the browser. Supports auth via Authorization header or ?key= query parameter (for EventSource which cannot set headers).",
+        "operationId": "liveView",
+        "parameters": [
+          { "$ref": "#/components/parameters/browserId" },
+          {
+            "name": "key",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "API key (alternative to Authorization header, for EventSource)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of base64 JPEG frames",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Each event contains a data: line with a base64-encoded JPEG data URL"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Browser not connected",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp/{browserId}": {
+      "post": {
+        "summary": "MCP Streamable HTTP endpoint",
+        "description": "Model Context Protocol endpoint for AI tool integration (Claude Desktop, Cursor, etc.). Implements the MCP Streamable HTTP transport.",
+        "operationId": "mcpPost",
+        "parameters": [
+          { "$ref": "#/components/parameters/browserId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "MCP JSON-RPC request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MCP JSON-RPC response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "MCP JSON-RPC response"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Browser not connected",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "MCP SSE endpoint",
+        "operationId": "mcpGet",
+        "parameters": [
+          { "$ref": "#/components/parameters/browserId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "MCP SSE stream",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "MCP session cleanup",
+        "operationId": "mcpDelete",
+        "parameters": [
+          { "$ref": "#/components/parameters/browserId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session closed"
+          }
+        }
+      }
+    },
+    "/config": {
+      "get": {
+        "summary": "Get server configuration",
+        "operationId": "getConfig",
+        "responses": {
+          "200": {
+            "description": "Server configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "openai_key": { "type": "string", "description": "OpenAI API key (masked)" },
+                    "openai_base": { "type": "string", "description": "OpenAI-compatible base URL" },
+                    "chat_model": { "type": "string", "description": "Chat model name" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Update server configuration",
+        "operationId": "setConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "openai_key": { "type": "string" },
+                  "openai_base": { "type": "string" },
+                  "chat_model": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Config updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key passed as Bearer token. Create one via POST /register-key or from the dashboard."
+      }
+    },
+    "parameters": {
+      "browserId": {
+        "name": "browserId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Browser session ID (from GET /browsers)"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      },
+      "Browser": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Browser session ID" },
+          "name": { "type": "string", "description": "Browser name (e.g. 'Chrome on macOS')" },
+          "currentUrl": { "type": "string", "description": "Current page URL" },
+          "connectedAt": { "type": "string", "format": "date-time" },
+          "lastSeenAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CommandResult": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "description": "Whether the command succeeded" },
+          "data": {
+            "type": "object",
+            "description": "Action-specific result data",
+            "properties": {
+              "url": { "type": "string" },
+              "title": { "type": "string" },
+              "screenshot": { "type": "string", "description": "Base64 PNG data URL (for screenshot action)" },
+              "markdown": { "type": "string", "description": "Page content as markdown (for analyze action)" },
+              "elements": {
+                "type": "array",
+                "description": "Interactive elements (for analyze/read_page actions)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "type": { "type": "string" },
+                    "text": { "type": "string" },
+                    "href": { "type": "string" },
+                    "visible": { "type": "boolean" }
+                  }
+                }
+              },
+              "tabs": {
+                "type": "array",
+                "description": "Open tabs (for list_tabs action)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "title": { "type": "string" },
+                    "url": { "type": "string" },
+                    "active": { "type": "boolean" }
+                  }
+                }
+              },
+              "tab_id": { "type": "integer", "description": "New tab ID (for open_tab action)" },
+              "selector": { "type": "string" },
+              "direction": { "type": "string" },
+              "amount": { "type": "number" },
+              "key": { "type": "string" },
+              "found": { "type": "boolean" },
+              "closed": { "type": "boolean" },
+              "needs_capture": { "type": "boolean" },
+              "scroll": {
+                "type": "object",
+                "properties": {
+                  "top": { "type": "number" },
+                  "height": { "type": "number" },
+                  "scrollHeight": { "type": "number" }
+                }
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "width": { "type": "number" },
+                  "height": { "type": "number" }
+                }
+              },
+              "truncated": { "type": "boolean" }
+            }
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "Error message if ok is false"
+          }
+        }
+      }
+    }
+  }
+}

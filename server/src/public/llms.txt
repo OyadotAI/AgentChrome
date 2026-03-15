@@ -151,3 +151,7 @@ Live stream: { "type": "stream_start", "fps": 2 } / { "type": "frame", "data": "
 ## Key Scoping
 
 Each API key only sees browsers connected with that key. Users cannot see or control other users' browsers. Admin keys (set via API_KEYS env var) can see all browsers.
+
+## OpenAPI Schema
+
+Machine-readable OpenAPI 3.0 spec: GET /openapi.json

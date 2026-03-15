@@ -42,6 +42,11 @@ app.get('/docs.txt', (req, res) => {
   res.type('text/plain').sendFile(join(__dirname, 'public', 'llms.txt'));
 });
 
+// OpenAPI schema
+app.get('/openapi.json', (req, res) => {
+  res.type('application/json').sendFile(join(__dirname, 'public', 'openapi.json'));
+});
+
 // REST API
 app.use(apiRouter);
 

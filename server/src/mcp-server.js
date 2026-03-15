@@ -113,19 +113,6 @@ Use element IDs with click/type tools. The output includes:
   );
 
   server.tool(
-    'press_key',
-    'Press a key (e.g. Enter, Escape, ArrowDown, ArrowUp). Dispatches to the focused element.',
-    { key: z.string().describe('Key to press: Enter, Escape, ArrowDown, ArrowUp, Tab, etc.') },
-    async ({ key }) => {
-      const result = await sendCommand(browserId, 'press_key', { key });
-      if (!result.ok) {
-        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
-      }
-      return { content: [{ type: 'text', text: `Pressed ${key}` }] };
-    }
-  );
-
-  server.tool(
     'type',
     'Type text into an input element by its ID number (from analyze_page results). Clears existing content first.',
     {
