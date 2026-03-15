@@ -26,29 +26,104 @@ The AI never sees HTML. Never writes CSS selectors. Never parses screenshots. It
 
 ## Comparison
 
-| | AgentChrome | Playwright / Puppeteer | Selenium | Browser-use | Vision agents |
-|---|---|---|---|---|---|
-| **Uses your real browser** | Yes — your Chrome, your cookies, your sessions | No — spawns a new browser | No — spawns a new browser | No — Playwright underneath | No — headless browser |
-| **Bot detection** | Invisible — it's a real browser | Detected by Cloudflare, Akamai, etc. | Detected | Detected | Detected |
-| **Existing logins** | All your sessions, cookies, extensions | None — starts fresh | None | None | None |
-| **What AI sees** | Structured markdown with numbered elements | Raw HTML (thousands of lines) | Raw HTML | Screenshots (pixels) | Screenshots (pixels) |
-| **How AI clicks** | `click(13)` — element number | `page.click('div.css-1a2b > button:nth-child(3)')` | Same fragile selectors | Click at pixel coordinates | Click at pixel coordinates |
-| **Selectors needed** | None — elements are pre-numbered | Yes — AI must invent CSS/XPath | Yes | No (but vision is unreliable) | No (but vision is expensive) |
-| **Output format** | Markdown with metadata | HTML DOM | HTML DOM | Screenshot image | Screenshot image |
-| **Token cost** | Low — clean text | High — HTML soup | High — HTML soup | Very high — base64 images | Very high — base64 images |
-| **Speed** | Fast — direct DOM access | Medium | Slow | Slow — render + screenshot + LLM | Slow |
-| **Size** | 15KB extension + lightweight server | ~400MB Chromium binary | ~50MB driver + browser | Playwright + wrapper | Full browser + vision model |
-| **Multiple browsers** | Yes — each gets its own MCP endpoint | One instance per script | One per session | One | One |
+| | AgentChrome | Browser-use | Playwright / Puppeteer | Selenium |
+|---|---|---|---|---|
+| **Real browser** | Yes — your Chrome, your cookies, your logins | No — Playwright underneath | No — spawns new browser | No — spawns new browser |
+| **Bot detection** | Invisible — it IS a real browser | Detected — recommends paid proxies to work around it | Detected by Cloudflare, Akamai, etc. | Detected |
+| **Existing sessions** | All your cookies, extensions, password manager | None — starts fresh, needs workarounds for auth | None — starts fresh | None |
+| **Element interaction** | `click(13)` — numbered by extension on the live DOM | `click 5` — indexed via accessibility tree in a fake browser | `page.click('div.css-1a2b > ...')` — AI writes CSS selectors | Same fragile selectors |
+| **What AI reads** | Structured markdown with page content + numbered elements | Element index from accessibility tree | Raw HTML (thousands of lines) | Raw HTML |
+| **Page understanding** | Full markdown — headings, text, forms, landmarks, scroll position | Element list only — no page content or structure | None — AI parses HTML soup | None |
+| **Token cost** | Low — clean markdown text | Medium — element tree + screenshots | High — raw HTML | High — raw HTML |
+| **Protocol** | MCP (standard) — works with Claude Desktop, Cursor, Windsurf, any MCP client | Custom Python API — tied to their SDK | Custom API per library | WebDriver protocol |
+| **Memory** | 15KB extension, server is ~30MB | "Chrome can consume a lot of memory" (their FAQ) — full Playwright + Chromium | ~400MB Chromium binary | ~50MB driver + browser |
+| **Multiple browsers** | Yes — each gets its own MCP endpoint | One at a time | One per script | One per session |
+| **CAPTCHAs** | You solve them yourself in your real browser — the agent continues after | Blocks the agent — they sell a cloud service to handle it | Blocks the agent | Blocks the agent |
 
-## The fundamental problem with every other tool
+## Deep dive: why this architecture is fundamentally better
 
-Every existing browser automation tool works backwards. They give the AI a raw page and say "figure it out."
+### What browser-use actually does under the hood
 
-**Selector-based tools (Playwright, Puppeteer, Selenium)** make the AI read thousands of lines of HTML like `<div class="css-1a2b3c">` nested inside `<div data-reactroot>`, then guess a CSS selector like `div.main-content > ul:nth-child(3) > li > a` and hope it doesn't break when the site updates. The AI has to be a frontend developer just to click a button.
+Browser-use (80k+ stars) is the most popular tool in this space. We read their entire codebase. Here's what actually happens when you run it:
 
-**Vision-based tools (Browser-use, LaVague, screenshot agents)** flip to the other extreme — the AI stares at pixels trying to figure out where to click by coordinates. Burns tokens on base64 images. Slow, expensive, and still no structured understanding.
+```python
+agent = Agent(
+    task="Find the stars of the browser-use repo",
+    llm=ChatBrowserUse(),  # their proprietary model ($0.20/M input, $2/M output)
+    browser=Browser(),       # spawns Chromium via CDP
+)
+await agent.run()
+```
 
-**AgentChrome inverts this.** Instead of making the AI figure out what the page has, we tell the AI what the page has. The extension analyzes the page, numbers every element, and returns a structured description:
+**On every single step**, their agent:
+
+1. Captures a **full DOM snapshot** via Chrome DevTools Protocol — merging three data sources (accessibility tree + DOM tree + DOMSnapshot with computed styles, bounding boxes, paint order) into a heavy in-memory tree
+2. Serializes interactive elements into an **XML tree** capped at 40,000 characters — but this tree only contains interactive elements, **not page content** (no headings, no text, no paragraphs — the AI can click things but doesn't know what the page says)
+3. Optionally captures a **screenshot** (base64 PNG)
+4. Builds a **single massive message** containing: ~4,000 token system prompt + full agent history (every previous step's thinking, memory, goals, action results) + the 40K char element tree + screenshots + file system state + todo state
+5. Sends all of that to the LLM and waits for structured JSON back
+6. Parses the response, executes actions, loops
+
+Every 15 steps, a **compaction call** summarizes the history to keep the prompt from blowing the context window. If the LLM returns empty actions, a **retry call** fires. If `extract_content` is used, a **separate LLM call** runs. That's 1-3 LLM calls per step, with massive payloads.
+
+Their system prompt is **~600 lines** teaching the LLM how to navigate, plan, retry, handle errors, manage memory. The agent needs this scaffolding because the browser interaction is so heavy and fragile that the LLM can't just use tools directly — it needs an entire framework around it.
+
+They run **13 watchdogs** in parallel for crash recovery, popup handling, download management, CAPTCHA detection, security warnings. This is how complex it gets when you manage a headless browser.
+
+The install pulls in **ALL LLM SDKs as required dependencies** — OpenAI, Anthropic, Google, Groq, Ollama — even if you only use one. Plus CDP libraries, image processing, telemetry (`posthog`), PDF handling, and more.
+
+When sites detect the bot, they recommend their **paid cloud** with stealth browsers and proxy rotation. When CAPTCHAs appear, their `CaptchaWatchdog` triggers — but it only works with their paid cloud. When you need auth, they suggest syncing your Chrome profile to their cloud or creating temporary accounts.
+
+**The open-source library creates the problems. The paid cloud solves them.**
+
+### What AgentChrome does instead
+
+| | browser-use | AgentChrome |
+|---|---|---|
+| **Browser** | Spawns fresh Chromium — no cookies, no sessions | Your real Chrome — already logged in everywhere |
+| **DOM extraction** | 3-source CDP fusion (AX tree + DOM + DOMSnapshot) per step | Single DOM walk in content script, on demand |
+| **What AI sees** | XML tree of interactive elements only (no page content) | Full page as markdown — headings, text, forms, landmarks + numbered elements |
+| **Per-step overhead** | ~4K system prompt + full history + 40K element tree + screenshots | One MCP tool call, one markdown response |
+| **Agent loop** | Their code calls the LLM, manages history, compaction, retries, planning | No agent loop — the AI client (Claude/Cursor) decides when to call tools |
+| **LLM coupling** | Locked into their SDK — `Agent(llm=..., browser=...)` | Standard MCP — any client, any model, no SDK |
+| **System prompt** | ~600 lines teaching LLM how to navigate, plan, retry, recover | None — the MCP tool descriptions are self-explanatory |
+| **Dependencies** | OpenAI + Anthropic + Google + Groq + Ollama + CDP + PIL + posthog + ... | express + ws + @modelcontextprotocol/sdk + uuid + dotenv |
+| **Watchdogs** | 13 parallel watchdogs for crashes, popups, CAPTCHAs, downloads | Zero — browser is stable, user handles popups naturally |
+| **Install size** | Hundreds of MB (all LLM SDKs + Chromium) | 15KB extension + ~30MB server |
+| **Bot detection** | Detected — sell cloud with stealth browsers | Invisible — it IS a real browser |
+| **CAPTCHAs** | Only solvable via paid cloud service | Don't appear — site trusts your browser |
+| **Auth** | Hack around with profile sync, temp accounts, cloud | Already authenticated — you're already logged in |
+
+### How clicking actually works (the biggest difference)
+
+In browser-use, when the AI says `click(index=5)`:
+
+1. The agent looks up index 5 in the serialized element tree
+2. Maps it back to a CDP `backendNodeId` from the original DOM snapshot
+3. Calls `DOM.resolveNode` via CDP to get a remote object reference
+4. Calls `DOM.scrollIntoViewIfNeeded` via CDP
+5. Calls `DOM.getBoxModel` via CDP to get coordinates
+6. Calls `Input.dispatchMouseEvent` via CDP to simulate the click
+
+Six CDP round-trips. If the page changed between analysis and click — DOM mutation, lazy-loaded content, SPA navigation — the `backendNodeId` may be stale and the click fails. The index has no physical presence on the page; it's a number in a serialized tree that has to be resolved back through the protocol.
+
+In AgentChrome, when the AI says `click(element_id=5)`:
+
+1. The extension runs `document.querySelector('[data-ac-id="5"]')` — done
+
+That's it. During `analyze_page`, the extension wrote `data-ac-id="5"` directly onto the HTML element in the live DOM. The number isn't an abstract index in a serialized tree — it's a **real attribute on the real element**. `querySelector` finds it instantly. No CDP. No coordinate calculation. No stale references. The element is tagged on the page itself, like a sticky note.
+
+This is why AgentChrome actions are fast and reliable. There's no translation layer between "the number the AI knows" and "the element on the page." They're the same thing.
+
+### The architectural insight
+
+Browser-use builds a **complex agent loop around the LLM** because browser interaction through CDP is so heavy that the model needs scaffolding — history management, compaction, planning state, retry logic, 13 watchdogs, a 600-line system prompt. The framework does the thinking for the model because the model alone can't handle the raw complexity.
+
+AgentChrome doesn't need any of that. The tools are simple: `analyze_page` returns clean markdown with elements tagged directly on the DOM, `click(13)` runs one querySelector, `type(9, "hello")` types into the element. The MCP tool descriptions are enough. Claude, Cursor, or any MCP client already knows how to call tools, reason about results, and decide next steps. The intelligence is in the AI, not in a wrapper.
+
+browser-use's complexity isn't a feature — it's a consequence of fighting the browser from the outside. When you're inside the browser, the fight disappears.
+
+### The bottom line
 
 ```
 [#9]  textarea: Search
@@ -57,7 +132,7 @@ Every existing browser automation tool works backwards. They give the AI a raw p
 [#3]  link: Gmail → mail.google.com
 ```
 
-The agent reads this and knows exactly what's on the page. To search: `type(element_id=9, text="AgentChrome")` then `click(element_id=13)`. Done. The numbers are tagged directly on the live DOM — no fragile selector lookup, no stale references, no guessing.
+`type(element_id=9, text="AgentChrome")` then `click(element_id=13)`. No agent loop. No 600-line system prompt. No watchdogs. No screenshots. No SDK. No cloud. Just your browser, described clearly, controlled by number.
 
 ## Quick Start
 
