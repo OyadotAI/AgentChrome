@@ -16,7 +16,8 @@ Architecture:
 
 1. Go to https://browser.oya.ai/dashboard and click Generate to create an API key
 2. Download Oya Browser (macOS .dmg or Linux .AppImage)
-3. Open the app, enter `wss://browser.oya.ai/ws` as server URL and paste your API key
+3. macOS: after install run `xattr -cr /Applications/Oya\ Browser.app` (app is not notarized yet). To open multiple instances: `open -n "/Applications/Oya Browser.app" --args --user-data-dir=/tmp/oya-2`
+4. Open the app, enter `wss://browser.oya.ai/ws` as server URL and paste your API key
 4. Your browser appears in the dashboard — connect AI tools via MCP
 
 ## MCP Endpoint
