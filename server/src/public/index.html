@@ -9,6 +9,7 @@
     :root { --bg: #09090b; --surface: #111113; --border: #1e1e21; --text: #fafafa; --muted: #a1a1aa; --dim: #52525b; --green: #22c55e; --blue: #3b82f6; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif; font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
     .c { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+    .c-wide { max-width: 100%; margin: 0; padding: 0; }
     a { color: var(--green); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
@@ -32,7 +33,7 @@
     .btn-primary { background: var(--green); color: #000; }
     .btn-outline { background: transparent; color: var(--text); border: 1px solid #333; }
 
-    .vid { margin: 0 auto 50px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .vid { margin: 0 auto 50px; border-radius: 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; }
     .vid video { width: 100%; display: block; }
 
     .section { padding: 40px 0; }
@@ -86,18 +87,40 @@
 <div class="c">
 
   <div class="hero">
-    <h1>The browser built for <span class="g">AI agents</span></h1>
-    <p class="sub">A real browser that AI agents control via MCP. Analyzes the page, numbers every element, and lets the agent act by number. Your cookies, your logins, invisible to bot detection.</p>
+    <h1><span class="g">Browser for Agents</span></h1>
+    <p class="sub">Existing browsers were built for humans. Every tool trying to make AI control them is duct-taping automation onto something that was never designed for it. Oya Browser is built from the ground up for AI agents.</p>
     <div class="hero-btns">
       <a href="#download" class="btn btn-primary">Download</a>
       <a href="/dashboard" class="btn btn-outline">Open Dashboard</a>
     </div>
   </div>
 
-  <div class="vid">
-    <video autoplay loop muted playsinline>
-      <source src="oya-browser.mp4" type="video/mp4">
-    </video>
+  </div>
+  <div class="c-wide">
+    <div class="vid">
+      <video autoplay loop muted playsinline>
+        <source src="oya-browser.mp4" type="video/mp4">
+      </video>
+    </div>
+  </div>
+  <div class="c">
+
+  <!-- The problem -->
+  <div class="section">
+    <div class="label">The problem</div>
+    <h2>AI agents can't use browsers. The tools are the bottleneck.</h2>
+    <p style="color: var(--muted); margin-bottom: 12px;">Playwright, Puppeteer, Selenium — they were built for human testers writing scripts, not for AI. When you connect an AI agent to these tools, it has to parse thousands of lines of raw HTML, guess CSS selectors like <code>div.main > ul:nth-child(3) > li > a</code>, or stare at pixel screenshots trying to figure out where a button is.</p>
+    <p style="color: var(--muted); margin-bottom: 12px;">The agent spends more time fighting the browser than doing the actual task. Selectors break when sites update. Screenshots burn tokens and miss context. Every tool puts the hard work on the AI.</p>
+    <p style="color: var(--muted);">That's backwards. <strong style="color: var(--text);">The browser should do the hard work — not the agent.</strong></p>
+  </div>
+
+  <!-- The solution -->
+  <div class="section">
+    <div class="label">The solution</div>
+    <h2>A browser that explains itself to the AI</h2>
+    <p style="color: var(--muted); margin-bottom: 12px;">Oya Browser analyzes the page, numbers every interactive element, and returns clean markdown — the same way a human would describe a page to someone over the phone. The agent reads <code>[#13 button "Google Search"]</code> and says <code>click(13)</code>. Done.</p>
+    <p style="color: var(--muted); margin-bottom: 12px;">No HTML parsing. No CSS selectors. No pixel coordinates. No screenshots. No 600-line system prompts teaching the model how to navigate. The element IDs are real attributes on the DOM — one <code>querySelector</code> and it clicks.</p>
+    <p style="color: var(--muted);">And because it's your real browser — your cookies, your logins, your sessions — there's no bot detection, no CAPTCHAs, no auth workarounds. The site trusts you because it's actually you.</p>
   </div>
 
   <!-- How it works -->
