@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 
-/** @type {Map<string, { server: McpServer, transport: StreamableHTTPServerTransport }>} */
+/** @type {Map<string, McpServer>} */
 const mcpServers = new Map();
 
 /**
@@ -108,6 +108,19 @@ Use element IDs with click/type tools. The output includes:
         return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       }
       return { content: [{ type: 'text', text: `Clicked element ${element_id}` }] };
+    }
+  );
+
+  server.tool(
+    'press_key',
+    'Press a key (e.g. Enter, Escape, ArrowDown, ArrowUp). Dispatches to the focused element.',
+    { key: z.string().describe('Key to press: Enter, Escape, ArrowDown, ArrowUp, Tab, etc.') },
+    async ({ key }) => {
+      const result = await sendCommand(browserId, 'press_key', { key });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Pressed ${key}` }] };
     }
   );
 
@@ -242,28 +255,32 @@ export async function handleMcpRequest(req, res) {
     return;
   }
 
-  let entry = mcpServers.get(browserId);
-  if (!entry) {
-    const server = createMcpServer(browserId);
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // stateless
-    });
-    await server.connect(transport);
-    entry = { server, transport };
-    mcpServers.set(browserId, entry);
+  let server = mcpServers.get(browserId);
+  if (!server) {
+    server = createMcpServer(browserId);
+    mcpServers.set(browserId, server);
   }
 
-  await entry.transport.handleRequest(req, res);
+  // Stateless transport can only handle one request — create fresh transport per request.
+  // Must disconnect from previous transport before connecting to new one.
+  await server.close?.();
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // stateless
+  });
+  await server.connect(transport);
+
+  // Pass req.body — express.json() consumes the stream, so transport must use pre-parsed body
+  await transport.handleRequest(req, res, req.body);
 }
 
 /**
  * Destroy MCP server when browser disconnects.
  */
 export function destroyMcpServer(browserId) {
-  const entry = mcpServers.get(browserId);
-  if (entry) {
-    entry.transport.close?.();
-    entry.server.close?.();
+  const server = mcpServers.get(browserId);
+  if (server) {
+    server.close?.();
     mcpServers.delete(browserId);
   }
 }

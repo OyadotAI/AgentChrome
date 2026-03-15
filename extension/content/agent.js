@@ -114,6 +114,15 @@ const handlers = {
     return { ok: true, data: { selector } };
   },
 
+  async press_key({ key }) {
+    const el = document.activeElement || document.body;
+    const opts = { key, code: key, bubbles: true };
+    el.dispatchEvent(new KeyboardEvent('keydown', opts));
+    el.dispatchEvent(new KeyboardEvent('keyup', opts));
+    await delay(100);
+    return { ok: true, data: { key } };
+  },
+
   async type({ selector, text }) {
     const el = queryAndScroll(selector);
     if (!el) return { ok: false, error: `Element not found: ${selector}` };
