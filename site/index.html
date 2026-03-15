@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oya Browser — The browser built for AI agents</title>
+  <meta name="description" content="A real browser that AI agents control via MCP. Analyzes pages, numbers every element, lets agents act by number. Your cookies, your logins, no bot detection.">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #09090b;
+      --surface: #111113;
+      --border: #1e1e21;
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --dim: #52525b;
+      --green: #22c55e;
+      --blue: #3b82f6;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+
+    a { color: var(--green); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 0.9em;
+      background: #1a1a1d;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* ── Nav ── */
+    nav { padding: 20px 0; border-bottom: 1px solid var(--border); }
+    nav .container { display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 10px; color: var(--text); }
+    .logo img { width: 28px; height: 28px; border-radius: 6px; }
+    .nav-links { display: flex; gap: 20px; align-items: center; }
+    .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; text-decoration: none; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-gh { display: flex; align-items: center; gap: 6px; background: #1a1a1d; border: 1px solid var(--border); padding: 6px 14px; border-radius: 8px; font-size: 13px; }
+    .nav-gh:hover { border-color: #333; }
+
+    /* ── Hero ── */
+    .hero { padding: 80px 0 20px; text-align: center; }
+    .hero-badge {
+      display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 14px;
+      border-radius: 999px; background: #14532d; color: #4ade80;
+      margin-bottom: 20px; letter-spacing: 0.3px;
+    }
+    .hero h1 { font-size: 52px; font-weight: 700; letter-spacing: -2px; line-height: 1.05; margin-bottom: 20px; }
+    .hero h1 .g { color: var(--green); }
+    .hero .sub { font-size: 19px; color: var(--muted); max-width: 620px; margin: 0 auto 36px; line-height: 1.5; }
+    .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px; padding: 12px 28px;
+      border-radius: 10px; font-size: 15px; font-weight: 600; text-decoration: none; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; text-decoration: none; }
+    .btn-primary { background: var(--green); color: #000; }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid #333; }
+
+    /* ── Screenshot ── */
+    .shot { margin: 50px auto 0; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .shot img { width: 100%; display: block; }
+
+    /* ── Pitch ── */
+    .pitch { padding: 80px 0 0; }
+    .pitch h2 { font-size: 32px; font-weight: 700; letter-spacing: -0.8px; margin-bottom: 24px; }
+    .pitch p { color: var(--muted); margin-bottom: 16px; max-width: 700px; }
+    .pitch p strong { color: var(--text); }
+
+    /* ── How ── */
+    .section { padding: 70px 0 0; }
+    .label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--green); margin-bottom: 12px; }
+    .section h2 { font-size: 30px; font-weight: 700; letter-spacing: -0.7px; margin-bottom: 12px; }
+    .section > .desc { color: var(--muted); margin-bottom: 36px; max-width: 600px; }
+
+    .flow {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+    }
+    @media (max-width: 700px) { .flow { grid-template-columns: 1fr; } }
+    .flow-step {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+    }
+    .flow-num {
+      width: 28px; height: 28px; background: var(--green); color: #000; border-radius: 7px;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin-bottom: 12px;
+    }
+    .flow-step h3 { font-size: 15px; margin-bottom: 6px; }
+    .flow-step p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* ── Terminal ── */
+    .term {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-top: 40px;
+    }
+    .term-bar {
+      display: flex; gap: 6px; padding: 12px 16px; border-bottom: 1px solid var(--border);
+    }
+    .term-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .term-body {
+      padding: 20px 24px; font-family: ui-monospace, 'SF Mono', monospace; font-size: 13px;
+      line-height: 1.8; overflow-x: auto; color: #d4d4d8;
+      white-space: pre; word-break: break-all;
+    }
+    .c { color: #525252; }
+    .g { color: var(--green); }
+    .b { color: var(--blue); }
+    .y { color: #f59e0b; }
+    .p { color: #a855f7; }
+
+    /* ── Grid cards ── */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
+    @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+    }
+    .card h3 { font-size: 16px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .card p { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+    .card pre {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 16px; font-family: ui-monospace, monospace; font-size: 12px;
+      line-height: 1.7; overflow-x: auto; color: #d4d4d8;
+    }
+    .tag {
+      font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
+    }
+    .tag-app { background: #14532d; color: #4ade80; }
+
+    /* ── Tools ── */
+    .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 24px; }
+    .tool { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .tool-name { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--green); }
+    .tool-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+
+    /* ── Comparison ── */
+    .cmp { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 24px; }
+    .cmp th, .cmp td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .cmp th { font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .cmp td:first-child { color: var(--muted); font-size: 13px; }
+    .cmp .oya { font-weight: 600; color: var(--text); }
+    .cmp .yes { color: var(--green); }
+    .cmp .no { color: #ef4444; }
+
+    /* ── Footer ── */
+    footer { padding: 50px 0; border-top: 1px solid var(--border); text-align: center; font-size: 13px; color: var(--dim); margin-top: 80px; }
+    footer a { color: var(--muted); }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 34px; letter-spacing: -1px; }
+      .hero .sub { font-size: 16px; }
+      .section h2 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <div class="logo"><img src="icon.png" alt="">Oya Browser</div>
+    <div class="nav-links">
+      <a href="#how">How</a>
+      <a href="#setup">Setup</a>
+      <a href="#compare">Compare</a>
+      <a href="https://github.com/nicoleoyaai/oya-browser" class="nav-gh">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+
+  <div class="hero">
+    <div class="hero-badge">Open Source &middot; MCP Native &middot; MIT License</div>
+    <h1>The browser built<br>for <span class="g">AI agents</span></h1>
+    <p class="sub">A real browser that agents control via MCP. Analyzes the page, numbers every element, and lets the agent act by number. Your cookies, your logins, invisible to bot detection.</p>
+    <div class="hero-buttons">
+      <a href="#setup" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/nicoleoyaai/oya-browser" class="btn btn-outline">GitHub</a>
+    </div>
+  </div>
+
+  <div class="shot">
+    <img src="analyze-google.png" alt="Oya Browser analyzing Google — every element highlighted and numbered">
+  </div>
+
+  <!-- Pitch -->
+  <div class="pitch">
+    <h2>We invented the car. Stop fitting tools to the horse.</h2>
+    <p>AI agents are here. They can reason, plan, and act. But every browser automation tool still treats them like dumb scripts that need to be hand-held through the DOM.</p>
+    <p>Playwright was built in 2020 for test engineers writing deterministic scripts. Puppeteer was built for headless rendering. Selenium was built in 2004. <strong>None of them were built for AI.</strong> They were built for humans writing code that controls a browser. Now we're duct-taping AI onto tools designed for a completely different era.</p>
+    <p>The result? We make the smartest technology on the planet do the dumbest work — parse thousands of lines of <code>&lt;div class="css-1a2b3c"&gt;</code>, guess fragile CSS selectors, stare at pixel screenshots trying to figure out where a button is. We're asking a race car to pull a plow.</p>
+
+    <h2 style="margin-top: 48px;">The problem isn't the agent. It's the tools.</h2>
+    <p>Every existing tool puts the hard job on the agent. Here's a page — figure out what's on it. Here's raw HTML — find the login button. Here's a screenshot — guess where to click. The agent has to be a frontend developer, a CSS expert, and a computer vision system just to fill out a form.</p>
+    <p>That's backwards. <strong>The tools should be AI-first.</strong> The browser should understand the page and explain it to the agent, not dump raw data and hope for the best. The agent shouldn't need a translation layer between "I want to click the search button" and the actual click.</p>
+
+    <h2 style="margin-top: 48px;">Oya Browser is the browser built for agents</h2>
+    <p>Instead of making the agent figure out what the page has, <strong>the browser tells the agent what it has.</strong> It walks the DOM, finds every interactive element, numbers each one, and returns a clean markdown description — the same way a human would describe a page to someone over the phone.</p>
+    <p>The agent reads: <code>[#13 button "Google Search"]</code>. It says: <code>click(13)</code>. Done. No selectors. No HTML. No coordinates. No screenshots. No 600-line system prompt teaching the model how to navigate. No 13 watchdogs for crash recovery. No fragile translation layer between the AI and the browser.</p>
+    <p>The browser does the hard work so the agent doesn't have to. That's what AI-first tooling means.</p>
+  </div>
+
+  <!-- How it works -->
+  <div class="section" id="how">
+    <div class="label">How it works</div>
+    <h2>Analyze &rarr; Read &rarr; Act</h2>
+    <p class="desc">The user browses normally. The AI connects via MCP and controls the browser through simple tools.</p>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <h3>analyze_page</h3>
+        <p>Walks the DOM, finds every link, button, input, dropdown. Highlights each with a colored outline and assigns a number. Returns the full page as markdown.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <h3>Agent reads markdown</h3>
+        <p>The AI gets structured text — headings, forms, landmarks — with elements annotated as <code>[#9 input:search]</code>. It understands the page instantly.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <h3>Act by number</h3>
+        <p><code>type(9, "query")</code> then <code>click(13)</code>. The element IDs are real attributes on the DOM — <code>querySelector</code> resolves them instantly.</p>
+      </div>
+    </div>
+
+    <div class="term">
+      <div class="term-bar">
+        <div class="term-dot" style="background:#ef4444"></div>
+        <div class="term-dot" style="background:#f59e0b"></div>
+        <div class="term-dot" style="background:#22c55e"></div>
+      </div>
+      <div class="term-body"><span class="c">---</span>
+<span class="g">url:</span> <span class="y">https://google.com</span>
+<span class="g">viewport:</span> <span class="p">1440x900</span>
+<span class="g">elements:</span> <span class="p">22</span> total, <span class="p">22</span> visible
+<span class="c">---</span>
+
+<span class="c">&lt;!-- nav --&gt;</span>
+<span class="b">[#1 link "About" &rarr; /about]</span>  <span class="b">[#2 link "Store" &rarr; /store]</span>  <span class="b">[#3 link "Gmail" &rarr; mail.google.com]</span>
+<span class="c">&lt;!-- /nav --&gt;</span>
+
+<span class="b">[#9 textarea placeholder="Search"]</span>
+<span class="b">[#13 button "Google Search"]</span>  <span class="b">[#14 button "I'm Feeling Lucky"]</span>
+
+<span class="c">&lt;!-- footer --&gt;</span>
+<span class="b">[#16 link "Advertising"]</span>  <span class="b">[#20 link "Privacy"]</span>  <span class="b">[#22 button "Settings"]</span>
+
+<span class="c">## Element Index (22 total, 22 visible)</span>
+  <span class="b">[#9]</span>  textarea: Search
+  <span class="b">[#13]</span> button: Google Search
+  <span class="b">[#14]</span> button: I'm Feeling Lucky
+  <span class="b">[#3]</span>  link: Gmail &rarr; mail.google.com</div>
+    </div>
+  </div>
+
+  <!-- Architecture -->
+  <div class="section">
+    <div class="label">Architecture</div>
+    <h2>Users browse. Server relays. AI controls.</h2>
+    <p class="desc">Users run Oya Browser on their machines or remote environments. The server deploys as a backend service. AI tools connect via MCP.</p>
+
+    <div class="term" style="margin-top: 24px;">
+      <div class="term-body" style="line-height: 2;">
+<span class="g">User's machine or remote</span>                <span class="b">Your infra</span>                       <span class="p">AI tools</span>
+
+┌──────────────┐              ┌──────────────┐              ┌──────────────┐
+│ <span class="g">Oya Browser</span>  │──<span class="y">WebSocket</span>──▶│  <span class="b">Oya Server</span>  │◀──<span class="y">MCP</span>────────│ <span class="p">Claude</span>       │
+│              │              │  (Docker)    │              │ <span class="p">Cursor</span>       │
+│              │              │              │              │ <span class="p">Windsurf</span>     │
+│              │              │  /mcp/:id    │              │ <span class="p">any MCP</span>      │
+│ Real cookies │              │  /live/:id   │              │              │
+│ Real logins  │              │  /browsers   │              │              │
+└──────────────┘              └──────────────┘              └──────────────┘</div>
+    </div>
+  </div>
+
+  <!-- What makes it different -->
+  <div class="section">
+    <div class="label">Key difference</div>
+    <h2>IDs live on the actual DOM</h2>
+    <p class="desc">When the AI says <code>click(5)</code>, the browser runs <code>querySelector('[data-ac-id="5"]')</code>. One call. No translation.</p>
+
+    <div class="cards">
+      <div class="card">
+        <h3>Browser-use / Playwright</h3>
+        <p>The AI gets an element index. To click, the framework resolves the index back to a CDP node ID, then dispatches a mouse event at computed coordinates. Six round-trips. If the DOM changed, it fails.</p>
+        <pre>1. Look up index in serialized tree
+2. Resolve to CDP backendNodeId
+3. DOM.resolveNode → remote object
+4. DOM.scrollIntoViewIfNeeded
+5. DOM.getBoxModel → coordinates
+6. Input.dispatchMouseEvent</pre>
+      </div>
+      <div class="card">
+        <h3 style="color: var(--green);">Oya Browser</h3>
+        <p>During analysis, the element was tagged with <code>data-ac-id="5"</code> directly on the HTML element. The number is a real attribute on the real DOM. One querySelector.</p>
+        <pre>1. document.querySelector(
+     '[data-ac-id="5"]'
+   )
+2. el.click()
+
+<span style="color: var(--green);">Done.</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs & Live View -->
+  <div class="section">
+    <div class="label">Features</div>
+    <h2>Multi-tab, live view, dev panel</h2>
+
+    <div class="flow" style="margin-top: 24px;">
+      <div class="flow-step">
+        <h3>Multi-tab browsing</h3>
+        <p>Agents can <code>open_tab</code>, <code>switch_tab</code>, <code>list_tabs</code>, <code>close_tab</code>. Work across Gmail, Docs, and Jira simultaneously.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Live view</h3>
+        <p>Server streams JPEG frames from the browser via SSE. Watch what the agent is doing in real-time from the dashboard.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Dev panel</h3>
+        <p>Built-in panel shows every command and response in real-time. Click to expand payloads. Debug agent behavior instantly.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Comparison -->
+  <div class="section" id="compare">
+    <div class="label">Comparison</div>
+    <h2>Why not the alternatives?</h2>
+
+    <table class="cmp">
+      <thead>
+        <tr><th></th><th class="oya">Oya Browser</th><th>Browser-use</th><th>Playwright</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Browser</td><td class="yes oya">Your real browser</td><td class="no">Spawns Chromium</td><td class="no">Spawns Chromium</td></tr>
+        <tr><td>User's cookies</td><td class="yes oya">All sessions intact</td><td class="no">Starts fresh</td><td class="no">Starts fresh</td></tr>
+        <tr><td>Bot detection</td><td class="yes oya">Invisible</td><td class="no">Detected — sells cloud</td><td class="no">Detected</td></tr>
+        <tr><td>What AI reads</td><td class="oya">Full page markdown + elements</td><td>Element list only</td><td>Raw HTML</td></tr>
+        <tr><td>How AI clicks</td><td class="oya">click(13) — one querySelector</td><td>click 5 — 6 CDP calls</td><td>CSS selector string</td></tr>
+        <tr><td>Protocol</td><td class="oya">MCP (open standard)</td><td>Custom Python SDK</td><td>Custom API</td></tr>
+        <tr><td>Tabs</td><td class="yes oya">Multi-tab with MCP tools</td><td class="no">Single</td><td class="no">Single</td></tr>
+        <tr><td>Live view</td><td class="yes oya">SSE frame stream</td><td class="no">Cloud only (paid)</td><td class="no">No</td></tr>
+        <tr><td>Agent loop</td><td class="oya">None — AI decides</td><td>600-line system prompt + 13 watchdogs</td><td>N/A</td></tr>
+        <tr><td>Lock-in</td><td class="yes oya">None — any MCP client</td><td class="no">Their SDK + model</td><td class="no">Per-library API</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Setup -->
+  <div class="section" id="setup">
+    <div class="label">Get started</div>
+    <h2>Running in 2 minutes</h2>
+
+    <h3 style="margin: 30px 0 16px; font-size: 18px;">1. Deploy the server</h3>
+    <div class="term">
+      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <div class="term-body"><span class="c"># Docker</span>
+<span class="g">docker run</span> -d -p 3100:3100 -e API_KEYS=your-key ghcr.io/nicoleoyaai/oya-browser-server
+
+<span class="c"># Or from source</span>
+<span class="g">cd</span> server && <span class="g">cp</span> .env.example .env && <span class="g">npm install</span> && <span class="g">npm start</span></div>
+    </div>
+
+    <h3 style="margin: 30px 0 16px; font-size: 18px;">2. Download Oya Browser</h3>
+    <div class="card" style="max-width: 480px;">
+      <h3>Oya Browser <span class="tag tag-app">macOS &middot; Linux</span></h3>
+      <p>Desktop app with multi-tab browsing, dev panel, persistent cookies, and live view. Download, connect, browse.</p>
+      <pre>1. Download for your OS
+   macOS: Oya Browser.dmg
+   Linux: Oya Browser.AppImage
+2. Open → enter server URL + API key
+3. Connected — start browsing</pre>
+    </div>
+
+    <h3 style="margin: 30px 0 16px; font-size: 18px;">3. Connect your AI tool</h3>
+    <p style="color: var(--muted); margin-bottom: 16px;">Open <code>http://your-server:3100</code> to see connected browsers and copy the MCP config.</p>
+    <div class="term">
+      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <div class="term-body"><span class="c">// Cursor, Claude Desktop, Windsurf, or any MCP client</span>
+{
+  <span class="g">"mcpServers"</span>: {
+    <span class="g">"oya-browser"</span>: {
+      <span class="g">"url"</span>: <span class="y">"http://your-server:3100/mcp/BROWSER_ID"</span>,
+      <span class="g">"transport"</span>: <span class="y">"streamable-http"</span>,
+      <span class="g">"headers"</span>: { <span class="g">"Authorization"</span>: <span class="y">"Bearer YOUR_KEY"</span> }
+    }
+  }
+}</div>
+    </div>
+  </div>
+
+  <!-- Tools -->
+  <div class="section" id="tools">
+    <div class="label">MCP Tools</div>
+    <h2>What agents can do</h2>
+
+    <div class="tools">
+      <div class="tool"><div class="tool-name">analyze_page</div><div class="tool-desc">Full page as markdown with numbered elements, viewport, scroll position</div></div>
+      <div class="tool"><div class="tool-name">navigate</div><div class="tool-desc">Go to any URL</div></div>
+      <div class="tool"><div class="tool-name">click</div><div class="tool-desc">Click element by number</div></div>
+      <div class="tool"><div class="tool-name">type</div><div class="tool-desc">Type into input with realistic keystrokes</div></div>
+      <div class="tool"><div class="tool-name">screenshot</div><div class="tool-desc">Capture visible tab as PNG</div></div>
+      <div class="tool"><div class="tool-name">scroll</div><div class="tool-desc">Scroll up or down</div></div>
+      <div class="tool"><div class="tool-name">open_tab</div><div class="tool-desc">Open a new tab</div></div>
+      <div class="tool"><div class="tool-name">switch_tab</div><div class="tool-desc">Switch between tabs</div></div>
+      <div class="tool"><div class="tool-name">list_tabs</div><div class="tool-desc">List all open tabs</div></div>
+      <div class="tool"><div class="tool-name">close_tab</div><div class="tool-desc">Close a tab</div></div>
+      <div class="tool"><div class="tool-name">wait</div><div class="tool-desc">Wait for element to appear</div></div>
+      <div class="tool"><div class="tool-name">read_elements</div><div class="tool-desc">Lightweight element list</div></div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="container">
+    Built by <a href="https://oya.ai">Oya.ai</a> to power reliable AI Employees &middot; <a href="https://github.com/nicoleoyaai/oya-browser">GitHub</a> &middot; MIT License
+  </div>
+</footer>
+
+</body>
+</html>

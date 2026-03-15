@@ -222,6 +222,63 @@ Use element IDs with click/type tools. The output includes:
     }
   );
 
+  // ── Tab Management Tools ──
+
+  server.tool(
+    'list_tabs',
+    'List all open tabs in the browser. Returns tab ID, title, URL, and which is active.',
+    {},
+    async () => {
+      const result = await sendCommand(browserId, 'list_tabs');
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      const tabList = (result.data.tabs || [])
+        .map(t => `${t.active ? '→ ' : '  '}[tab ${t.id}] ${t.title} — ${t.url}`)
+        .join('\n');
+      return { content: [{ type: 'text', text: `Tabs:\n${tabList}` }] };
+    }
+  );
+
+  server.tool(
+    'open_tab',
+    'Open a new browser tab, optionally navigating to a URL.',
+    { url: z.string().optional().describe('URL to open (default: blank tab)') },
+    async ({ url }) => {
+      const result = await sendCommand(browserId, 'open_tab', { url }, 90000);
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Opened tab ${result.data.tab_id}${url ? ' at ' + url : ''}` }] };
+    }
+  );
+
+  server.tool(
+    'switch_tab',
+    'Switch to a different browser tab by its tab ID (from list_tabs).',
+    { tab_id: z.number().describe('The tab ID to switch to') },
+    async ({ tab_id }) => {
+      const result = await sendCommand(browserId, 'switch_tab', { tab_id });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Switched to tab ${tab_id}` }] };
+    }
+  );
+
+  server.tool(
+    'close_tab',
+    'Close a browser tab. Closes active tab if no tab_id specified.',
+    { tab_id: z.number().optional().describe('Tab ID to close (default: active tab)') },
+    async ({ tab_id }) => {
+      const result = await sendCommand(browserId, 'close_tab', { tab_id });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Closed tab` }] };
+    }
+  );
+
   // ── Resources ──
 
   server.resource(
