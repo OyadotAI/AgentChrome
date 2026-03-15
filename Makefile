@@ -5,10 +5,13 @@ help: ## Show this help
 
 # ── Server ──
 
-server: ## Start server (production)
+server-build: ## Build server (minify HTML/CSS/JS)
+	cd server && npm run build
+
+server: server-build ## Start server (production, minified)
 	cd server && npm start
 
-server-dev: ## Start server with auto-reload
+server-dev: ## Start server with auto-reload (unminified)
 	cd server && npm run dev
 
 server-install: ## Install server dependencies

@@ -1,6 +1,7 @@
 node_modules/
 .env
 dist/
+server/dist/
 *.log
 .DS_Store
 k8s/secrets.yaml

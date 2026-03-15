@@ -20,8 +20,9 @@ const PORT = parseInt(process.env.PORT || '3100', 10);
 const app = express();
 app.use(express.json());
 
-// Static files
-app.use(express.static(join(__dirname, 'public')));
+// Static files (dist/public in production, src/public in dev)
+const publicDir = join(__dirname, 'public');
+app.use(express.static(publicDir));
 
 // Dashboard at /dashboard
 app.get('/dashboard', (req, res) => {

@@ -1,11 +1,13 @@
 {
   "name": "oya-browser-server",
   "version": "1.0.0",
-  "description": "Oya Browser — MCP server for browser control via Chrome extension",
+  "description": "Oya Browser — MCP server for browser control",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "build": "node build.js",
+    "start": "node dist/index.js",
+    "start:dev": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
@@ -14,5 +16,8 @@
     "express": "^4.21.2",
     "uuid": "^11.1.0",
     "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "html-minifier-terser": "^7.2.0"
   }
 }
