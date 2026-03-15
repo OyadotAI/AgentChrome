@@ -5,7 +5,6 @@ namespace: oya-browser-dev
 
 resources:
 - ../../base
-- namespace.yaml
 - ingress.yaml
 - cert.yaml
 
