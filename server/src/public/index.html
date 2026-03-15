@@ -220,12 +220,12 @@
       <div class="dl-card">
         <h3>macOS</h3>
         <p>Universal binary — Intel and Apple Silicon.</p>
-        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya.Browser-universal.dmg" class="dl-btn">Download for macOS</a>
+        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya-Browser-macOS.dmg" class="dl-btn">Download for macOS</a>
       </div>
       <div class="dl-card">
         <h3>Linux</h3>
         <p>AppImage — runs on any distribution.</p>
-        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya.Browser-x86_64.AppImage" class="dl-btn">Download for Linux</a>
+        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya-Browser-Linux.AppImage" class="dl-btn">Download for Linux</a>
       </div>
     </div>
   </div>
@@ -343,12 +343,8 @@ fetch('/health').then(r => r.json()).then(d => {
   document.getElementById('s-text').textContent = 'Server unavailable';
 });
 
-// Auto-fill URLs
-const host = window.location.host;
-const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-const wsUrl = `${wsProto}://${host}/ws`;
-document.getElementById('ws-url-display').value = wsUrl;
-document.getElementById('mcp-url').textContent = `"${window.location.protocol}//${host}/mcp/YOUR_BROWSER_ID"`;
+// Hardcoded to production — this is a hosted service
+document.getElementById('ws-url-display').value = 'wss://browser.oya.ai/ws';
 
 // API Key generation
 const userKeyInput = document.getElementById('user-key');
