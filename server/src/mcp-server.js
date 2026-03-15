@@ -166,6 +166,19 @@ Use element IDs with click/type tools. The output includes:
   );
 
   server.tool(
+    'press_key',
+    'Press a keyboard key (Enter, Escape, Tab, Backspace, ArrowDown, ArrowUp, or any character).',
+    { key: z.string().describe('Key to press — e.g. "Enter", "Escape", "Tab", "a"') },
+    async ({ key }) => {
+      const result = await sendCommand(browserId, 'press_key', { key });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Pressed ${key}` }] };
+    }
+  );
+
+  server.tool(
     'scroll',
     'Scroll the page up or down.',
     {

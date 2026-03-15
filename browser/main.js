@@ -4,10 +4,20 @@
  * Multi-tab, persistent cookies, real browser — no extension install needed.
  */
 
-const { app, BrowserWindow, BrowserView, ipcMain, session } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
+
+// Set dock icon on macOS (needed for dev mode — built app uses icon from package.json)
+if (process.platform === 'darwin') {
+  const iconPath = path.join(__dirname, 'build', 'icon.png');
+  if (fs.existsSync(iconPath)) {
+    app.whenReady().then(() => {
+      app.dock.setIcon(nativeImage.createFromPath(iconPath));
+    });
+  }
+}
 
 // ─── Config ───
 
@@ -73,6 +83,7 @@ app.on('window-all-closed', () => { disconnect(); app.quit(); });
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280, height: 860, minWidth: 600, minHeight: 400,
+    icon: path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
     backgroundColor: '#09090b',
@@ -411,6 +422,17 @@ function buildActionJS(action, params) {
       return `(async () => { const el = document.querySelector(${JSON.stringify(params?.selector || '')}); if (!el) return { ok: false, error: 'Element not found' }; el.focus(); if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } const text = ${JSON.stringify(params?.text || '')}; for (const ch of text) { if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value += ch; else if (el.isContentEditable) el.textContent += ch; el.dispatchEvent(new Event('input', { bubbles: true })); await new Promise(r => setTimeout(r, 30 + Math.random() * 70)); } el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, data: { typed: true } }; })()`;
     case 'wait':
       return `(async () => { const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (document.querySelector(${JSON.stringify(params?.selector || '')})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`;
+    case 'press_key':
+      return `(() => {
+        const target = document.activeElement || document.body;
+        const key = ${JSON.stringify(params?.key || 'Enter')};
+        const opts = { key, bubbles: true, cancelable: true };
+        target.dispatchEvent(new KeyboardEvent('keydown', opts));
+        target.dispatchEvent(new KeyboardEvent('keypress', opts));
+        target.dispatchEvent(new KeyboardEvent('keyup', opts));
+        if (key === 'Enter' && target.form) { target.form.requestSubmit?.() || target.form.submit(); }
+        return { ok: true, data: { key } };
+      })()`;
     case 'read_page':
       return `({ ok: true, data: { url: location.href, title: document.title, elements: [] } })`;
     default:

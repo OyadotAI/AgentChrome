@@ -340,6 +340,7 @@
     .tab-btn:hover { color: var(--text); background: #1f1f23; }
     .tab-btn.active { color: var(--blue); background: var(--bg-card); }
     .view-pane { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+    #view-commands { flex: 0 0 auto; }
     .view-pane.hidden { display: none !important; }
 
     /* ── MCP Tools ── */
@@ -425,6 +426,8 @@
     }
     .mcp-copy-btn:hover { background: #3f3f46; color: var(--text); }
 
+    .chat-thinking { color: var(--text-muted); font-size: 12px; font-style: italic; }
+
     /* ── Result area — scrollable, fixed within panel ── */
 
     .result-wrap {
@@ -502,8 +505,7 @@
 
       <div id="cmd-ui" class="cmd-ui-hidden">
         <div class="view-tabs">
-          <button class="tab-btn active" data-view="commands">Commands</button>
-          <button class="tab-btn" data-view="live">Live View</button>
+          <button class="tab-btn active" data-view="commands">Commands + Live</button>
           <button class="tab-btn" data-view="mcp">MCP Tools</button>
         </div>
 
@@ -536,13 +538,20 @@
               <button class="send" id="btn-type">Type</button>
             </div>
           </div>
+          <div class="cmd-section">
+            <div class="param-row">
+              <label>Chat</label>
+              <input type="text" id="chat-input" placeholder="Ask me to do something in the browser..." spellcheck="false">
+              <button class="send" id="chat-send">Send</button>
+            </div>
+          </div>
         </div>
         </div>
 
-        <div id="view-live" class="view-pane hidden" style="flex:1;min-height:0;">
+        <div id="view-live" class="view-pane" style="flex:1;min-height:0;">
           <div style="flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
             <img id="live-frame" style="max-width:100%;max-height:100%;object-fit:contain;display:none;">
-            <div id="live-placeholder" style="color:var(--text-dim);font-size:13px;">Click to start live view</div>
+            <div id="live-placeholder" style="color:var(--text-dim);font-size:13px;">Connecting live view...</div>
             <div id="live-fps" style="position:absolute;top:8px;right:12px;font-size:10px;color:var(--text-dim);font-family:ui-monospace,monospace;"></div>
           </div>
         </div>
@@ -600,6 +609,7 @@
   let apiKey = localStorage.getItem('ac_api_key') || '';
   let selectedBrowser = null;
   let isUserScrolling = false;
+  let chatHistory = []; // { role: 'user'|'assistant', content: string, toolCalls?: [] }
 
   apiKeyInput.value = apiKey;
 
@@ -781,9 +791,12 @@
     if (show) {
       cmdUI.classList.remove('cmd-ui-hidden');
       cmdUI.classList.add('cmd-ui-visible');
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === 'commands'));
+      showView('commands');
     } else {
       cmdUI.classList.remove('cmd-ui-visible');
       cmdUI.classList.add('cmd-ui-hidden');
+      stopLiveView();
     }
   }
 
@@ -830,17 +843,80 @@
   // ── View tabs ──
   const allViewIds = ['view-commands', 'view-live', 'view-mcp'];
 
+  function showView(view) {
+    document.getElementById('view-commands').classList.toggle('hidden', view !== 'commands');
+    document.getElementById('view-live').classList.toggle('hidden', view !== 'commands');
+    document.getElementById('view-mcp').classList.toggle('hidden', view !== 'mcp');
+    if (view === 'commands') startLiveView();
+    else stopLiveView();
+    if (view === 'mcp') updateMcpSetup();
+  }
+
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const view = btn.dataset.view;
       document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
-      allViewIds.forEach((id) => {
-        document.getElementById(id).classList.toggle('hidden', id !== `view-${view}`);
-      });
-      if (view === 'mcp') updateMcpSetup();
-      if (view === 'live') startLiveView();
-      else stopLiveView();
+      showView(view);
     });
+  });
+
+  // ── Chat (in Commands + Live view) ──
+  const chatInputEl = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('chat-send');
+
+  async function sendChatMessage() {
+    const text = chatInputEl.value.trim();
+    if (!text || !selectedBrowser) return;
+
+    chatInputEl.value = '';
+    chatSendBtn.disabled = true;
+    chatHistory.push({ role: 'user', content: text });
+    appendLine(`<span class="cmd-label">You:</span> ${escapeHtml(text)}`);
+
+    const thinkingId = 'chat-thinking-' + Date.now();
+    appendLine(`<span class="chat-thinking" id="${thinkingId}">Thinking…</span>`);
+
+    const messages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
+
+    try {
+      const res = await fetch(`/browsers/${selectedBrowser}/chat`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ messages }),
+      });
+      const data = await res.json();
+
+      const el = document.getElementById(thinkingId);
+      if (el) el.parentElement?.remove();
+      if (data.error) {
+        chatHistory.push({ role: 'assistant', content: `Error: ${data.error}` });
+        appendLine(`<span class="error">Chat: ${escapeHtml(data.error)}</span>`);
+      } else {
+        chatHistory.push({ role: 'assistant', content: data.text, toolCalls: data.toolCalls || [] });
+        let line = `<span class="success">Assistant:</span> ${escapeHtml(data.text)}`;
+        if (data.toolCalls?.length) {
+          line += ` <span class="ts">(${data.toolCalls.map((t) => t.name).join(', ')})</span>`;
+        }
+        appendLine(line);
+      }
+      if (data.error) fetchBrowsers();
+    } catch (err) {
+      const el = document.getElementById(thinkingId);
+      if (el) el.parentElement?.remove();
+      chatHistory.push({ role: 'assistant', content: `Error: ${err.message}` });
+      appendLine(`<span class="error">Chat: ${escapeHtml(err.message)}</span>`);
+    } finally {
+      chatSendBtn.disabled = false;
+      chatInputEl.focus();
+    }
+  }
+
+  chatSendBtn.addEventListener('click', sendChatMessage);
+  chatInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
   });
 
   // ── Live View ──

@@ -258,6 +258,27 @@ const handlers = {
     await delay(1800);
     return { ok: true, data: { direction, amount: px } };
   },
+
+  async press_key({ key }) {
+    const target = document.activeElement || document.body;
+    const opts = { key, bubbles: true, cancelable: true };
+    // Handle special keys
+    if (key === 'Enter') opts.keyCode = 13;
+    else if (key === 'Escape') opts.keyCode = 27;
+    else if (key === 'Tab') opts.keyCode = 9;
+    else if (key === 'Backspace') opts.keyCode = 8;
+    else if (key === 'ArrowDown') opts.keyCode = 40;
+    else if (key === 'ArrowUp') opts.keyCode = 38;
+    target.dispatchEvent(new KeyboardEvent('keydown', opts));
+    target.dispatchEvent(new KeyboardEvent('keypress', opts));
+    target.dispatchEvent(new KeyboardEvent('keyup', opts));
+    // For Enter on forms, also submit
+    if (key === 'Enter' && target.form) {
+      target.form.requestSubmit?.() || target.form.submit();
+    }
+    await delay(300);
+    return { ok: true, data: { key } };
+  },
 };
 
 // ─── Selector Builder ───
