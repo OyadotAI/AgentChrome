@@ -497,7 +497,7 @@
   </div>
 
   <!-- Settings panel (hidden by default) -->
-  <div id="settings-panel" style="display:none;margin-bottom:16px;">
+  <div id="settings-panel" style="margin-bottom:16px;">
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <span style="font-size:13px;font-weight:600;">Server Settings</span>
@@ -697,12 +697,16 @@
   // Settings panel
   document.getElementById('btn-settings').addEventListener('click', () => {
     const panel = document.getElementById('settings-panel');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    if (panel.style.display === 'block') loadSettings();
+    const hidden = panel.style.display === 'none';
+    panel.style.display = hidden ? 'block' : 'none';
+    if (hidden) loadSettings();
   });
   document.getElementById('close-settings').addEventListener('click', () => {
     document.getElementById('settings-panel').style.display = 'none';
   });
+
+  // Load settings on startup
+  if (apiKey) loadSettings();
 
   function loadSettings() {
     if (!apiKey) return;
