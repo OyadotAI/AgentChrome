@@ -2,6 +2,8 @@
 
 Turn your real Chrome browser into an MCP server — AI sees the page as numbered markdown, not raw HTML or pixels, and controls it by element ID.
 
+Built to power reliable AI Employees on [Oya.ai](https://oya.ai).
+
 ```
 Chrome Extension ──WebSocket──▶ Node.js Server ◀──MCP (Streamable HTTP)── Claude / Cursor / any MCP client
 ```
@@ -28,23 +30,29 @@ Vision-based tools (screenshot → LLM) flip to the other extreme — now the AI
 
 Instead of making the AI figure out what the page has, **we tell the AI what the page has.**
 
-AgentChrome walks the DOM, identifies every interactive element on the page, numbers each one, and returns a clean markdown document that reads like a human description of the page:
+When you call `analyze_page`, AgentChrome walks the entire DOM, finds every interactive element — every link, button, input, dropdown, checkbox — highlights it with a colored outline, and tags it with a number:
+
+![AgentChrome analyzing Google — every interactive element is highlighted and numbered](docs/analyze-google.png)
+
+Every element on the page gets a number. The search box is `#9`. "Google Search" is `#13`. "I'm Feeling Lucky" is `#14`. The Gmail link is `#3`. The AI doesn't need to know any of this upfront — it gets it all back as structured markdown:
+
+![Dashboard showing the analyze result — structured markdown with numbered element index](docs/dashboard-google.png)
+
+The agent receives a clean element index:
 
 ```
-# Public profile
-
-Name: [#1 input:text value="mk"]
-Bio: [#2 textarea placeholder="Tell us about yourself"]
-URL: [#3 input:url placeholder="https://example.com"]
-
-[#4 button "Update profile"]
+[#9]  textarea: Search
+[#13] button: Google Search
+[#14] button: I'm Feeling Lucky
+[#3]  link: Gmail → mail.google.com
+[#15] link: Learn more about π with AI Mode
 ```
 
-The AI reads this and instantly knows: there are 3 form fields and a submit button. Field #1 has "mk" in it. Field #2 is empty with a placeholder. Button #4 submits the form. No HTML parsing. No selector guessing. No pixel coordinates.
+Want to search? `type(element_id=9, text="AgentChrome")` then `click(element_id=13)`. That's it. No CSS selectors. No XPath. No HTML parsing. No pixel coordinates. Just the number.
 
-To click the button, the AI just says `click(element_id=4)`. Done. The extension already tagged that button with `[data-ac-id="4"]` on the actual DOM — no fragile selector needed.
+The numbers are assigned fresh on every `analyze_page` call, directly on the live DOM. The extension tags each element with `data-ac-id="9"` so when the AI says `click(9)`, it resolves instantly — no fragile selector lookup, no stale references.
 
-**The agent never sees HTML. Never writes selectors. Never parses pixels.** It reads a structured description and refers to elements by number. That's it.
+**The agent never sees HTML. Never writes selectors. Never parses pixels.** It reads a structured description and refers to elements by number.
 
 ### The other problems
 
