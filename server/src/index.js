@@ -33,6 +33,14 @@ app.get('/docs', (req, res) => {
   res.sendFile(join(__dirname, 'public', 'docs.html'));
 });
 
+// LLM-readable docs (plain text)
+app.get('/llms.txt', (req, res) => {
+  res.type('text/plain').sendFile(join(__dirname, 'public', 'llms.txt'));
+});
+app.get('/docs.txt', (req, res) => {
+  res.type('text/plain').sendFile(join(__dirname, 'public', 'llms.txt'));
+});
+
 // REST API
 app.use(apiRouter);
 

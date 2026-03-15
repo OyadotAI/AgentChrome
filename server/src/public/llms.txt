@@ -1,0 +1,152 @@
+# Oya Browser
+
+> The browser built for AI agents. A real browser that agents control via MCP.
+
+## Overview
+
+Oya Browser is a desktop browser (Electron) that connects to the Oya Browser server via WebSocket. AI tools (Claude Desktop, Cursor, Windsurf, any MCP client) connect to the server via MCP to control the browser.
+
+Users run the browser on their machines with their real cookies, logins, and sessions. The server is hosted at browser.oya.ai. Each user creates an API key from the dashboard and uses it to connect their browser.
+
+Architecture:
+- User's machine: Oya Browser app → WebSocket → Oya Server
+- AI tool: MCP client → Oya Server → WebSocket → Browser
+
+## Quickstart
+
+1. Go to https://browser.oya.ai/dashboard and click Generate to create an API key
+2. Download Oya Browser (macOS .dmg or Linux .AppImage)
+3. Open the app, enter `wss://browser.oya.ai/ws` as server URL and paste your API key
+4. Your browser appears in the dashboard — connect AI tools via MCP
+
+## MCP Endpoint
+
+Each connected browser gets an MCP endpoint:
+
+    https://browser.oya.ai/mcp/{BROWSER_ID}
+
+MCP config for Cursor / Claude Desktop:
+
+    {
+      "mcpServers": {
+        "oya-browser": {
+          "url": "https://browser.oya.ai/mcp/BROWSER_ID",
+          "transport": "streamable-http",
+          "headers": {
+            "Authorization": "Bearer YOUR_API_KEY"
+          }
+        }
+      }
+    }
+
+## MCP Tools
+
+### analyze_page
+Analyzes the current page. Returns full page as structured markdown with every interactive element numbered as [#id type "label"]. Includes viewport size, scroll position, visibility flags.
+
+No parameters.
+
+IMPORTANT: Always call analyze_page BEFORE click or type. Element IDs only exist after analysis and reset on every call. After navigating or clicking a link that changes the page, call analyze_page again.
+
+Returns:
+- Page metadata (url, title, viewport, scroll position)
+- Full page content as markdown with inline element annotations
+- Element index grouped by visible/off-screen
+
+### navigate
+Navigate the browser to a URL.
+Parameters: url (string, required)
+
+### click
+Click an interactive element by its ID number from analyze_page.
+Parameters: element_id (number, required)
+
+### type
+Type text into an input element. Clears existing content first, types character by character.
+Parameters: element_id (number, required), text (string, required)
+
+### press_key
+Press a keyboard key.
+Parameters: key (string, required) — "Enter", "Escape", "Tab", "Backspace", "ArrowDown", "ArrowUp", or any character
+
+### screenshot
+Capture the visible tab as a base64 PNG image.
+No parameters.
+
+### scroll
+Scroll the page up or down.
+Parameters: direction ("up" or "down", required), amount (number, optional, default 500)
+
+### list_tabs
+List all open tabs with ID, title, URL, and which is active.
+No parameters.
+
+### open_tab
+Open a new browser tab.
+Parameters: url (string, optional)
+
+### switch_tab
+Switch to a different tab.
+Parameters: tab_id (number, required)
+
+### close_tab
+Close a tab. Closes active tab if no tab_id specified.
+Parameters: tab_id (number, optional)
+
+### wait
+Wait for an element matching a CSS selector to appear.
+Parameters: selector (string, required), timeout (number, optional, default 10000ms)
+
+### read_elements
+List interactive elements on the page. Lighter than analyze_page.
+Parameters: selector (string, optional), limit (number, optional, default 50)
+
+## Workflow Pattern
+
+1. analyze_page → understand the page, get element IDs
+2. Act: click(element_id), type(element_id, text), press_key("Enter"), scroll("down")
+3. If page changed → analyze_page again (old IDs are invalid)
+4. Repeat until task is done
+
+## Element Annotation Format
+
+analyze_page returns elements inline in the markdown:
+
+    [#5 button "Submit"]
+    [#9 input:email placeholder="you@example.com" required]
+    [#12 link "Settings" → /settings]
+    [#8 ☑ "Remember me"]
+
+Element IDs are real attributes (data-ac-id) on the DOM — click(5) resolves via querySelector('[data-ac-id="5"]').
+
+## REST API
+
+All endpoints require Authorization: Bearer API_KEY header (except /health and /register-key).
+
+    GET  /health                    Server status + browser count
+    POST /register-key              Register new API key (body: { "key": "..." })
+    GET  /browsers                  List connected browsers (scoped to your key)
+    POST /browsers/:id/command      Send command (body: { "action": "...", "params": {} })
+    POST /browsers/:id/chat         Chat with LLM (body: { "messages": [...] })
+    GET  /live/:id?key=...          SSE live view frame stream
+    GET  /mcp/:id                   MCP Streamable HTTP endpoint
+    POST /mcp/:id                   MCP Streamable HTTP endpoint
+    GET  /config                    Get server settings
+    POST /config                    Update server settings
+
+## WebSocket Protocol
+
+Browsers connect via WebSocket at wss://browser.oya.ai/ws
+
+Auth: { "type": "auth", "api_key": "...", "browser_id": "...", "browser_name": "..." }
+Response: { "type": "auth_ok", "browser_id": "..." }
+
+Commands (server → browser): { "type": "cmd", "id": "uuid", "action": "analyze", "params": {} }
+Results (browser → server): { "type": "cmd_result", "id": "uuid", "ok": true, "data": { ... } }
+
+Ping/pong: Both sides send { "type": "ping" } and respond with { "type": "pong" } every 15-20s.
+Live stream: { "type": "stream_start", "fps": 2 } / { "type": "frame", "data": "data:image/jpeg;base64,..." } / { "type": "stream_stop" }
+
+## Key Scoping
+
+Each API key only sees browsers connected with that key. Users cannot see or control other users' browsers. Admin keys (set via API_KEYS env var) can see all browsers.

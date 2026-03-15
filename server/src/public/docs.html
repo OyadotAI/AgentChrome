@@ -48,6 +48,14 @@
     th { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
     td code { font-size: 12px; }
 
+    /* Search */
+    #doc-search:focus { border-color: var(--blue); }
+    .search-hit { display: block; font-size: 12px; padding: 6px 8px; border-radius: 4px; color: var(--muted); cursor: pointer; text-decoration: none; margin-bottom: 2px; }
+    .search-hit:hover { background: #1a1a1d; color: var(--text); }
+    .search-hit strong { color: var(--text); font-weight: 500; }
+    .search-hit .ctx { color: var(--dim); font-size: 11px; display: block; margin-top: 1px; }
+    mark { background: #854d0e; color: #fbbf24; border-radius: 2px; padding: 0 2px; }
+
     .note { background: #172554; border: 1px solid #1e3a5f; border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 13px; color: #93c5fd; }
     .warn { background: #422006; border: 1px solid #854d0e; border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 13px; color: #fbbf24; }
   </style>
@@ -57,6 +65,12 @@
 <div class="page">
   <div class="sidebar">
     <a href="/" class="logo"><img src="icon.png" alt="">Oya Browser</a>
+
+    <div style="margin-bottom:16px;position:relative;">
+      <input type="text" id="doc-search" placeholder="Search docs..." style="width:100%;background:#1a1a1d;border:1px solid var(--border);border-radius:6px;padding:7px 10px 7px 30px;color:var(--text);font-size:13px;outline:none;">
+      <svg style="position:absolute;left:9px;top:8px;pointer-events:none;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </div>
+    <div id="search-results" style="display:none;margin-bottom:16px;"></div>
 
     <div class="sidebar-section">
       <div class="sidebar-label">Getting Started</div>
@@ -103,7 +117,9 @@
 
     <div class="back">
       <a href="/">← Back to home</a><br>
-      <a href="/dashboard">Open Dashboard</a>
+      <a href="/dashboard">Open Dashboard</a><br>
+      <a href="/llms.txt" style="font-size:11px;color:var(--dim);">llms.txt (plain text for AI)</a>
+      <div style="font-size:10px;color:#3f3f46;margin-top:8px;">Press <kbd style="background:#1a1a1d;border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-family:ui-monospace,monospace;">/</kbd> to search</div>
     </div>
   </div>
 
@@ -317,5 +333,125 @@ analyze_page()</code></pre>
   </div>
 </div>
 
+<script>
+(() => {
+  const searchInput = document.getElementById('doc-search');
+  const searchResults = document.getElementById('search-results');
+  const content = document.querySelector('.content');
+
+  // Build search index from all headings + paragraphs
+  const index = [];
+  content.querySelectorAll('h1, h2, h3, p, li, td, code').forEach(el => {
+    const text = el.textContent?.trim();
+    if (!text || text.length < 3) return;
+    // Find nearest heading with an id for linking
+    let heading = el.closest('[id]') || el;
+    if (!heading.id) {
+      let prev = el;
+      while (prev && !prev.id) prev = prev.previousElementSibling;
+      if (prev) heading = prev;
+    }
+    index.push({ text, id: heading.id || '', tag: el.tagName });
+  });
+
+  let debounce = null;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(doSearch, 150);
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      searchInput.value = '';
+      doSearch();
+      searchInput.blur();
+    }
+  });
+
+  function doSearch() {
+    const q = searchInput.value.trim().toLowerCase();
+
+    // Clear existing highlights
+    content.querySelectorAll('mark').forEach(m => {
+      const parent = m.parentNode;
+      parent.replaceChild(document.createTextNode(m.textContent), m);
+      parent.normalize();
+    });
+
+    if (!q || q.length < 2) {
+      searchResults.style.display = 'none';
+      searchResults.innerHTML = '';
+      return;
+    }
+
+    const hits = [];
+    const seen = new Set();
+    for (const entry of index) {
+      const lower = entry.text.toLowerCase();
+      const pos = lower.indexOf(q);
+      if (pos === -1) continue;
+      const key = entry.id + '|' + entry.text.slice(0, 40);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const start = Math.max(0, pos - 30);
+      const end = Math.min(entry.text.length, pos + q.length + 30);
+      let snippet = (start > 0 ? '...' : '') + entry.text.slice(start, end) + (end < entry.text.length ? '...' : '');
+
+      hits.push({ id: entry.id, snippet, tag: entry.tag });
+      if (hits.length >= 12) break;
+    }
+
+    if (hits.length === 0) {
+      searchResults.style.display = 'block';
+      searchResults.innerHTML = '<div style="font-size:12px;color:var(--dim);padding:4px;">No results</div>';
+      return;
+    }
+
+    searchResults.style.display = 'block';
+    searchResults.innerHTML = hits.map(h =>
+      `<a class="search-hit" href="#${h.id}" onclick="document.getElementById('doc-search').value='';document.getElementById('search-results').style.display='none';">
+        <span class="ctx">${h.snippet}</span>
+      </a>`
+    ).join('');
+
+    // Highlight in content
+    highlightText(content, q);
+  }
+
+  function highlightText(root, query) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.parentElement?.closest('pre, code, script, style')) continue;
+      const idx = node.textContent.toLowerCase().indexOf(query);
+      if (idx !== -1) matches.push({ node, idx });
+    }
+    // Apply highlights in reverse to avoid offset issues
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const { node, idx } = matches[i];
+      const before = node.textContent.slice(0, idx);
+      const match = node.textContent.slice(idx, idx + query.length);
+      const after = node.textContent.slice(idx + query.length);
+      const mark = document.createElement('mark');
+      mark.textContent = match;
+      const frag = document.createDocumentFragment();
+      if (before) frag.appendChild(document.createTextNode(before));
+      frag.appendChild(mark);
+      if (after) frag.appendChild(document.createTextNode(after));
+      node.parentNode.replaceChild(frag, node);
+    }
+  }
+
+  // Keyboard shortcut: / to focus search
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  });
+})();
+</script>
 </body>
 </html>
