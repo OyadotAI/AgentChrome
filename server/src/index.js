@@ -28,6 +28,11 @@ app.get('/dashboard', (req, res) => {
   res.sendFile(join(__dirname, 'public', 'dashboard.html'));
 });
 
+// Docs at /docs
+app.get('/docs', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'docs.html'));
+});
+
 // REST API
 app.use(apiRouter);
 
