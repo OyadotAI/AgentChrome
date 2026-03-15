@@ -5,7 +5,7 @@
   "main": "main.js",
   "author": "Oya <hello@oya.ai>",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . 2>/dev/null",
     "dev": "electron . --dev",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",

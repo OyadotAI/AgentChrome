@@ -126,7 +126,28 @@ function createTab(url, activate = true) {
   });
 
   // target="_blank" / window.open → new tab
-  view.webContents.setWindowOpenHandler(({ url }) => {
+  // But allow OAuth popups (Google, GitHub, etc.) to work natively
+  view.webContents.setWindowOpenHandler(({ url, features }) => {
+    const isOAuthPopup = url.includes('accounts.google.com') ||
+      url.includes('github.com/login/oauth') ||
+      url.includes('login.microsoftonline.com') ||
+      url.includes('appleid.apple.com') ||
+      (features && features.includes('popup'));
+
+    if (isOAuthPopup) {
+      // Let it open as a real popup so window.opener works for the callback
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 500, height: 700,
+          webPreferences: {
+            partition: 'persist:oya-browser',
+          },
+        },
+      };
+    }
+
+    // Everything else → open as a new tab
     createTab(url, true);
     return { action: 'deny' };
   });
@@ -156,12 +177,26 @@ function closeTab(id) {
   const idx = tabs.findIndex(t => t.id === id);
   if (idx === -1) return;
   const tab = tabs[idx];
-  if (tab.id === activeTabId) mainWindow.removeBrowserView(tab.view);
-  tab.view.webContents.destroy();
+  const wasActive = tab.id === activeTabId;
+
+  // Always detach from window before destroying
+  try { mainWindow.removeBrowserView(tab.view); } catch {}
+
+  // Remove from list first, then destroy
   tabs.splice(idx, 1);
+
+  // Destroy the webContents (delayed to avoid race)
+  try {
+    if (!tab.view.webContents.isDestroyed()) {
+      tab.view.webContents.destroy();
+    }
+  } catch {}
+
   if (tabs.length === 0) {
+    activeTabId = null;
     createTab('https://google.com', true);
-  } else if (tab.id === activeTabId) {
+  } else if (wasActive) {
+    activeTabId = null;
     activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
   } else {
     sendTabList();
