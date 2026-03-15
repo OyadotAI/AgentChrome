@@ -20,8 +20,13 @@ const PORT = parseInt(process.env.PORT || '3100', 10);
 const app = express();
 app.use(express.json());
 
-// Static dashboard
+// Static files
 app.use(express.static(join(__dirname, 'public')));
+
+// Dashboard at /dashboard
+app.get('/dashboard', (req, res) => {
+  res.sendFile(join(__dirname, 'public', 'dashboard.html'));
+});
 
 // REST API
 app.use(apiRouter);

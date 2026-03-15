@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oya Browser Dashboard</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #09090b;
+      --bg-card: #18181b;
+      --bg-input: #0f0f12;
+      --border: #27272a;
+      --border-focus: #3b82f6;
+      --text: #fafafa;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --green: #22c55e;
+      --blue: #3b82f6;
+      --red: #ef4444;
+      --radius: 10px;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Full-height layout ── */
+
+    .shell {
+      height: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+
+    .header .badge {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: #172554;
+      color: #60a5fa;
+    }
+
+    .api-key-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding: 10px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+
+    .api-key-bar label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .api-key-bar input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      outline: none;
+    }
+
+    .api-key-bar input:focus { border-color: var(--border-focus); }
+
+    .api-key-bar button {
+      padding: 6px 14px;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .api-key-bar button:hover { opacity: 0.9; }
+
+    /* ── Grid fills remaining space ── */
+
+    .grid {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 16px;
+      flex: 1;
+      min-height: 0; /* critical: allow flex child to shrink */
+    }
+
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; grid-template-rows: 200px 1fr; }
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      min-height: 0; /* critical: allow grid child to shrink */
+      overflow: hidden;
+    }
+
+    .panel-title {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .panel-title .count {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text-dim);
+    }
+
+    /* ── Browser List ── */
+
+    .browser-list {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .browser-list:empty::after {
+      content: 'No browsers connected';
+      display: block;
+      padding: 40px 16px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .browser-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+
+    .browser-item:hover { background: #1f1f23; }
+    .browser-item.active { background: #1e293b; border-left: 3px solid var(--blue); }
+
+    .browser-item .name {
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .browser-item .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    .browser-item .meta {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .browser-item .url {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Command Panel ── */
+
+    .command-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .no-selection {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .cmd-ui-hidden { display: none !important; }
+    .cmd-ui-visible {
+      display: flex !important;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .cmd-toolbar {
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cmd-section {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cmd-section:last-child { border-bottom: none; }
+
+    .cmd-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .cmd-btn {
+      padding: 5px 12px;
+      background: #27272a;
+      color: var(--text);
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+      font-family: ui-monospace, 'SF Mono', monospace;
+    }
+
+    .cmd-btn:hover { background: #3f3f46; border-color: #52525b; }
+    .cmd-btn:disabled { opacity: 0.4; cursor: wait; }
+
+    .param-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .param-row label {
+      font-size: 11px;
+      color: var(--text-dim);
+      min-width: 55px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .param-row input {
+      flex: 1;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .param-row input:focus { border-color: var(--border-focus); }
+
+    .param-row .send {
+      padding: 5px 14px;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .param-row .send:hover { opacity: 0.9; }
+    .param-row .send:disabled { opacity: 0.4; cursor: wait; }
+
+    /* ── View tabs ── */
+    .view-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px 0;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      padding: 8px 16px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 6px 6px 0 0;
+    }
+    .tab-btn:hover { color: var(--text); background: #1f1f23; }
+    .tab-btn.active { color: var(--blue); background: var(--bg-card); }
+    .view-pane { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+    #view-commands { flex: 0 0 auto; }
+    .view-pane.hidden { display: none !important; }
+
+    /* ── MCP Tools ── */
+    .mcp-tools {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+    .mcp-tool {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .mcp-tool-header {
+      padding: 12px 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .mcp-tool-header:hover { background: #1a1a1d; }
+    .mcp-tool-name { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 600; }
+    .mcp-tool-desc { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .mcp-tool-body {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: none;
+    }
+    .mcp-tool.open .mcp-tool-body { display: block; }
+    .mcp-param { margin-bottom: 12px; }
+    .mcp-param:last-of-type { margin-bottom: 0; }
+    .mcp-param label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; }
+    .mcp-param input, .mcp-param select {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 13px;
+    }
+    .mcp-tool-run { margin-top: 12px; padding: 8px 16px; background: var(--blue); color: #fff; border: none; border-radius: 6px; font-weight: 500; cursor: pointer; }
+    .mcp-tool-run:hover { opacity: 0.9; }
+    .mcp-tool-run:disabled { opacity: 0.5; cursor: wait; }
+
+    /* ── MCP Setup / Configuration ── */
+    .mcp-setup {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-input);
+    }
+    .mcp-setup-title { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+    .mcp-setup-hint { font-weight: 400; text-transform: none; color: var(--text-muted); }
+    .mcp-setup-url-wrap, .mcp-setup-config { margin-bottom: 12px; }
+    .mcp-setup-config:last-of-type { margin-bottom: 0; }
+    .mcp-setup label { display: block; font-size: 10px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; }
+    .mcp-setup-url-row { display: flex; gap: 8px; align-items: center; }
+    .mcp-setup-url-row input { flex: 1; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 12px; font-family: ui-monospace, monospace; }
+    .mcp-config-block {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-bottom: 6px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    .mcp-copy-btn {
+      padding: 4px 10px;
+      background: var(--border);
+      color: var(--text-muted);
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .mcp-copy-btn:hover { background: #3f3f46; color: var(--text); }
+
+    .chat-thinking { color: var(--text-muted); font-size: 12px; font-style: italic; }
+
+    /* ── Result area — scrollable, fixed within panel ── */
+
+    .result-wrap {
+      flex: 1;
+      min-height: 0; /* critical */
+      display: flex;
+      flex-direction: column;
+    }
+
+    .result-area {
+      flex: 1;
+      min-height: 0; /* critical: allows shrink + scroll */
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .result-content {
+      padding: 12px 16px;
+      font-family: ui-monospace, 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #d4d4d8;
+    }
+
+    .result-content:empty::after {
+      content: 'Results will appear here...';
+      color: var(--text-dim);
+    }
+
+    .result-content .entry { margin-bottom: 4px; }
+    .result-content .error { color: var(--red); }
+    .result-content .success { color: var(--green); }
+    .result-content .ts { color: #525252; }
+    .result-content .cmd-label { color: var(--blue); }
+
+    .result-content img {
+      max-width: 100%;
+      border-radius: 6px;
+      margin: 8px 0;
+      border: 1px solid var(--border);
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+  <div class="header">
+    <h1>Oya Browser</h1>
+    <span class="badge" id="status-badge">offline</span>
+  </div>
+
+  <div class="api-key-bar">
+    <label>API Key</label>
+    <input type="password" id="api-key" placeholder="Enter API key" spellcheck="false">
+    <button id="save-key">Save</button>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="panel-title">
+        Browsers
+        <span class="count" id="browser-count">0</span>
+      </div>
+      <div class="browser-list" id="browser-list"></div>
+    </div>
+
+    <div class="panel command-panel" id="cmd-panel">
+      <div class="no-selection" id="no-selection">Select a browser to send commands</div>
+
+      <div id="cmd-ui" class="cmd-ui-hidden">
+        <div class="view-tabs">
+          <button class="tab-btn active" data-view="commands">Commands + Live</button>
+          <button class="tab-btn" data-view="mcp">MCP Tools</button>
+        </div>
+
+        <div id="view-commands" class="view-pane">
+        <div class="cmd-toolbar">
+          <div class="cmd-section">
+            <div class="cmd-grid">
+              <button class="cmd-btn" data-cmd="analyze_page">analyze_page</button>
+              <button class="cmd-btn" data-cmd="screenshot">screenshot</button>
+              <button class="cmd-btn" data-cmd="scroll_down">scroll &darr;</button>
+              <button class="cmd-btn" data-cmd="scroll_up">scroll &uarr;</button>
+              <button class="cmd-btn" data-cmd="read_page">read_elements</button>
+            </div>
+          </div>
+          <div class="cmd-section">
+            <div class="param-row">
+              <label>Navigate</label>
+              <input type="text" id="nav-url" placeholder="https://example.com" spellcheck="false">
+              <button class="send" id="btn-navigate">Go</button>
+            </div>
+          </div>
+          <div class="cmd-section">
+            <div class="param-row">
+              <label>Click</label>
+              <input type="number" id="click-id" placeholder="Element #" min="1" style="max-width:100px">
+              <label>Type</label>
+              <input type="number" id="type-id" placeholder="#" min="1" style="max-width:60px">
+              <input type="text" id="type-text" placeholder="Text to type">
+              <button class="send" id="btn-click">Click</button>
+              <button class="send" id="btn-type">Type</button>
+            </div>
+          </div>
+          <div class="cmd-section">
+            <div class="param-row">
+              <label>Chat</label>
+              <input type="text" id="chat-input" placeholder="Ask me to do something in the browser..." spellcheck="false">
+              <button class="send" id="chat-send">Send</button>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <div id="view-live" class="view-pane" style="flex:1;min-height:0;">
+          <div style="flex:1;min-height:0;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+            <img id="live-frame" style="max-width:100%;max-height:100%;object-fit:contain;display:none;">
+            <div id="live-placeholder" style="color:var(--text-dim);font-size:13px;">Connecting live view...</div>
+            <div id="live-fps" style="position:absolute;top:8px;right:12px;font-size:10px;color:var(--text-dim);font-family:ui-monospace,monospace;"></div>
+          </div>
+        </div>
+
+        <div id="view-mcp" class="view-pane hidden">
+          <div class="mcp-setup" id="mcp-setup">
+            <div class="mcp-setup-title">MCP Configuration <span class="mcp-setup-hint">— API key above used for Authorization header</span></div>
+            <div class="mcp-setup-url-wrap">
+              <label>Endpoint URL</label>
+              <div class="mcp-setup-url-row">
+                <input type="text" id="mcp-url" readonly>
+                <button type="button" id="mcp-copy-url" class="mcp-copy-btn">Copy</button>
+              </div>
+            </div>
+            <div class="mcp-setup-config">
+              <label>Cursor (.cursor/mcp.json)</label>
+              <pre id="mcp-cursor-config" class="mcp-config-block"></pre>
+              <button type="button" id="mcp-copy-cursor" class="mcp-copy-btn">Copy</button>
+            </div>
+            <div class="mcp-setup-config">
+              <label>Claude Desktop (config)</label>
+              <pre id="mcp-claude-config" class="mcp-config-block"></pre>
+              <button type="button" id="mcp-copy-claude" class="mcp-copy-btn">Copy</button>
+            </div>
+          </div>
+          <div class="mcp-tools" id="mcp-tools"></div>
+        </div>
+
+        <div class="result-wrap">
+          <div class="panel-title">
+            Result
+            <button style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:11px;" id="btn-clear">Clear</button>
+          </div>
+          <div class="result-area" id="result-area">
+            <div class="result-content" id="result"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const apiKeyInput = document.getElementById('api-key');
+  const saveKeyBtn = document.getElementById('save-key');
+  const browserList = document.getElementById('browser-list');
+  const browserCount = document.getElementById('browser-count');
+  const statusBadge = document.getElementById('status-badge');
+  const noSelection = document.getElementById('no-selection');
+  const cmdUI = document.getElementById('cmd-ui');
+  const resultEl = document.getElementById('result');
+  const resultArea = document.getElementById('result-area');
+
+  let apiKey = localStorage.getItem('ac_api_key') || '';
+  let selectedBrowser = null;
+  let isUserScrolling = false;
+  let chatHistory = []; // { role: 'user'|'assistant', content: string, toolCalls?: [] }
+
+  apiKeyInput.value = apiKey;
+
+  // Track if user is manually scrolling in the result area
+  resultArea.addEventListener('scroll', () => {
+    const atBottom = resultArea.scrollTop + resultArea.clientHeight >= resultArea.scrollHeight - 30;
+    isUserScrolling = !atBottom;
+  });
+
+  saveKeyBtn.addEventListener('click', () => {
+    apiKey = apiKeyInput.value.trim();
+    localStorage.setItem('ac_api_key', apiKey);
+    fetchBrowsers();
+  });
+
+  function headers() {
+    return { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  }
+
+  async function fetchBrowsers() {
+    try {
+      const res = await fetch('/browsers', { headers: headers() });
+      if (!res.ok) {
+        statusBadge.textContent = res.status === 403 ? 'bad key' : 'error';
+        browserList.innerHTML = '';
+        browserCount.textContent = '0';
+        return;
+      }
+      const browsers = await res.json();
+      statusBadge.textContent = `${browsers.length} browser${browsers.length !== 1 ? 's' : ''}`;
+      browserCount.textContent = browsers.length;
+      renderBrowsers(browsers);
+    } catch {
+      statusBadge.textContent = 'offline';
+      browserList.innerHTML = '';
+      browserCount.textContent = '0';
+    }
+  }
+
+  async function runCommand(action, params = {}) {
+    if (!selectedBrowser) return;
+
+    const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const paramStr = Object.keys(params).length
+      ? ' ' + Object.entries(params).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(' ')
+      : '';
+
+    appendLine(`<span class="ts">${ts}</span> <span class="cmd-label">\u2192 ${action}</span>${escapeHtml(paramStr)}`);
+
+    setButtonsDisabled(true);
+
+    try {
+      const res = await fetch(`/browsers/${selectedBrowser}/command`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ action, params }),
+      });
+      const data = await res.json();
+
+      if (data.ok === false) {
+        appendLine(`<span class="error">\u2717 ${escapeHtml(data.error || 'Failed')}</span>`);
+      } else if (action === 'screenshot' && data.data?.screenshot) {
+        appendLine(`<span class="success">\u2713 Screenshot captured</span>`);
+        const img = document.createElement('img');
+        img.src = data.data.screenshot;
+        resultEl.appendChild(img);
+        scrollResultToBottom();
+      } else if (action === 'analyze' && data.data) {
+        const d = data.data;
+        const elements = d.elements || [];
+        const vis = elements.filter(e => e.visible).length;
+        const total = elements.length;
+        const scrollPct = d.scroll?.percent ?? '';
+        const vpInfo = d.viewport ? `${d.viewport.width}x${d.viewport.height}` : '';
+        appendLine(`<span class="success">\u2713 ${escapeHtml(d.title)} \u2014 ${vis}/${total} visible \u00b7 ${vpInfo} \u00b7 scroll ${scrollPct}%</span>`);
+        if (d.truncated) appendLine(`<span class="error">\u26a0 Truncated</span>`);
+        // Full markdown: page content + element index (everything as markdown)
+        let fullMd = d.markdown || '(empty)';
+        if (elements.length > 0) {
+          const visible = elements.filter((e) => e.visible);
+          const offscreen = elements.filter((e) => !e.visible);
+          fullMd += '\n\n## Element Index (' + total + ' total, ' + visible.length + ' visible)\n\n';
+          if (visible.length > 0) {
+            fullMd += '### Visible\n' + visible.map((e) => {
+              let line = '  [#' + e.id + '] ' + e.type;
+              if (e.text) line += ': ' + e.text;
+              if (e.href) line += ' → ' + e.href;
+              if (e.value) line += ' value="' + e.value + '"';
+              if (e.checked) line += ' ✓';
+              if (e.disabled) line += ' (disabled)';
+              return line;
+            }).join('\n') + '\n';
+          }
+          if (offscreen.length > 0) {
+            fullMd += '\n### Off-screen (scroll to reveal)\n' + offscreen.map((e) => {
+              let line = '  [#' + e.id + '] ' + e.type;
+              if (e.text) line += ': ' + e.text;
+              if (e.disabled) line += ' (disabled)';
+              return line;
+            }).join('\n') + '\n';
+          }
+          if (d.truncated) fullMd += '\n⚠ Page content was truncated (very long page). Scroll down and re-analyze to see more.\n';
+        }
+        appendText(fullMd);
+        fetchBrowsers();
+      } else {
+        const text = typeof data.data === 'string'
+          ? data.data
+          : JSON.stringify(data.data, null, 2);
+        appendLine(`<span class="success">\u2713 OK</span>`);
+        if (text) appendText(text);
+      }
+    } catch (err) {
+      appendLine(`<span class="error">\u2717 ${escapeHtml(err.message)}</span>`);
+    } finally {
+      setButtonsDisabled(false);
+    }
+  }
+
+  // ── DOM-safe append (no innerHTML +=) ──
+
+  function appendLine(html) {
+    const div = document.createElement('div');
+    div.className = 'entry';
+    div.innerHTML = html;
+    resultEl.appendChild(div);
+    scrollResultToBottom();
+  }
+
+  function appendText(text) {
+    const pre = document.createElement('div');
+    pre.className = 'entry';
+    pre.textContent = text;
+    resultEl.appendChild(pre);
+    scrollResultToBottom();
+  }
+
+  function scrollResultToBottom() {
+    if (!isUserScrolling) {
+      requestAnimationFrame(() => {
+        resultArea.scrollTop = resultArea.scrollHeight;
+      });
+    }
+  }
+
+  function setButtonsDisabled(disabled) {
+    document.querySelectorAll('.cmd-btn, .send, .mcp-tool-run').forEach(b => b.disabled = disabled);
+  }
+
+  // ── Render ──
+
+  function renderBrowsers(browsers) {
+    if (selectedBrowser && !browsers.find(b => b.id === selectedBrowser)) {
+      selectedBrowser = null;
+      showCmdUI(false);
+    }
+
+    browserList.innerHTML = '';
+    for (const b of browsers) {
+      const div = document.createElement('div');
+      div.className = 'browser-item' + (b.id === selectedBrowser ? ' active' : '');
+      const ago = timeSince(new Date(b.lastSeen));
+      div.innerHTML = `
+        <div class="name"><span class="dot"></span>${escapeHtml(b.name)}</div>
+        <div class="meta">${b.id.slice(0, 8)}\u2026 \u00b7 ${ago}</div>
+        ${b.currentUrl ? `<div class="url">${escapeHtml(b.currentUrl)}</div>` : ''}
+      `;
+      div.addEventListener('click', () => {
+        selectedBrowser = b.id;
+        showCmdUI(true);
+        renderBrowsers(browsers);
+      });
+      browserList.appendChild(div);
+    }
+  }
+
+  function showCmdUI(show) {
+    noSelection.style.display = show ? 'none' : 'flex';
+    if (show) {
+      cmdUI.classList.remove('cmd-ui-hidden');
+      cmdUI.classList.add('cmd-ui-visible');
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === 'commands'));
+      showView('commands');
+    } else {
+      cmdUI.classList.remove('cmd-ui-visible');
+      cmdUI.classList.add('cmd-ui-hidden');
+      stopLiveView();
+    }
+  }
+
+  // ── Quick commands ──
+
+  document.querySelectorAll('.cmd-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cmd = btn.dataset.cmd;
+      if (cmd === 'analyze_page') runCommand('analyze');
+      else if (cmd === 'screenshot') runCommand('screenshot');
+      else if (cmd === 'scroll_down') runCommand('scroll', { direction: 'down', amount: 500 });
+      else if (cmd === 'scroll_up') runCommand('scroll', { direction: 'up', amount: 500 });
+      else if (cmd === 'read_page') runCommand('read_page', { limit: 50 });
+    });
+  });
+
+  // ── Param commands ──
+
+  document.getElementById('btn-navigate').addEventListener('click', () => {
+    const url = document.getElementById('nav-url').value.trim();
+    if (url) runCommand('navigate', { url });
+  });
+
+  document.getElementById('nav-url').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-navigate').click();
+  });
+
+  document.getElementById('btn-click').addEventListener('click', () => {
+    const id = parseInt(document.getElementById('click-id').value, 10);
+    if (id) runCommand('click', { selector: `[data-ac-id="${id}"]` });
+  });
+
+  document.getElementById('btn-type').addEventListener('click', () => {
+    const id = parseInt(document.getElementById('type-id').value, 10);
+    const text = document.getElementById('type-text').value;
+    if (id && text) runCommand('type', { selector: `[data-ac-id="${id}"]`, text });
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    resultEl.innerHTML = '';
+    isUserScrolling = false;
+  });
+
+  // ── View tabs ──
+  const allViewIds = ['view-commands', 'view-live', 'view-mcp'];
+
+  function showView(view) {
+    document.getElementById('view-commands').classList.toggle('hidden', view !== 'commands');
+    document.getElementById('view-live').classList.toggle('hidden', view !== 'commands');
+    document.getElementById('view-mcp').classList.toggle('hidden', view !== 'mcp');
+    if (view === 'commands') startLiveView();
+    else stopLiveView();
+    if (view === 'mcp') updateMcpSetup();
+  }
+
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const view = btn.dataset.view;
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      showView(view);
+    });
+  });
+
+  // ── Chat (in Commands + Live view) ──
+  const chatInputEl = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('chat-send');
+
+  async function sendChatMessage() {
+    const text = chatInputEl.value.trim();
+    if (!text || !selectedBrowser) return;
+
+    chatInputEl.value = '';
+    chatSendBtn.disabled = true;
+    chatHistory.push({ role: 'user', content: text });
+    appendLine(`<span class="cmd-label">You:</span> ${escapeHtml(text)}`);
+
+    const thinkingId = 'chat-thinking-' + Date.now();
+    appendLine(`<span class="chat-thinking" id="${thinkingId}">Thinking…</span>`);
+
+    const messages = chatHistory.map((m) => ({ role: m.role, content: m.content }));
+
+    try {
+      const res = await fetch(`/browsers/${selectedBrowser}/chat`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ messages }),
+      });
+      const data = await res.json();
+
+      const el = document.getElementById(thinkingId);
+      if (el) el.parentElement?.remove();
+      if (data.error) {
+        chatHistory.push({ role: 'assistant', content: `Error: ${data.error}` });
+        appendLine(`<span class="error">Chat: ${escapeHtml(data.error)}</span>`);
+      } else {
+        chatHistory.push({ role: 'assistant', content: data.text, toolCalls: data.toolCalls || [] });
+        let line = `<span class="success">Assistant:</span> ${escapeHtml(data.text)}`;
+        if (data.toolCalls?.length) {
+          line += ` <span class="ts">(${data.toolCalls.map((t) => t.name).join(', ')})</span>`;
+        }
+        appendLine(line);
+      }
+      if (data.error) fetchBrowsers();
+    } catch (err) {
+      const el = document.getElementById(thinkingId);
+      if (el) el.parentElement?.remove();
+      chatHistory.push({ role: 'assistant', content: `Error: ${err.message}` });
+      appendLine(`<span class="error">Chat: ${escapeHtml(err.message)}</span>`);
+    } finally {
+      chatSendBtn.disabled = false;
+      chatInputEl.focus();
+    }
+  }
+
+  chatSendBtn.addEventListener('click', sendChatMessage);
+  chatInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+
+  // ── Live View ──
+  let liveEventSource = null;
+  let liveFrameCount = 0;
+  let liveFpsTimer = null;
+
+  function startLiveView() {
+    stopLiveView();
+    if (!selectedBrowser) return;
+
+    const liveFrame = document.getElementById('live-frame');
+    const livePlaceholder = document.getElementById('live-placeholder');
+    const liveFps = document.getElementById('live-fps');
+
+    livePlaceholder.textContent = 'Connecting...';
+    liveFrameCount = 0;
+
+    const url = `/live/${selectedBrowser}?key=${encodeURIComponent(apiKey)}`;
+    const es = new EventSource(url);
+    liveEventSource = es;
+
+    es.onmessage = (e) => {
+      liveFrame.src = e.data;
+      liveFrame.style.display = 'block';
+      livePlaceholder.style.display = 'none';
+      liveFrameCount++;
+    };
+
+    es.onerror = () => {
+      livePlaceholder.textContent = 'Stream disconnected — click tab to retry';
+      livePlaceholder.style.display = 'block';
+      liveFrame.style.display = 'none';
+      stopLiveView();
+    };
+
+    // FPS counter
+    liveFpsTimer = setInterval(() => {
+      liveFps.textContent = `${liveFrameCount} fps`;
+      liveFrameCount = 0;
+    }, 1000);
+  }
+
+  function stopLiveView() {
+    if (liveEventSource) {
+      liveEventSource.close();
+      liveEventSource = null;
+    }
+    if (liveFpsTimer) {
+      clearInterval(liveFpsTimer);
+      liveFpsTimer = null;
+    }
+  }
+
+  // ── MCP Setup / Configuration ──
+  function updateMcpSetup() {
+    const baseUrl = `${window.location.protocol}//${window.location.host}`;
+    const mcpUrl = selectedBrowser ? `${baseUrl}/mcp/${selectedBrowser}` : '';
+    document.getElementById('mcp-url').value = mcpUrl || 'Select a browser';
+
+    const apiKey = apiKeyInput.value.trim();
+    const hasKey = !!apiKey;
+    const authEntry = hasKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {};
+    const cursorConfig = selectedBrowser
+      ? JSON.stringify({ mcpServers: { "oya-browser": { url: mcpUrl, transport: 'streamable-http', ...authEntry } } }, null, 2)
+      : '// Select a browser first';
+    const claudeConfig = selectedBrowser
+      ? JSON.stringify({ mcpServers: { "oya-browser": { url: mcpUrl, transport: 'streamable-http', ...authEntry } } }, null, 2)
+      : '// Select a browser first';
+
+    document.getElementById('mcp-cursor-config').textContent = cursorConfig;
+    document.getElementById('mcp-claude-config').textContent = claudeConfig;
+  }
+
+  document.getElementById('mcp-copy-url').addEventListener('click', () => {
+    const v = document.getElementById('mcp-url').value;
+    if (v && v !== 'Select a browser') navigator.clipboard.writeText(v).then(() => {});
+  });
+  document.getElementById('mcp-copy-cursor').addEventListener('click', () => {
+    const v = document.getElementById('mcp-cursor-config').textContent;
+    if (!v.startsWith('//')) navigator.clipboard.writeText(v).then(() => {});
+  });
+  document.getElementById('mcp-copy-claude').addEventListener('click', () => {
+    const v = document.getElementById('mcp-claude-config').textContent;
+    if (!v.startsWith('//')) navigator.clipboard.writeText(v).then(() => {});
+  });
+
+  // ── MCP Tools ──
+  const MCP_TOOLS = [
+    { name: 'analyze_page', desc: 'Full page markdown with element IDs', action: 'analyze', params: [] },
+    { name: 'navigate', desc: 'Navigate to URL', action: 'navigate', params: [{ name: 'url', type: 'text', label: 'URL', placeholder: 'https://example.com' }] },
+    { name: 'click', desc: 'Click element by ID (from analyze)', action: 'click', params: [{ name: 'element_id', type: 'number', label: 'Element ID', placeholder: '1' }] },
+    { name: 'type', desc: 'Type into input by ID', action: 'type', params: [{ name: 'element_id', type: 'number', label: 'Element ID' }, { name: 'text', type: 'text', label: 'Text' }] },
+    { name: 'screenshot', desc: 'Capture visible tab as PNG', action: 'screenshot', params: [] },
+    { name: 'scroll', desc: 'Scroll up or down', action: 'scroll', params: [{ name: 'direction', type: 'select', label: 'Direction', options: ['up', 'down'] }, { name: 'amount', type: 'number', label: 'Pixels', placeholder: '500', optional: true }] },
+    { name: 'wait', desc: 'Wait for selector', action: 'wait', params: [{ name: 'selector', type: 'text', label: 'CSS selector' }, { name: 'timeout', type: 'number', label: 'Timeout (ms)', placeholder: '10000', optional: true }] },
+    { name: 'read_elements', desc: 'List interactive elements (lightweight)', action: 'read_page', params: [{ name: 'selector', type: 'text', label: 'Scope selector', placeholder: 'optional', optional: true }, { name: 'limit', type: 'number', label: 'Max elements', placeholder: '50', optional: true }] },
+  ];
+
+  function buildMcpParams(tool) {
+    const p = {};
+    for (const param of tool.params) {
+      const input = document.getElementById(`mcp-${tool.name}-${param.name}`);
+      if (!input) continue;
+      const val = input.value.trim();
+      if (!val && param.optional) continue;
+      if (param.type === 'number') p[param.name] = val ? parseInt(val, 10) : undefined;
+      else p[param.name] = val || undefined;
+    }
+    return p;
+  }
+
+  function mapMcpToCommand(tool, params) {
+    if (tool.action === 'click') return { action: 'click', params: { selector: `[data-ac-id="${params.element_id}"]` } };
+    if (tool.action === 'type') return { action: 'type', params: { selector: `[data-ac-id="${params.element_id}"]`, text: params.text } };
+    return { action: tool.action, params };
+  }
+
+  function renderMcpTools() {
+    const container = document.getElementById('mcp-tools');
+    container.innerHTML = MCP_TOOLS.map((tool) => {
+      const paramInputs = tool.params.map((p) => {
+        if (p.type === 'select') {
+          const opts = (p.options || []).map((o) => `<option value="${o}">${o}</option>`).join('');
+          return `<div class="mcp-param"><label>${p.label}${p.optional ? ' (optional)' : ''}</label><select id="mcp-${tool.name}-${p.name}">${opts}</select></div>`;
+        }
+        return `<div class="mcp-param"><label>${p.label}${p.optional ? ' (optional)' : ''}</label><input type="${p.type}" id="mcp-${tool.name}-${p.name}" placeholder="${p.placeholder || ''}"></div>`;
+      }).join('');
+      return `
+        <div class="mcp-tool" data-tool="${tool.name}">
+          <div class="mcp-tool-header">
+            <div>
+              <div class="mcp-tool-name">${tool.name}</div>
+              <div class="mcp-tool-desc">${tool.desc}</div>
+            </div>
+          </div>
+          <div class="mcp-tool-body">
+            ${paramInputs}
+            <button class="mcp-tool-run" data-tool="${tool.name}">Run</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('.mcp-tool-header').forEach((h) => {
+      h.addEventListener('click', () => h.parentElement.classList.toggle('open'));
+    });
+
+    container.querySelectorAll('.mcp-tool-run').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const tool = MCP_TOOLS.find((t) => t.name === btn.dataset.tool);
+        if (!tool || !selectedBrowser) return;
+        const params = buildMcpParams(tool);
+        const { action, params: cmdParams } = mapMcpToCommand(tool, params);
+        setButtonsDisabled(true);
+        btn.disabled = true;
+        appendLine(`<span class="ts">${new Date().toLocaleTimeString('en-US', { hour12: false })}</span> <span class="cmd-label">MCP ${tool.name}</span> ${escapeHtml(JSON.stringify(cmdParams))}`);
+        try {
+          const res = await fetch(`/browsers/${selectedBrowser}/command`, {
+            method: 'POST', headers: headers(),
+            body: JSON.stringify({ action, params: cmdParams }),
+          });
+          const data = await res.json();
+          if (data.ok === false) {
+            appendLine(`<span class="error">✗ ${escapeHtml(data.error || 'Failed')}</span>`);
+          } else if (action === 'screenshot' && data.data?.screenshot) {
+            appendLine(`<span class="success">✓ Screenshot captured</span>`);
+            const img = document.createElement('img');
+            img.src = data.data.screenshot;
+            resultEl.appendChild(img);
+          } else if (action === 'analyze' && data.data) {
+            const d = data.data;
+            const elements = d.elements || [];
+            const vis = elements.filter((e) => e.visible);
+            appendLine(`<span class="success">✓ ${escapeHtml(d.title)} — ${vis.length}/${elements.length} visible</span>`);
+            if (d.truncated) appendLine(`<span class="error">⚠ Truncated</span>`);
+            let fullMd = d.markdown || '(empty)';
+            if (elements.length > 0) {
+              fullMd += '\n\n## Element Index\n\n### Visible\n' + vis.map((e) => `  [#${e.id}] ${e.type}: ${e.text || ''}`).join('\n');
+              const off = elements.filter((e) => !e.visible);
+              if (off.length) fullMd += '\n\n### Off-screen\n' + off.map((e) => `  [#${e.id}] ${e.type}`).join('\n');
+            }
+            appendText(fullMd);
+          } else {
+            appendLine(`<span class="success">✓ OK</span>`);
+            appendText(typeof data.data === 'string' ? data.data : JSON.stringify(data.data, null, 2));
+          }
+          fetchBrowsers();
+        } catch (err) {
+          appendLine(`<span class="error">✗ ${escapeHtml(err.message)}</span>`);
+        } finally {
+          setButtonsDisabled(false);
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  // Render MCP tools and update setup when cmd UI is shown
+  const origShowCmdUI = showCmdUI;
+  showCmdUI = (show) => {
+    origShowCmdUI(show);
+    if (show) {
+      updateMcpSetup();
+      renderMcpTools();
+    }
+  };
+
+  apiKeyInput.addEventListener('input', () => document.getElementById('view-mcp').classList.contains('hidden') || updateMcpSetup());
+  apiKeyInput.addEventListener('change', updateMcpSetup);
+
+  // ── Utils ──
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function timeSince(date) {
+    const s = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (s < 5) return 'just now';
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+
+  // ── Poll ──
+
+  fetchBrowsers();
+  setInterval(fetchBrowsers, 3000);
+})();
+</script>
+</body>
+</html>
