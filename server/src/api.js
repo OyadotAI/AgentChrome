@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware } from './auth.js';
+import { authMiddleware, registerApiKey } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
@@ -18,6 +18,16 @@ router.get('/health', (req, res) => {
     browsers: registry.list().length,
     uptime: process.uptime(),
   });
+});
+
+// Register a new API key (public — anyone can create a key)
+router.post('/register-key', (req, res) => {
+  const { key } = req.body;
+  if (!key || typeof key !== 'string' || key.length < 32) {
+    return res.status(400).json({ error: 'Key must be at least 32 characters' });
+  }
+  registerApiKey(key);
+  res.json({ ok: true });
 });
 
 // Runtime config — get/set server configuration from the dashboard

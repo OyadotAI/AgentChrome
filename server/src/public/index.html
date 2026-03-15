@@ -33,6 +33,11 @@
     .hero h1 { font-size: 44px; font-weight: 700; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 16px; }
     .hero h1 .g { color: var(--green); }
     .hero .sub { font-size: 17px; color: var(--muted); max-width: 580px; margin: 0 auto 28px; }
+    .hero-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 28px; border-radius: 10px; font-size: 15px; font-weight: 600; text-decoration: none; }
+    .btn:hover { opacity: 0.9; text-decoration: none; }
+    .btn-primary { background: var(--green); color: #000; }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid #333; }
 
     /* Video */
     .vid { margin: 0 auto 50px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
@@ -46,7 +51,6 @@
     .status-dot.off { background: #ef4444; }
     .status-text { font-size: 14px; color: var(--muted); }
     .status-text strong { color: var(--text); }
-    .status-bar .right a { font-size: 13px; }
 
     /* Sections */
     .section { padding: 40px 0; }
@@ -55,11 +59,26 @@
     .section .desc { color: var(--muted); margin-bottom: 24px; max-width: 600px; }
 
     /* Steps */
-    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
     .step { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
     .step-num { width: 26px; height: 26px; background: var(--green); color: #000; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin-bottom: 10px; }
     .step h3 { font-size: 15px; margin-bottom: 6px; }
     .step p { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+    /* API Key generator */
+    .key-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-top: 20px; }
+    .key-box h3 { font-size: 16px; margin-bottom: 6px; }
+    .key-box p { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+    .key-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .key-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: ui-monospace, monospace; font-size: 13px; outline: none; }
+    .key-input:focus { border-color: var(--blue); }
+    .key-input::placeholder { color: #3f3f46; }
+    .key-btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .key-btn:hover { opacity: 0.9; }
+    .key-btn-gen { background: var(--green); color: #000; }
+    .key-btn-copy { background: #27272a; color: var(--text); }
+    .key-hint { font-size: 12px; color: var(--dim); }
+    .key-hint.ok { color: var(--green); }
 
     /* Downloads */
     .downloads { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
@@ -69,14 +88,36 @@
     .dl-card p { font-size: 12px; color: var(--muted); margin-bottom: 14px; flex: 1; }
     .dl-btn { display: inline-block; background: var(--green); color: #000; padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; text-align: center; text-decoration: none; }
     .dl-btn:hover { opacity: 0.9; text-decoration: none; }
-    .dl-btn.secondary { background: #27272a; color: var(--text); }
+
+    /* Connect box */
+    .connect-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-top: 20px; }
+    .connect-box h3 { font-size: 16px; margin-bottom: 12px; }
+    .connect-field { margin-bottom: 12px; }
+    .connect-field label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+    .connect-field input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-family: ui-monospace, monospace; font-size: 13px; outline: none; }
+    .connect-field input:focus { border-color: var(--blue); }
 
     /* Terminal */
     .term { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 16px; }
     .term-bar { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
     .term-dot { width: 9px; height: 9px; border-radius: 50%; }
-    .term pre { padding: 16px 20px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.8; overflow-x: auto; color: #d4d4d8; margin: 0; }
-    .g2 { color: var(--green); } .b2 { color: var(--blue); } .y2 { color: #f59e0b; } .c2 { color: #525252; }
+    .term pre { padding: 16px 20px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.8; overflow-x: auto; color: #d4d4d8; margin: 0; white-space: pre; }
+    .g2 { color: var(--green); } .y2 { color: #f59e0b; } .c2 { color: #525252; }
+
+    /* Settings */
+    .settings-grid { display: grid; gap: 14px; }
+    .setting { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+    .setting label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .setting-hint { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+    .setting input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; }
+    .setting input:focus { border-color: var(--blue); }
+    .setting-row { display: flex; gap: 8px; }
+    .setting-row input { flex: 1; }
+    .cfg-save { padding: 8px 16px; background: var(--green); color: #000; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .cfg-save:hover { opacity: 0.9; }
+    .setting-status { font-size: 12px; margin-top: 10px; min-height: 18px; }
+    .setting-status.ok { color: var(--green); }
+    .setting-status.err { color: #ef4444; }
 
     /* Tools */
     .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 16px; }
@@ -84,25 +125,6 @@
     .tool-name { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; color: var(--green); margin-bottom: 3px; }
     .tool-desc { font-size: 11px; color: var(--muted); line-height: 1.3; }
 
-    /* Settings */
-    .settings-grid { display: grid; gap: 16px; }
-    .setting { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
-    .setting label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-    .setting-hint { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
-    .setting-hint code { font-size: 11px; }
-    .setting input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-size: 13px; outline: none; }
-    .setting input:focus { border-color: var(--blue); }
-    .setting input:disabled { opacity: 0.5; cursor: not-allowed; }
-    .setting-row { display: flex; gap: 8px; }
-    .setting-row input { flex: 1; }
-    .cfg-save { padding: 8px 16px; background: var(--green); color: #000; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-    .cfg-save:hover { opacity: 0.9; }
-    .setting-note { font-size: 11px; color: var(--dim); margin-top: 6px; }
-    .setting-status { font-size: 12px; margin-top: 10px; min-height: 18px; }
-    .setting-status.ok { color: var(--green); }
-    .setting-status.err { color: #ef4444; }
-
-    /* Footer */
     footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; font-size: 13px; color: var(--dim); margin-top: 60px; }
     footer a { color: var(--muted); }
 
@@ -115,10 +137,8 @@
   <div class="c">
     <a href="/" class="logo"><img src="icon.png" alt="">Oya Browser</a>
     <div class="nav-links">
-      <a href="#download">Download</a>
-      <a href="#connect">Connect</a>
+      <a href="#get-started">Get Started</a>
       <a href="#settings">Settings</a>
-      <a href="https://github.com/A2ABaseAI/AgentChrome">GitHub</a>
       <a href="/dashboard" class="nav-btn">Dashboard</a>
     </div>
   </div>
@@ -126,27 +146,128 @@
 
 <div class="c">
 
-  <!-- Hero -->
   <div class="hero">
     <h1>The browser built for <span class="g">AI agents</span></h1>
-    <p class="sub">Download, connect, and let AI control your browser. Your cookies, your logins, no bot detection. Agents see the page as numbered markdown and act by element ID.</p>
+    <p class="sub">Your real browser, controlled by AI via MCP. Create an API key, download the browser, connect. Your cookies, your logins, invisible to bot detection.</p>
+    <div class="hero-btns">
+      <a href="#get-started" class="btn btn-primary">Get Started</a>
+      <a href="/dashboard" class="btn btn-outline">Open Dashboard</a>
+    </div>
   </div>
 
-  <!-- Video -->
   <div class="vid">
     <video autoplay loop muted playsinline>
       <source src="oya-browser.mp4" type="video/mp4">
     </video>
   </div>
 
-  <!-- Live status -->
-  <div class="status-bar" id="status-bar">
+  <div class="status-bar">
     <div class="left">
       <div class="status-dot off" id="s-dot"></div>
       <span class="status-text" id="s-text">Checking server...</span>
     </div>
-    <div class="right">
-      <a href="/dashboard">Open Dashboard &rarr;</a>
+  </div>
+
+  <!-- Get Started -->
+  <div class="section" id="get-started">
+    <div class="label">Get Started</div>
+    <h2>Up and running in 3 steps</h2>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Create an API key</h3>
+        <p>Generate a key below. This is how your browser authenticates with the server.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Download Oya Browser</h3>
+        <p>Install the desktop app for macOS or Linux. It's a real browser with agent support built in.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Connect</h3>
+        <p>Open the browser, paste the server URL and your API key. You're connected — AI can control it.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 1: API Key -->
+  <div class="section" id="api-key">
+    <div class="label">Step 1</div>
+    <h2>Create your API key</h2>
+    <p class="desc">This key connects your browser to the server. Keep it secret — anyone with this key can control your browser.</p>
+
+    <div class="key-box">
+      <h3>Your API Key</h3>
+      <p>Generate a new key or enter an existing one.</p>
+      <div class="key-row">
+        <input type="text" class="key-input" id="user-key" placeholder="Click Generate or paste your existing key" spellcheck="false" readonly>
+        <button class="key-btn key-btn-gen" id="gen-key">Generate</button>
+        <button class="key-btn key-btn-copy" id="copy-key">Copy</button>
+      </div>
+      <div class="key-hint" id="key-hint">You'll need this key when connecting the browser app.</div>
+    </div>
+  </div>
+
+  <!-- Step 2: Download -->
+  <div class="section" id="download">
+    <div class="label">Step 2</div>
+    <h2>Download Oya Browser</h2>
+    <p class="desc">A desktop browser with multi-tab, persistent cookies, dev panel, and AI agent support built in.</p>
+
+    <div class="downloads">
+      <div class="dl-card">
+        <h3>macOS</h3>
+        <p>Universal binary — Intel and Apple Silicon.</p>
+        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya.Browser-universal.dmg" class="dl-btn">Download for macOS</a>
+      </div>
+      <div class="dl-card">
+        <h3>Linux</h3>
+        <p>AppImage — runs on any distribution.</p>
+        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya.Browser-x86_64.AppImage" class="dl-btn">Download for Linux</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Connect -->
+  <div class="section" id="connect">
+    <div class="label">Step 3</div>
+    <h2>Connect your browser</h2>
+    <p class="desc">Open Oya Browser. On the setup screen, enter these details:</p>
+
+    <div class="connect-box">
+      <h3>Connection Details</h3>
+      <div class="connect-field">
+        <label>Server URL</label>
+        <input type="text" id="ws-url-display" readonly>
+      </div>
+      <div class="connect-field">
+        <label>API Key</label>
+        <input type="text" id="key-display" value="Generate a key in Step 1" readonly>
+      </div>
+    </div>
+
+    <p style="color: var(--dim); font-size: 13px; margin-top: 12px;">Once connected, your browser appears in the <a href="/dashboard">dashboard</a>. From there you can send commands, get the MCP endpoint, and watch the live view.</p>
+  </div>
+
+  <!-- MCP -->
+  <div class="section" id="mcp">
+    <div class="label">For AI tools</div>
+    <h2>Connect Claude, Cursor, or any MCP client</h2>
+    <p class="desc">Once your browser is connected, configure your AI tool with the MCP endpoint from the <a href="/dashboard">dashboard</a>:</p>
+
+    <div class="term">
+      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <pre>{
+  <span class="g2">"mcpServers"</span>: {
+    <span class="g2">"oya-browser"</span>: {
+      <span class="g2">"url"</span>: <span class="y2" id="mcp-url">"https://browser.oya.ai/mcp/YOUR_BROWSER_ID"</span>,
+      <span class="g2">"transport"</span>: <span class="y2">"streamable-http"</span>,
+      <span class="g2">"headers"</span>: { <span class="g2">"Authorization"</span>: <span class="y2">"Bearer YOUR_API_KEY"</span> }
+    }
+  }
+}</pre>
     </div>
   </div>
 
@@ -154,18 +275,12 @@
   <div class="section" id="settings">
     <div class="label">Settings</div>
     <h2>Server Configuration</h2>
-    <p class="desc">Configure your API keys. These are saved on the server and persist across restarts.</p>
+    <p class="desc">Configure the AI chat model. Requires your server API key to save.</p>
 
     <div class="settings-grid">
       <div class="setting">
-        <label>Server API Key</label>
-        <div class="setting-hint">Used by browsers and MCP clients to authenticate. Set via <code>API_KEYS</code> env var at deploy time.</div>
-        <input type="password" id="cfg-api-key" placeholder="Set via env var" disabled>
-        <div class="setting-note">Managed via environment variable — cannot be changed from UI</div>
-      </div>
-      <div class="setting">
         <label>OpenAI API Key</label>
-        <div class="setting-hint">Required for the Chat feature. Supports OpenAI, or any compatible API.</div>
+        <div class="setting-hint">Required for the Chat feature in the dashboard.</div>
         <div class="setting-row">
           <input type="password" id="cfg-openai-key" placeholder="sk-...">
           <button class="cfg-save" id="save-openai-key">Save</button>
@@ -173,7 +288,7 @@
       </div>
       <div class="setting">
         <label>Chat Model</label>
-        <div class="setting-hint">Model used for the chat feature.</div>
+        <div class="setting-hint">Which model to use for chat.</div>
         <div class="setting-row">
           <input type="text" id="cfg-model" placeholder="gpt-4o-mini">
           <button class="cfg-save" id="save-model">Save</button>
@@ -181,7 +296,7 @@
       </div>
       <div class="setting">
         <label>OpenAI Base URL</label>
-        <div class="setting-hint">Override for compatible APIs (Anthropic, local LLMs, etc.).</div>
+        <div class="setting-hint">Override for compatible APIs (Azure, local LLMs, etc.).</div>
         <div class="setting-row">
           <input type="text" id="cfg-base-url" placeholder="https://api.openai.com/v1" spellcheck="false">
           <button class="cfg-save" id="save-base-url">Save</button>
@@ -189,87 +304,6 @@
       </div>
     </div>
     <div class="setting-status" id="setting-status"></div>
-  </div>
-
-  <!-- How it works -->
-  <div class="section">
-    <div class="label">How it works</div>
-    <h2>Three steps to AI-controlled browsing</h2>
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <h3>Download Oya Browser</h3>
-        <p>Install the desktop app. It's a real browser with multi-tab, persistent cookies, and agent scripts built in.</p>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <h3>Connect to this server</h3>
-        <p>Enter this server's URL and API key in the browser. It connects via WebSocket and appears in the dashboard.</p>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <h3>Plug in your AI tool</h3>
-        <p>Configure Claude Desktop, Cursor, or any MCP client with the browser's MCP endpoint. The AI controls the browser.</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Download -->
-  <div class="section" id="download">
-    <div class="label">Step 1</div>
-    <h2>Download Oya Browser</h2>
-    <p class="desc">A desktop browser with AI agent support built in. Multi-tab, persistent cookies, dev panel, live view.</p>
-
-    <div class="downloads">
-      <div class="dl-card">
-        <h3>macOS</h3>
-        <p>Universal binary — works on both Intel and Apple Silicon Macs.</p>
-        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya.Browser-universal.dmg" class="dl-btn">Download .dmg</a>
-      </div>
-      <div class="dl-card">
-        <h3>Linux</h3>
-        <p>AppImage — runs on any Linux distribution. No install needed.</p>
-        <a href="https://github.com/A2ABaseAI/AgentChrome/releases/latest/download/Oya.Browser-x86_64.AppImage" class="dl-btn">Download .AppImage</a>
-      </div>
-    </div>
-  </div>
-
-  <!-- Connect -->
-  <div class="section" id="connect">
-    <div class="label">Step 2</div>
-    <h2>Connect to this server</h2>
-    <p class="desc">Open Oya Browser. The setup screen asks for a server URL and API key. Enter:</p>
-
-    <div class="term">
-      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
-      <pre><span class="c2">Server URL:</span>  <span class="g2" id="ws-url">wss://browser.oya.ai/ws</span>
-<span class="c2">API Key:</span>     <span class="y2">your-api-key</span></pre>
-    </div>
-
-    <p style="color: var(--dim); font-size: 13px; margin-top: 10px;">Once connected, the browser appears in the <a href="/dashboard">dashboard</a>. You can see it, send commands, and get the MCP endpoint.</p>
-  </div>
-
-  <!-- MCP -->
-  <div class="section" id="mcp">
-    <div class="label">Step 3</div>
-    <h2>Connect your AI tool</h2>
-    <p class="desc">Go to the <a href="/dashboard">dashboard</a>, click your browser, switch to the MCP Tools tab, and copy the config. Or use this template:</p>
-
-    <div class="term">
-      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
-      <pre><span class="c2">// Cursor, Claude Desktop, Windsurf, or any MCP client</span>
-{
-  <span class="g2">"mcpServers"</span>: {
-    <span class="g2">"oya-browser"</span>: {
-      <span class="g2">"url"</span>: <span class="y2" id="mcp-url">"https://browser.oya.ai/mcp/BROWSER_ID"</span>,
-      <span class="g2">"transport"</span>: <span class="y2">"streamable-http"</span>,
-      <span class="g2">"headers"</span>: { <span class="g2">"Authorization"</span>: <span class="y2">"Bearer YOUR_KEY"</span> }
-    }
-  }
-}</pre>
-    </div>
-
-    <p style="color: var(--dim); font-size: 13px; margin-top: 10px;">Replace <code>BROWSER_ID</code> with your browser's ID from the dashboard. The AI can then call <code>analyze_page</code>, <code>click</code>, <code>type</code>, and all other tools.</p>
   </div>
 
   <!-- Tools -->
@@ -296,32 +330,78 @@
 
 <footer>
   <div class="c">
-    Built by <a href="https://oya.ai">Oya.ai</a> &middot; <a href="https://github.com/A2ABaseAI/AgentChrome">GitHub</a> &middot; <a href="/dashboard">Dashboard</a> &middot; MIT License
+    <a href="https://oya.ai">Oya.ai</a> &middot; <a href="/dashboard">Dashboard</a>
   </div>
 </footer>
 
 <script>
-// Live server status
+// Status
 fetch('/health').then(r => r.json()).then(d => {
-  const dot = document.getElementById('s-dot');
-  const text = document.getElementById('s-text');
-  dot.className = 'status-dot on';
-  text.innerHTML = `<strong>Server running</strong> — ${d.browsers} browser${d.browsers !== 1 ? 's' : ''} connected`;
+  document.getElementById('s-dot').className = 'status-dot on';
+  document.getElementById('s-text').innerHTML = `<strong>Server online</strong> — ${d.browsers} browser${d.browsers !== 1 ? 's' : ''} connected`;
 }).catch(() => {
   document.getElementById('s-text').textContent = 'Server unavailable';
 });
 
-// Auto-fill server URL based on current host
+// Auto-fill URLs
 const host = window.location.host;
-const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-document.getElementById('ws-url').textContent = `${proto}://${host}/ws`;
-document.getElementById('mcp-url').textContent = `"${window.location.protocol}//${host}/mcp/BROWSER_ID"`;
+const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+const wsUrl = `${wsProto}://${host}/ws`;
+document.getElementById('ws-url-display').value = wsUrl;
+document.getElementById('mcp-url').textContent = `"${window.location.protocol}//${host}/mcp/YOUR_BROWSER_ID"`;
 
-// Settings — need API key from localStorage (same as dashboard)
-const savedKey = localStorage.getItem('ac_api_key') || '';
-const cfgHeaders = () => ({ 'Authorization': `Bearer ${savedKey}`, 'Content-Type': 'application/json' });
+// API Key generation
+const userKeyInput = document.getElementById('user-key');
+const keyDisplay = document.getElementById('key-display');
+const keyHint = document.getElementById('key-hint');
 
-// Load config
+document.getElementById('gen-key').addEventListener('click', async () => {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  const key = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+  // Register key on the server
+  try {
+    const res = await fetch('/register-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    if (!res.ok) throw new Error('Failed to register');
+  } catch {
+    keyHint.textContent = 'Error registering key with server';
+    keyHint.className = 'key-hint';
+    return;
+  }
+
+  userKeyInput.value = key;
+  keyDisplay.value = key;
+  localStorage.setItem('ac_api_key', key);
+  keyHint.textContent = 'Key created! Copy it and paste it in the Oya Browser app to connect.';
+  keyHint.className = 'key-hint ok';
+});
+
+document.getElementById('copy-key').addEventListener('click', () => {
+  const key = userKeyInput.value;
+  if (key) {
+    navigator.clipboard.writeText(key);
+    keyHint.textContent = 'Copied to clipboard!';
+    keyHint.className = 'key-hint ok';
+    setTimeout(() => { keyHint.textContent = ''; keyHint.className = 'key-hint'; }, 2000);
+  }
+});
+
+// Load saved key
+const savedKey = localStorage.getItem('ac_api_key');
+if (savedKey) {
+  userKeyInput.value = savedKey;
+  keyDisplay.value = savedKey;
+  keyHint.textContent = 'Key loaded from previous session.';
+}
+
+// Settings
+const cfgHeaders = () => ({ 'Authorization': `Bearer ${localStorage.getItem('ac_api_key') || ''}`, 'Content-Type': 'application/json' });
+
 if (savedKey) {
   fetch('/config', { headers: cfgHeaders() }).then(r => r.ok ? r.json() : null).then(cfg => {
     if (!cfg) return;
@@ -332,19 +412,15 @@ if (savedKey) {
 }
 
 function saveCfg(updates) {
-  const key = savedKey || prompt('Enter server API key:');
-  if (!key) return;
-  localStorage.setItem('ac_api_key', key);
+  const key = localStorage.getItem('ac_api_key');
+  if (!key) { alert('Generate an API key first (Step 1)'); return; }
   const st = document.getElementById('setting-status');
-  fetch('/config', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
-  }).then(r => {
-    if (r.ok) { st.textContent = 'Saved'; st.className = 'setting-status ok'; }
-    else { st.textContent = 'Error — check API key'; st.className = 'setting-status err'; }
-    setTimeout(() => { st.textContent = ''; }, 3000);
-  }).catch(() => { st.textContent = 'Failed to save'; st.className = 'setting-status err'; });
+  fetch('/config', { method: 'POST', headers: cfgHeaders(), body: JSON.stringify(updates) })
+    .then(r => {
+      st.textContent = r.ok ? 'Saved' : 'Error — check API key';
+      st.className = r.ok ? 'setting-status ok' : 'setting-status err';
+      setTimeout(() => { st.textContent = ''; }, 3000);
+    }).catch(() => { st.textContent = 'Failed'; st.className = 'setting-status err'; });
 }
 
 document.getElementById('save-openai-key').addEventListener('click', () => {
