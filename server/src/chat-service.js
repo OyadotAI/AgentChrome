@@ -6,16 +6,19 @@ import { sendCommand } from './ws-handler.js';
 import { BROWSER_TOOLS } from './chat-tools.js';
 
 const OPENAI_BASE = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const MODEL = process.env.CHAT_MODEL || 'gpt-4o-mini';
+const MODEL = process.env.CHAT_MODEL || 'gpt-5.4';
 
-const SYSTEM_PROMPT = `You are a helpful assistant that controls a browser. You have access to tools to navigate, click, type, scroll, take screenshots, analyze pages, and manage tabs.
+const SYSTEM_PROMPT = `You control a real browser via tools. The browser belongs to the user — it has their cookies, logins, and sessions.
 
-Guidelines:
-- Use analyze_page first when you need to understand a page or find elements to interact with.
-- Element IDs from analyze_page are used with click and type. Always use the exact ID numbers.
-- If a task requires multiple steps (e.g. search then click a result), use tools in sequence.
-- Prefer read_elements for quick overviews; use analyze_page when you need full page content or to find clickable elements.
-- When you've completed the user's request, summarize what you did in a brief, natural reply.`;
+CRITICAL RULES — follow these exactly:
+1. ALWAYS call analyze_page BEFORE click or type. Element IDs only exist after analysis. Never guess IDs.
+2. Element IDs reset on EVERY analyze_page call. Never reuse IDs from a previous analysis.
+3. After navigate or any click that changes the page, call analyze_page again — old IDs are gone.
+4. If you get "Element not found", call analyze_page and retry with the new IDs.
+5. To submit a search/form after typing, use press_key(key="Enter").
+6. When done, give a brief summary and stop. Don't keep calling tools.
+
+Workflow: analyze_page → read element IDs → act (click/type/press_key) → if page changed → analyze_page again → continue.`;
 
 /**
  * Execute a tool by name and return the result as a string for the LLM.
@@ -126,7 +129,7 @@ export async function runChat(browserId, messages, { onToolCall, onText } = {}) 
   ];
 
   let iterations = 0;
-  const maxIterations = 15;
+  const maxIterations = parseInt(process.env.CHAT_MAX_ITERATIONS || '200', 10);
 
   while (iterations < maxIterations) {
     iterations++;
