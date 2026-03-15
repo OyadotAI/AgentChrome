@@ -487,8 +487,11 @@
 
   <div class="api-key-bar">
     <label>API Key</label>
-    <input type="password" id="api-key" placeholder="Enter or generate an API key" spellcheck="false">
-    <button id="gen-key" style="background:#27272a;color:#a1a1aa;border:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;">Generate</button>
+    <div style="flex:1;position:relative;display:flex;align-items:center;">
+      <input type="password" id="api-key" placeholder="Enter or generate an API key" spellcheck="false" style="width:100%;padding-right:32px;">
+      <button id="toggle-key-vis" type="button" style="position:absolute;right:8px;background:none;border:none;color:#52525b;cursor:pointer;font-size:14px;padding:2px;" title="Show/hide key">&#128065;</button>
+    </div>
+    <button id="gen-key" style="background:#22c55e;color:#000;border:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">Generate</button>
     <button id="save-key">Save</button>
     <button id="btn-settings" style="background:none;border:none;color:#71717a;font-size:16px;cursor:pointer;padding:4px 8px;" title="Settings">&#9881;</button>
   </div>
@@ -503,7 +506,10 @@
       <div style="display:grid;gap:10px;">
         <div style="display:flex;gap:8px;align-items:center;">
           <label style="font-size:11px;color:var(--text-dim);min-width:90px;text-transform:uppercase;">OpenAI Key</label>
-          <input type="password" id="cfg-openai-key" placeholder="sk-..." style="flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:13px;outline:none;">
+          <div style="flex:1;position:relative;display:flex;align-items:center;">
+            <input type="password" id="cfg-openai-key" placeholder="sk-..." style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:6px 10px;padding-right:30px;color:var(--text);font-size:13px;outline:none;">
+            <button type="button" class="eye-toggle" data-target="cfg-openai-key" style="position:absolute;right:6px;background:none;border:none;color:#52525b;cursor:pointer;font-size:13px;">&#128065;</button>
+          </div>
           <button class="cfg-btn" data-cfg="openai_api_key" data-from="cfg-openai-key" style="padding:6px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer;">Save</button>
         </div>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -647,6 +653,18 @@
   resultArea.addEventListener('scroll', () => {
     const atBottom = resultArea.scrollTop + resultArea.clientHeight >= resultArea.scrollHeight - 30;
     isUserScrolling = !atBottom;
+  });
+
+  // Eye toggle for password fields
+  document.getElementById('toggle-key-vis').addEventListener('click', () => {
+    const inp = document.getElementById('api-key');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  });
+  document.querySelectorAll('.eye-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inp = document.getElementById(btn.dataset.target);
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    });
   });
 
   saveKeyBtn.addEventListener('click', () => {
