@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: oya-browser
+
+resources:
+- ../../base
+- ingress.yaml
+- cert.yaml
+
+images:
+- name: ghcr.io/a2abaseai/oya-browser-server
+  newTag: latest
+
+labels:
+  - pairs:
+      app.kubernetes.io/version: prod
+    includeSelectors: false

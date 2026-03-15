@@ -1,0 +1,110 @@
+name: Deploy Dev (dev-browser.oya.ai)
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/a2abaseai/oya-browser-server
+  TAG: dev
+  NAMESPACE: oya-browser-dev
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      k8s: ${{ steps.filter.outputs.k8s }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          server:
+            - 'server/**'
+            - 'Dockerfile'
+          k8s:
+            - 'k8s/**'
+
+  build:
+    name: Build server
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        tags: ${{ env.IMAGE }}:${{ env.TAG }}
+        platforms: linux/amd64
+        cache-from: type=gha,scope=server-dev
+        cache-to: type=gha,mode=max,scope=server-dev
+
+  deploy:
+    name: Deploy to GKE (dev)
+    needs: [changes, build]
+    if: always() && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GKE_SA_KEY }}
+
+    - uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ secrets.GKE_CLUSTER }}
+        location: ${{ secrets.GKE_ZONE }}
+        project_id: ${{ secrets.GKE_PROJECT }}
+
+    - name: Create namespace
+      run: kubectl create namespace ${{ env.NAMESPACE }} 2>/dev/null || true
+
+    - name: Apply secrets
+      run: |
+        kubectl create secret generic app-secrets \
+          --from-literal=API_KEYS="${{ secrets.API_KEYS }}" \
+          -n ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Create GHCR pull secret
+      run: |
+        kubectl delete secret ghcr-a2abaseai -n ${{ env.NAMESPACE }} 2>/dev/null || true
+        kubectl create secret docker-registry ghcr-a2abaseai \
+          --docker-server=ghcr.io \
+          --docker-username=${{ github.repository_owner }} \
+          --docker-password=${{ secrets.GHCR_PAT }} \
+          -n ${{ env.NAMESPACE }}
+
+    - name: Deploy with Kustomize
+      run: kubectl apply -k k8s/overlays/dev
+
+    - name: Rolling restart
+      if: needs.changes.outputs.server == 'true' || needs.changes.outputs.k8s == 'true'
+      run: |
+        kubectl patch deployment server -n ${{ env.NAMESPACE }} \
+          -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
+
+    - name: Wait for rollout
+      run: kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=120s || true
+
+    - name: Show status
+      if: always()
+      run: kubectl get pods,svc,ingress -n ${{ env.NAMESPACE }}
