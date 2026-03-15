@@ -5,7 +5,7 @@ metadata:
   labels:
     app: server
 spec:
-  replicas: 2
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -86,8 +86,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: server
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 3
   metrics:
   - type: Resource
     resource:
