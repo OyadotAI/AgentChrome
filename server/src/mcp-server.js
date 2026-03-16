@@ -174,10 +174,44 @@ Use element IDs with click/type tools. The output includes:
       amount: z.number().optional().describe('Pixels to scroll (default 500)'),
     },
     async ({ direction, amount }) => {
-      const result = await sendCommand(browserId, 'scroll', { direction, amount });
+      const result = await sendCommand(browserId, 'scroll', { direction, amount }, 15000);
       if (!result.ok) {
         return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       }
+
+      // If scroll returned an analysis (auto-analyze after scroll), format it
+      if (result.data?.markdown && result.data?.elements) {
+        const { markdown, elements, truncated } = result.data;
+        const visible = elements.filter((e) => e.visible);
+        const offscreen = elements.filter((e) => !e.visible);
+
+        let index = `\n\n## Element Index (${elements.length} total, ${visible.length} visible)\n\n`;
+        if (visible.length > 0) {
+          index += '### Visible\n';
+          index += visible.map((e) => {
+            let line = `  [#${e.id}] ${e.type}`;
+            if (e.text) line += `: ${e.text}`;
+            if (e.href) line += ` → ${e.href}`;
+            if (e.value) line += ` value="${e.value}"`;
+            if (e.checked) line += ' ✓';
+            if (e.disabled) line += ' (disabled)';
+            return line;
+          }).join('\n');
+          index += '\n';
+        }
+        if (offscreen.length > 0) {
+          index += '\n### Off-screen (scroll to reveal)\n';
+          index += offscreen.map((e) => {
+            let line = `  [#${e.id}] ${e.type}`;
+            if (e.text) line += `: ${e.text}`;
+            if (e.disabled) line += ' (disabled)';
+            return line;
+          }).join('\n');
+          index += '\n';
+        }
+        return { content: [{ type: 'text', text: markdown + index }] };
+      }
+
       return { content: [{ type: 'text', text: `Scrolled ${direction} ${amount || 500}px` }] };
     }
   );

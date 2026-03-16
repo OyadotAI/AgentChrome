@@ -37,8 +37,17 @@
   const INTERACTIVE_ROLES = new Set([
     'button', 'link', 'textbox', 'combobox', 'tab', 'menuitem',
     'menuitemcheckbox', 'menuitemradio', 'option', 'checkbox', 'radio',
-    'switch', 'slider', 'spinbutton', 'searchbox', 'gridcell',
+    'switch', 'slider', 'spinbutton', 'searchbox', 'gridcell', 'treeitem',
   ]);
+
+  const INTERACTIVE_CHILD_SELECTOR = [
+    'a[href]', 'button', 'input:not([type="hidden"])', 'select', 'textarea',
+    'summary', '[role="button"]', '[role="link"]', '[role="textbox"]',
+    '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="tab"]',
+    '[role="menuitem"]', '[role="combobox"]', '[role="option"]', '[role="treeitem"]',
+    '[onclick]', '[ng-click]', '[data-action]', '[jsaction]',
+    '[data-control-name]', '[data-click]',
+  ].join(', ');
 
   let elementCounter = 0;
   let elementMap = [];
@@ -51,7 +60,27 @@
     elementMap = [];
 
     const rootSel = options.selector;
-    const root = rootSel ? document.querySelector(rootSel) : document.body;
+    let root;
+    let activeModal = null;
+
+    if (rootSel) {
+      root = document.querySelector(rootSel);
+    } else {
+      // Auto-detect open modal dialogs and focus analysis on the topmost visible one.
+      const modals = document.querySelectorAll(
+        '[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"], dialog[open]'
+      );
+      for (let i = modals.length - 1; i >= 0; i--) {
+        const m = modals[i];
+        const rect = m.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && !isHardHidden(m)) {
+          activeModal = m;
+          break;
+        }
+      }
+      root = activeModal || document.body;
+    }
+
     if (!root) {
       return { ok: false, error: `Root element not found: ${rootSel}` };
     }
@@ -112,6 +141,12 @@
       `scroll: ${scrollPct}% (${scrollY}px / ${pageH}px)`,
       `elements: ${elementMap.length} total, ${visibleCount} visible`,
     ];
+    if (activeModal) {
+      const modalLabel = activeModal.getAttribute('aria-label')
+        || activeModal.getAttribute('aria-labelledby')
+        || 'unnamed';
+      header.push(`modal: "${modalLabel}" (analysis scoped to this dialog)`);
+    }
     if (focusedId) header.push(`focused: [#${focusedId}]`);
     if (truncated) header.push(`truncated: true (page too large)`);
 
@@ -119,6 +154,10 @@
     if (options.highlight !== false) {
       addHighlights();
     }
+
+    const modalLabel = activeModal
+      ? (activeModal.getAttribute('aria-label') || activeModal.getAttribute('aria-labelledby') || true)
+      : null;
 
     return {
       ok: true,
@@ -128,6 +167,7 @@
         viewport: { width: vw, height: vh },
         scroll: { x: scrollX, y: scrollY, percent: scrollPct, pageHeight: pageH },
         focusedElement: focusedId,
+        modal: modalLabel,
         truncated,
         markdown: `---\n${header.join('\n')}\n---\n\n${md}`,
         elements: elementMap,
@@ -149,14 +189,18 @@
     if (SKIP_TAGS.has(tag)) return '';
     if (isHardHidden(node)) return '';
     if (node.id === 'ac-labels' || node.id === 'ac-highlight-style') return '';
-    if (node.getAttribute('aria-hidden') === 'true') return '';
+    if (node.getAttribute('aria-hidden') === 'true') {
+      const r = node.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return '';
+    }
 
     // ── Interactive elements ──
     const interType = getInteractiveType(node);
     if (interType) {
-      // Dedup: skip if this element contains a child that is also interactive
-      // and this one is just a wrapper (e.g. <div role="button"><button>X</button></div>)
-      if (interType === 'button' && hasInteractiveChild(node)) {
+      // Dedup: skip wrappers that contain actual interactive children.
+      // Leaf elements (input/select/textarea) can't have meaningful interactive children.
+      const isLeaf = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+      if (!isLeaf && hasInteractiveChild(node)) {
         return childrenMarkdown(node, depth);
       }
       return annotateInteractive(node, interType);
@@ -256,10 +300,16 @@
       case 'DETAILS': {
         const summary = node.querySelector('summary');
         const isOpen = node.hasAttribute('open');
-        const summaryText = summary ? summary.textContent.trim() : 'Details';
-        if (!isOpen) return `\n▶ ${summaryText} (collapsed)\n`;
+        // Annotate summary as a clickable button so the AI can toggle it
+        let summaryAnnotation = '';
+        if (summary) {
+          summaryAnnotation = annotateInteractive(summary, 'button');
+        }
+        if (!isOpen) {
+          return `\n${summaryAnnotation} (collapsed)\n`;
+        }
         const inner = children.trim();
-        return `\n▼ ${summaryText}\n${inner}\n`;
+        return `\n${summaryAnnotation}\n${inner}\n`;
       }
 
       case 'SUMMARY':
@@ -337,9 +387,23 @@
 
   // ─── Interactive Element Detection ───
 
+  function hasClickHandler(node) {
+    if (node.hasAttribute('onclick')) return true;
+    if (node.hasAttribute('onmousedown')) return true;
+    // Common framework binding attributes that appear in the DOM at runtime
+    if (node.hasAttribute('ng-click')) return true;       // AngularJS
+    if (node.hasAttribute('data-action')) return true;    // Stimulus / Rails
+    if (node.hasAttribute('jsaction')) return true;       // Google jsaction
+    if (node.hasAttribute('data-control-name')) return true; // LinkedIn
+    if (node.hasAttribute('data-click')) return true;     // generic data-click pattern
+    return false;
+  }
+
   function getInteractiveType(node) {
     const tag = node.tagName;
 
+    // ── Native HTML interactive tags ──
+    // Note: SUMMARY is handled by the DETAILS case in nodeToMarkdown, not here.
     if (tag === 'A') return 'link';
     if (tag === 'BUTTON') return 'button';
     if (tag === 'SELECT') return 'select';
@@ -348,12 +412,20 @@
     if (tag === 'INPUT') {
       const t = (node.type || 'text').toLowerCase();
       if (t === 'hidden') return null;
-      if (t === 'submit' || t === 'button' || t === 'reset') return 'button';
+      if (t === 'submit' || t === 'button' || t === 'reset' || t === 'image') return 'button';
       if (t === 'checkbox') return 'checkbox';
       if (t === 'radio') return 'radio';
       return 'input';
     }
 
+    // ── Contenteditable — check before ARIA roles so rich-text editors
+    //    (e.g. LinkedIn post editor: div[role="textbox"][contenteditable])
+    //    are typed as 'editable' instead of 'input'. ──
+    if (node.getAttribute('contenteditable') === 'true') {
+      return 'editable';
+    }
+
+    // ── ARIA roles ──
     const role = node.getAttribute('role');
     if (role && INTERACTIVE_ROLES.has(role)) {
       if (role === 'link') return 'link';
@@ -365,24 +437,26 @@
       return 'button';
     }
 
-    if (node.getAttribute('contenteditable') === 'true') {
-      return 'editable';
+    // ── Explicit click handler attributes (onclick, ng-click, etc.) ──
+    if (hasClickHandler(node)) {
+      return 'button';
     }
 
+    // ── Tabindex: only interactive if also has cursor:pointer ──
     const tabindex = node.getAttribute('tabindex');
     if (tabindex !== null && tabindex !== '-1') {
       try {
         const style = window.getComputedStyle(node);
         if (style.cursor === 'pointer') return 'button';
       } catch {}
-      if (node.textContent?.trim()) return 'button';
     }
 
+    // ── cursor:pointer fallback — tighter constraints ──
     try {
       const style = window.getComputedStyle(node);
       if (style.cursor === 'pointer' && node.textContent?.trim()) {
         const rect = node.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && rect.width < 500 && rect.height < 200) {
+        if (rect.width > 0 && rect.height > 0 && rect.width < 400 && rect.height < 120) {
           return 'button';
         }
       }
@@ -395,7 +469,7 @@
    * Check if node has an interactive descendant (for dedup).
    */
   function hasInteractiveChild(node) {
-    for (const child of node.querySelectorAll('a, button, input, select, textarea, [role="button"], [role="link"], [role="textbox"]')) {
+    for (const child of node.querySelectorAll(INTERACTIVE_CHILD_SELECTOR)) {
       if (!isHardHidden(child)) return true;
     }
     return false;
@@ -490,8 +564,9 @@
       }
 
       case 'editable': {
-        const val = node.textContent?.trim().slice(0, 50) || '';
-        return ` [#${id} editable "${val}"] `;
+        const val = node.innerText?.replace(/\s+/g, ' ').trim() || '';
+        const preview = val.length > 200 ? val.slice(0, 197) + '...' : val;
+        return ` [#${id} editable "${preview}"] `;
       }
 
       default:
@@ -658,7 +733,10 @@
       label.style.background = color;
       label.style.left = `${rect.left + scrollX - 2}px`;
       label.style.top = `${rect.top + scrollY - 18}px`;
-      label.textContent = String(el.id);
+      const parts = [el.id, el.type];
+      if (el.text) parts.push(`"${el.text.slice(0, 25)}"`);
+      if (dom.id) parts.push(`#${dom.id}`);
+      label.textContent = parts.join(' · ');
       container.appendChild(label);
     }
   }

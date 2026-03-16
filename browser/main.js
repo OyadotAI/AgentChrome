@@ -421,14 +421,27 @@ async function handleCommand(msg) {
     // Navigate
     if (action === 'navigate' && params?.url) {
       const view = getActiveView();
-      try {
-        await view.webContents.loadURL(params.url);
-      } catch (navErr) {
-        // loadURL rejects on redirects or cert errors that still land on a page — ignore
-        if (!navErr.message?.includes('ERR_ABORTED')) {
-          sendResult(id, false, null, navErr.message);
-          return;
+      const maxRetries = 2;
+      let lastErr = null;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          await view.webContents.loadURL(params.url);
+          lastErr = null;
+          break;
+        } catch (navErr) {
+          // ERR_ABORTED is normal (redirects, cert negotiation) — not a real failure
+          if (navErr.message?.includes('ERR_ABORTED')) { lastErr = null; break; }
+          lastErr = navErr;
+          // Retry on transient failures (DNS, connection reset, SSL handshake)
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, 1000));
+            continue;
+          }
         }
+      }
+      if (lastErr) {
+        sendResult(id, false, null, lastErr.message);
+        return;
       }
       await injectScripts(view);
       sendResult(id, true, { url: view.webContents.getURL(), title: view.webContents.getTitle() });
@@ -446,6 +459,25 @@ async function handleCommand(msg) {
     const view = getActiveView();
     await injectScripts(view);
     const result = await view.webContents.executeJavaScript(buildActionJS(action, params), true);
+
+    // After click: if navigation started, wait for it to finish and re-inject scripts
+    if (action === 'click' && result?.ok) {
+      await new Promise(r => setTimeout(r, 300));
+      if (view.webContents.isLoading()) {
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 15000);
+          const done = () => { clearTimeout(timeout); resolve(); };
+          view.webContents.once('did-finish-load', done);
+          view.webContents.once('did-fail-load', done);
+        });
+      }
+      // If URL changed, re-inject scripts and return the new page info
+      const newUrl = view.webContents.getURL();
+      if (result.data) result.data.url = newUrl;
+      if (result.data) result.data.title = view.webContents.getTitle();
+      await injectScripts(view);
+    }
+
     sendResult(id, result?.ok ?? true, result?.data, result?.error);
   } catch (err) {
     sendResult(id, false, null, err.message || String(err));
@@ -457,13 +489,13 @@ function buildActionJS(action, params) {
     case 'analyze':
       return `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params || {})}) : { ok: false, error: 'Analyzer not loaded' }`;
     case 'scroll':
-      return `(() => { const px = ${params?.amount || 500}; window.scrollBy({ top: ${params?.direction === 'up' ? '-px' : 'px'}, behavior: 'smooth' }); return { ok: true, data: { direction: '${params?.direction || 'down'}', amount: px } }; })()`;
+      return `(async () => { const px = ${params?.amount || 500}; window.scrollBy({ top: ${params?.direction === 'up' ? '-px' : 'px'}, behavior: 'smooth' }); await new Promise(r => setTimeout(r, 400)); if (typeof analyzePage === 'function') { return analyzePage(${JSON.stringify(params?.analyze || {})}); } return { ok: true, data: { direction: '${params?.direction || 'down'}', amount: px } }; })()`;
     case 'click':
-      return `(() => { const el = document.querySelector(${JSON.stringify(params?.selector || '')}); if (!el) return { ok: false, error: 'Element not found' }; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.click(); return { ok: true, data: { clicked: true } }; })()`;
+      return `(() => { const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document); const el = f(${JSON.stringify(params?.selector || '')}); if (!el) return { ok: false, error: 'Element not found' }; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.click(); return { ok: true, data: { clicked: true } }; })()`;
     case 'type':
-      return `(async () => { const el = document.querySelector(${JSON.stringify(params?.selector || '')}); if (!el) return { ok: false, error: 'Element not found' }; el.focus(); if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } const text = ${JSON.stringify(params?.text || '')}; for (const ch of text) { if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value += ch; else if (el.isContentEditable) el.textContent += ch; el.dispatchEvent(new Event('input', { bubbles: true })); await new Promise(r => setTimeout(r, 30 + Math.random() * 70)); } el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, data: { typed: true } }; })()`;
+      return `(async () => { const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document); const el = f(${JSON.stringify(params?.selector || '')}); if (!el) return { ok: false, error: 'Element not found' }; el.focus(); if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { el.value = ''; el.dispatchEvent(new Event('input', { bubbles: true })); } const text = ${JSON.stringify(params?.text || '')}; for (const ch of text) { if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') el.value += ch; else if (el.isContentEditable) el.textContent += ch; el.dispatchEvent(new Event('input', { bubbles: true })); await new Promise(r => setTimeout(r, 30 + Math.random() * 70)); } el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, data: { typed: true } }; })()`;
     case 'wait':
-      return `(async () => { const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (document.querySelector(${JSON.stringify(params?.selector || '')})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`;
+      return `(async () => { const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document); const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (f(${JSON.stringify(params?.selector || '')})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`;
     case 'press_key':
       return `(() => {
         const target = document.activeElement || document.body;

@@ -26,18 +26,51 @@
   const INTERACTIVE_ROLES = new Set([
     'button', 'link', 'textbox', 'combobox', 'tab', 'menuitem',
     'menuitemcheckbox', 'menuitemradio', 'option', 'checkbox', 'radio',
-    'switch', 'slider', 'spinbutton', 'searchbox', 'gridcell',
+    'switch', 'slider', 'spinbutton', 'searchbox', 'gridcell', 'treeitem',
   ]);
+
+  const INTERACTIVE_CHILD_SELECTOR = [
+    'a[href]', 'button', 'input:not([type="hidden"])', 'select', 'textarea',
+    'summary', '[role="button"]', '[role="link"]', '[role="textbox"]',
+    '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="tab"]',
+    '[role="menuitem"]', '[role="combobox"]', '[role="option"]', '[role="treeitem"]',
+    '[onclick]', '[ng-click]', '[data-action]', '[jsaction]',
+    '[data-control-name]', '[data-click]',
+  ].join(', ');
 
   let elementCounter = 0;
   let elementMap = [];
+  const elementRefs = new Map(); // id → DOM node (survives React re-renders)
 
   window.analyzePage = function (options = {}) {
     cleanup();
     elementCounter = 0;
     elementMap = [];
+    elementRefs.clear();
 
-    const root = options.selector ? document.querySelector(options.selector) : document.body;
+    // Resolve root — auto-detect open modal dialogs
+    let root;
+    let activeModal = null;
+
+    if (options.selector) {
+      root = document.querySelector(options.selector);
+    } else {
+      // Find visible modal dialogs — iterate backwards to find the topmost one
+      const modals = document.querySelectorAll(
+        '[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"], dialog[open]'
+      );
+      for (let i = modals.length - 1; i >= 0; i--) {
+        const m = modals[i];
+        const rect = m.getBoundingClientRect();
+        // Must be visible: has size and is not display:none/visibility:hidden
+        if (rect.width > 0 && rect.height > 0 && !isHardHidden(m)) {
+          activeModal = m;
+          break;
+        }
+      }
+      root = activeModal || document.body;
+    }
+
     if (!root) return { ok: false, error: `Root not found: ${options.selector}` };
 
     const vw = window.innerWidth, vh = window.innerHeight;
@@ -78,6 +111,10 @@
       `viewport: ${vw}x${vh}`, `scroll: ${scrollPct}% (${scrollY}px / ${pageH}px)`,
       `elements: ${elementMap.length} total, ${visibleCount} visible`,
     ];
+    if (activeModal) {
+      const modalLabel = activeModal.getAttribute('aria-label') || activeModal.getAttribute('aria-labelledby') || 'unnamed';
+      header.push(`modal: "${modalLabel}" (analysis scoped to this dialog)`);
+    }
     if (focusedId) header.push(`focused: [#${focusedId}]`);
     if (truncated) header.push(`truncated: true`);
 
@@ -89,12 +126,16 @@
         url: location.href, title: document.title,
         viewport: { width: vw, height: vh },
         scroll: { x: scrollX, y: scrollY, percent: scrollPct, pageHeight: pageH },
-        focusedElement: focusedId, truncated,
+        focusedElement: focusedId,
+        modal: activeModal ? (activeModal.getAttribute('aria-label') || true) : null,
+        truncated,
         markdown: `---\n${header.join('\n')}\n---\n\n${md}`,
         elements: elementMap,
       },
     };
   };
+
+  // ─── DOM → Markdown ───
 
   function nodeToMarkdown(node, depth) {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/\s+/g, ' ').trim();
@@ -103,11 +144,18 @@
     if (SKIP_TAGS.has(tag)) return '';
     if (isHardHidden(node)) return '';
     if (node.id === 'ac-labels' || node.id === 'ac-highlight-style') return '';
-    if (node.getAttribute('aria-hidden') === 'true') return '';
+    // Only skip aria-hidden elements if they're also visually hidden (zero size).
+    // LinkedIn sets aria-hidden="true" on main content when messaging is open.
+    if (node.getAttribute('aria-hidden') === 'true') {
+      const r = node.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return '';
+    }
 
     const interType = getInteractiveType(node);
     if (interType) {
-      if (interType === 'button' && hasInteractiveChild(node)) return childrenMarkdown(node, depth);
+      // Dedup: skip wrappers that contain actual interactive children.
+      const isLeaf = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+      if (!isLeaf && hasInteractiveChild(node)) return childrenMarkdown(node, depth);
       return annotateInteractive(node, interType);
     }
 
@@ -141,6 +189,15 @@
       case 'HR': return '\n---\n';
       case 'BR': return '\n';
       case 'LABEL': { const i = children.trim(); return i ? `${i}: ` : ''; }
+      case 'DETAILS': {
+        const summary = node.querySelector('summary');
+        const isOpen = node.hasAttribute('open');
+        let summaryAnnotation = '';
+        if (summary) summaryAnnotation = annotateInteractive(summary, 'button');
+        if (!isOpen) return `\n${summaryAnnotation} (collapsed)\n`;
+        return `\n${summaryAnnotation}\n${children.trim()}\n`;
+      }
+      case 'SUMMARY': return ''; // handled by DETAILS
       case 'SLOT': {
         const assigned = node.assignedNodes ? node.assignedNodes({ flatten: true }) : [];
         return assigned.map(c => nodeToMarkdown(c, depth)).join('');
@@ -183,20 +240,46 @@
     return lines.join('\n');
   }
 
+  // ─── Interactive Element Detection ───
+
+  function hasClickHandler(node) {
+    if (node.hasAttribute('onclick')) return true;
+    if (node.hasAttribute('onmousedown')) return true;
+    if (node.hasAttribute('ng-click')) return true;
+    if (node.hasAttribute('data-action')) return true;
+    if (node.hasAttribute('jsaction')) return true;
+    if (node.hasAttribute('data-control-name')) return true;
+    if (node.hasAttribute('data-click')) return true;
+    return false;
+  }
+
   function getInteractiveType(node) {
     const tag = node.tagName;
+
+    // Native HTML interactive tags
     if (tag === 'A') return 'link';
     if (tag === 'BUTTON') return 'button';
     if (tag === 'SELECT') return 'select';
     if (tag === 'TEXTAREA') return 'textarea';
+
     if (tag === 'INPUT') {
       const t = (node.type || 'text').toLowerCase();
       if (t === 'hidden') return null;
-      if (t === 'submit' || t === 'button' || t === 'reset') return 'button';
+      if (t === 'submit' || t === 'button' || t === 'reset' || t === 'image') return 'button';
       if (t === 'checkbox') return 'checkbox';
       if (t === 'radio') return 'radio';
       return 'input';
     }
+
+    // Contenteditable — check before ARIA roles so rich-text editors
+    // (e.g. LinkedIn post editor: div[role="textbox"][contenteditable])
+    // are typed as 'editable' instead of 'input'.
+    // Only match the element with the attribute, NOT inherited children.
+    if (node.getAttribute('contenteditable') === 'true') {
+      return 'editable';
+    }
+
+    // ARIA roles
     const role = node.getAttribute('role');
     if (role && INTERACTIVE_ROLES.has(role)) {
       if (role === 'link') return 'link';
@@ -206,31 +289,40 @@
       if (role === 'radio') return 'radio';
       return 'button';
     }
-    if (node.getAttribute('contenteditable') === 'true') return 'editable';
+
+    // Explicit click handler attributes
+    if (hasClickHandler(node)) return 'button';
+
+    // Tabindex: only interactive if also has cursor:pointer
     const tabindex = node.getAttribute('tabindex');
     if (tabindex !== null && tabindex !== '-1') {
       try { if (window.getComputedStyle(node).cursor === 'pointer') return 'button'; } catch {}
-      if (node.textContent?.trim()) return 'button';
     }
+
+    // cursor:pointer fallback — tighter constraints
     try {
       if (window.getComputedStyle(node).cursor === 'pointer' && node.textContent?.trim()) {
         const r = node.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0 && r.width < 500 && r.height < 200) return 'button';
+        if (r.width > 0 && r.height > 0 && r.width < 400 && r.height < 120) return 'button';
       }
     } catch {}
+
     return null;
   }
 
   function hasInteractiveChild(node) {
-    for (const c of node.querySelectorAll('a, button, input, select, textarea, [role="button"], [role="link"]'))
+    for (const c of node.querySelectorAll(INTERACTIVE_CHILD_SELECTOR))
       if (!isHardHidden(c)) return true;
     return false;
   }
+
+  // ─── Annotate interactive element ───
 
   function annotateInteractive(node, type) {
     elementCounter++;
     const id = elementCounter;
     node.setAttribute('data-ac-id', String(id));
+    elementRefs.set(id, node); // keep live reference for click/type
     const text = getLabel(node, type);
     const entry = { id, type, tag: node.tagName.toLowerCase(), selector: `[data-ac-id="${id}"]`, text };
     if (node.href) entry.href = node.href;
@@ -238,6 +330,7 @@
     if (node.placeholder) entry.placeholder = node.placeholder;
     if (node.disabled) entry.disabled = true;
     if (node.checked !== undefined) entry.checked = node.checked;
+    if (node.id) entry.domId = node.id;
     elementMap.push(entry);
 
     const label = text || node.tagName.toLowerCase();
@@ -263,7 +356,11 @@
         const s = node.options?.[node.selectedIndex];
         return ` [#${id} select "${s ? s.text : ''}" (${node.options?.length || 0} options)] `;
       }
-      case 'editable': return ` [#${id} editable "${(node.textContent?.trim() || '').slice(0, 50)}"] `;
+      case 'editable': {
+        const val = node.innerText?.replace(/\s+/g, ' ').trim() || '';
+        const preview = val.length > 200 ? val.slice(0, 197) + '...' : val;
+        return ` [#${id} editable "${preview}"] `;
+      }
       default: return ` [#${id} ${type} "${label}"] `;
     }
   }
@@ -302,6 +399,21 @@
 
   window.__acQueryShadow = queryShadow;
 
+  // Robust element lookup: stored ref → data-ac-id → shadow DOM query
+  window.__acFindElement = function (selector) {
+    // Try stored reference first (survives React re-renders)
+    const match = selector.match(/data-ac-id="(\d+)"/);
+    if (match) {
+      const id = parseInt(match[1], 10);
+      const ref = elementRefs.get(id);
+      if (ref && ref.isConnected) return ref;
+    }
+    // Fall back to DOM query (pierces shadow DOM)
+    return queryShadow(selector);
+  };
+
+  // ─── Highlight Overlays ───
+
   const HIGHLIGHT_CSS = `[data-ac-id]{outline:2px solid var(--ac-hl-color,#3b82f6)!important;outline-offset:1px!important}`;
   const LABEL_CSS = `.ac-label{position:absolute;font-family:ui-monospace,monospace;font-size:11px;font-weight:700;line-height:16px;padding:0 5px;border-radius:4px;color:#fff;z-index:2147483646;pointer-events:none;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)}`;
 
@@ -327,10 +439,12 @@
       lbl.style.background = color;
       lbl.style.left = `${rect.left + sx - 2}px`;
       lbl.style.top = `${rect.top + sy - 18}px`;
-      lbl.textContent = String(el.id);
+      lbl.textContent = `${el.id} ${el.type}`;
       c.appendChild(lbl);
     }
   }
+
+  // ─── Cleanup ───
 
   function cleanup() {
     const c = document.getElementById('ac-labels'); if (c) c.remove();
@@ -339,4 +453,82 @@
   }
 
   window.__acCleanup = cleanup;
+
+  // ─── Live DOM Observer ───
+  // Auto-tags new interactive elements as they're added (React re-renders,
+  // infinite scroll, dropdowns, modals, etc.) without needing a full re-analyze.
+
+  let observerTimer = null;
+  const pendingNodes = new Set();
+
+  function processNewNodes() {
+    observerTimer = null;
+    if (!elementMap.length) return; // no analysis has run yet
+
+    const labelContainer = document.getElementById('ac-labels');
+    const sx = window.scrollX, sy = window.scrollY;
+    const vw = window.innerWidth, vh = window.innerHeight;
+
+    for (const node of pendingNodes) {
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      if (!node.isConnected) continue;
+      if (node.id === 'ac-labels' || node.id === 'ac-highlight-style') continue;
+
+      // Walk the new subtree for interactive elements
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+      let el = node;
+      while (el) {
+        if (!el.hasAttribute('data-ac-id') && !SKIP_TAGS.has(el.tagName) && !isHardHidden(el)) {
+          const type = getInteractiveType(el);
+          if (type) {
+            const isLeaf = el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA';
+            if (isLeaf || !hasInteractiveChild(el)) {
+              elementCounter++;
+              const id = elementCounter;
+              el.setAttribute('data-ac-id', String(id));
+              elementRefs.set(id, el);
+              const text = getLabel(el, type);
+              const entry = { id, type, tag: el.tagName.toLowerCase(), selector: `[data-ac-id="${id}"]`, text };
+              if (el.href) entry.href = el.href;
+              if (el.disabled) entry.disabled = true;
+              if (el.id) entry.domId = el.id;
+              const rect = el.getBoundingClientRect();
+              entry.visible = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw && rect.width > 0 && rect.height > 0;
+              elementMap.push(entry);
+
+              // Add highlight label
+              if (labelContainer) {
+                const color = COLORS[type] || COLORS.button;
+                el.style.setProperty('--ac-hl-color', color);
+                if (rect.width > 0 && rect.height > 0) {
+                  const lbl = document.createElement('div');
+                  lbl.className = 'ac-label';
+                  lbl.style.background = color;
+                  lbl.style.left = `${rect.left + sx - 2}px`;
+                  lbl.style.top = `${rect.top + sy - 18}px`;
+                  lbl.textContent = `${id} ${type}`;
+                  labelContainer.appendChild(lbl);
+                }
+              }
+            }
+          }
+        }
+        el = walker.nextNode();
+      }
+    }
+    pendingNodes.clear();
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) pendingNodes.add(node);
+      }
+    }
+    if (pendingNodes.size > 0 && !observerTimer) {
+      observerTimer = setTimeout(processNewNodes, 200);
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 })();
