@@ -48,6 +48,9 @@
     elementMap = [];
     elementRefs.clear();
 
+    // Attach listeners for programmatic input (type command, etc)
+    attachInputListeners();
+
     // Resolve root — auto-detect open modal dialogs
     let root;
     let activeModal = null;
@@ -447,6 +450,10 @@
   // ─── Cleanup ───
 
   function cleanup() {
+    document.removeEventListener('input', onInputChange, true);
+    document.removeEventListener('change', onInputChange, true);
+    if (pollStateTimer) cancelAnimationFrame(pollStateTimer);
+    if (stateCheckTimer) clearTimeout(stateCheckTimer);
     const c = document.getElementById('ac-labels'); if (c) c.remove();
     const s = document.getElementById('ac-highlight-style'); if (s) s.remove();
     document.querySelectorAll('[data-ac-id]').forEach(el => { el.removeAttribute('data-ac-id'); el.style.removeProperty('--ac-hl-color'); });
@@ -454,12 +461,65 @@
 
   window.__acCleanup = cleanup;
 
+  // ─── Force Poll State ───
+  // Called by the type command to immediately check button states after typing
+
+  window.__acForcePollState = function() {
+    checkButtonStates();
+  };
+
+  // ─── Event Listener for Programmatic Input ───
+  // Listens for input/change events which fire even when type is done programmatically
+
+  let pollStateTimer = null;
+
+  function onInputChange() {
+    if (!stateCheckTimer) {
+      stateCheckTimer = setTimeout(checkButtonStates, 50);
+    }
+  }
+
+  function pollButtonStates() {
+    checkButtonStates();
+    pollStateTimer = requestAnimationFrame(pollButtonStates);
+  }
+
+  function attachInputListeners() {
+    document.removeEventListener('input', onInputChange, true);
+    document.removeEventListener('change', onInputChange, true);
+    if (pollStateTimer) cancelAnimationFrame(pollStateTimer);
+    document.addEventListener('input', onInputChange, true);
+    document.addEventListener('change', onInputChange, true);
+    // Poll button states continuously for programmatic changes
+    pollStateTimer = requestAnimationFrame(pollButtonStates);
+  }
+
   // ─── Live DOM Observer ───
   // Auto-tags new interactive elements as they're added (React re-renders,
   // infinite scroll, dropdowns, modals, etc.) without needing a full re-analyze.
 
   let observerTimer = null;
   const pendingNodes = new Set();
+  let stateCheckTimer = null;
+
+  function checkButtonStates() {
+    stateCheckTimer = null;
+    if (!elementMap.length) return;
+    
+    for (const entry of elementMap) {
+      const dom = queryShadow(entry.selector);
+      if (!dom) continue;
+      
+      // Update disabled state: check multiple indicators
+      const wasDisabled = entry.disabled;
+      const isDisabledAttr = dom.disabled || dom.getAttribute('aria-disabled') === 'true';
+      const isDisabledClass = dom.className?.includes('disabled') || dom.className?.includes('is-disabled');
+      const isDisabledOpacity = window.getComputedStyle(dom).opacity === '0.5' || window.getComputedStyle(dom).opacity < 0.6;
+      
+      // Most reliable: disabled attribute or aria-disabled
+      entry.disabled = isDisabledAttr || isDisabledClass;
+    }
+  }
 
   function processNewNodes() {
     observerTimer = null;
@@ -520,15 +580,50 @@
   }
 
   const observer = new MutationObserver((mutations) => {
+    let hasEditableChange = false;
     for (const m of mutations) {
-      for (const node of m.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE) pendingNodes.add(node);
+      if (m.type === 'attributes') {
+        const node = m.target;
+        if (node.hasAttribute('data-ac-id')) {
+          const id = parseInt(node.getAttribute('data-ac-id'), 10);
+          const entry = elementMap.find(e => e.id === id);
+          if (entry) {
+            // Update dynamic properties
+            if (node.disabled !== undefined) entry.disabled = node.disabled;
+            if (node.checked !== undefined) entry.checked = node.checked;
+            if (node.value !== undefined) entry.value = node.value;
+            if (node.getAttribute('aria-disabled') !== null) entry.disabled = node.getAttribute('aria-disabled') === 'true';
+            // Update visibility if needed
+            const rect = node.getBoundingClientRect();
+            const vw = window.innerWidth, vh = window.innerHeight;
+            entry.visible = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw && rect.width > 0 && rect.height > 0;
+          }
+        }
+      } else if (m.type === 'characterData' && m.target.parentElement?.hasAttribute('data-ac-id')) {
+        // Detect text change in contenteditable elements
+        const el = m.target.parentElement;
+        if (el.getAttribute('contenteditable') === 'true') {
+          hasEditableChange = true;
+        }
+      } else if (m.type === 'childList' && m.target.hasAttribute('data-ac-id')) {
+        const el = m.target;
+        if (el.getAttribute('contenteditable') === 'true') {
+          hasEditableChange = true;
+        }
+      } else {
+        for (const node of m.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) pendingNodes.add(node);
+        }
       }
     }
     if (pendingNodes.size > 0 && !observerTimer) {
       observerTimer = setTimeout(processNewNodes, 200);
     }
+    // When text changes in editable fields, re-check all button states after a short delay
+    if (hasEditableChange && !stateCheckTimer) {
+      stateCheckTimer = setTimeout(checkButtonStates, 150);
+    }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'checked', 'value', 'aria-disabled'], characterData: true });
 })();
