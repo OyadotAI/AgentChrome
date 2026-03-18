@@ -13,7 +13,7 @@ COPY server/build.js ./
 # Minify HTML/CSS/JS → dist/
 RUN node build.js
 
-# Copy browser downloads (served publicly at /downloads)
+# Browser binaries for public download (populated by CI before build)
 COPY server/downloads/ ./downloads/
 
 # Remove devDependencies and build artifacts
