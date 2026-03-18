@@ -48,8 +48,6 @@ jobs:
       run: |
         mkdir -p server/downloads
         gh release download v1.0.0 --pattern '*.dmg' --pattern '*.AppImage' --dir server/downloads --clobber
-        # Normalize filenames (spaces → hyphens)
-        cd server/downloads && for f in *; do mv "$f" "$(echo "$f" | tr ' ' '-')" 2>/dev/null || true; done
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
