@@ -12,7 +12,7 @@ import { readFileSync } from 'fs';
 import swaggerUi from 'swagger-ui-express';
 import { router as apiRouter } from './api.js';
 import { handleConnection } from './ws-handler.js';
-import { handleMcpRequest } from './mcp-server.js';
+import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
 import { validateApiKey } from './auth.js';
 import { registry } from './connection-registry.js';
 
@@ -27,6 +27,9 @@ app.use(express.json());
 // Static files (dist/public in production, src/public in dev)
 const publicDir = join(__dirname, 'public');
 app.use(express.static(publicDir));
+
+// .well-known discovery (dotfiles not served by express.static by default)
+app.use('/.well-known', express.static(join(publicDir, '.well-known')));
 
 // Swagger UI at /swagger
 app.use('/swagger', swaggerUi.serve, swaggerUi.setup(openapiSpec));
@@ -56,6 +59,11 @@ app.get('/openapi.json', (req, res) => {
 
 // REST API
 app.use(apiRouter);
+
+// MCP endpoints — pool (round-robin across all browsers for this key)
+app.post('/mcp/pool', handlePoolMcpRequest);
+app.get('/mcp/pool', handlePoolMcpRequest);
+app.delete('/mcp/pool', handlePoolMcpRequest);
 
 // MCP endpoints (per browser)
 app.post('/mcp/:browserId', handleMcpRequest);
@@ -101,5 +109,6 @@ server.listen(PORT, () => {
   console.log(`[oya] Oya Browser server listening on port ${PORT}`);
   console.log(`[oya] WebSocket: ws://localhost:${PORT}/ws`);
   console.log(`[oya] MCP endpoint: http://localhost:${PORT}/mcp/:browserId`);
+  console.log(`[oya] MCP pool:     http://localhost:${PORT}/mcp/pool`);
   console.log(`[oya] Browsers API: http://localhost:${PORT}/browsers`);
 });

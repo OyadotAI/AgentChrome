@@ -3,11 +3,13 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware, registerApiKey, isAdminKey } from './auth.js';
+import { authMiddleware, registerApiKey, isAdminKey, provisionKeys } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
 import { runtimeConfig } from './runtime-config.js';
+import { nextBrowser, poolStats } from './pool.js';
+import { getAll as getAllCookies, clear as clearCookies } from './cookie-store.js';
 
 export const router = Router();
 
@@ -40,6 +42,17 @@ router.post('/register-key', (req, res) => {
   }
   registerApiKey(key);
   res.json({ ok: true });
+});
+
+// Batch-provision API keys (admin only)
+router.post('/fleet/provision', authMiddleware, (req, res) => {
+  const key = getKey(req);
+  if (!isAdminKey(key)) {
+    return res.status(403).json({ error: 'Admin key required' });
+  }
+  const count = Math.min(Math.max(parseInt(req.query.count || req.body?.count) || 1, 1), 10000);
+  const keys = provisionKeys(count);
+  res.json({ ok: true, count: keys.length, keys });
 });
 
 // Runtime config — get/set server configuration from the dashboard
@@ -143,4 +156,48 @@ router.post('/browsers/:browserId/chat', authMiddleware, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Pool Endpoints ─────────────────────────────────────────────────────────
+
+// Pool status — how many browsers, who's connected
+router.get('/pool', authMiddleware, (req, res) => {
+  const key = getKey(req);
+  res.json(poolStats(key));
+});
+
+// Pool command — send a command to the next browser via round-robin
+router.post('/pool/command', authMiddleware, async (req, res) => {
+  req.setTimeout(0);
+  res.setTimeout(0);
+
+  const key = getKey(req);
+  const { action, params } = req.body;
+
+  if (!action) {
+    return res.status(400).json({ error: 'Missing action' });
+  }
+
+  const browserId = nextBrowser(key);
+  if (!browserId) {
+    return res.status(503).json({ error: 'No browsers available in pool' });
+  }
+
+  try {
+    const result = await sendCommand(browserId, action, params || {});
+    res.json({ ...result, _browser: browserId });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message, _browser: browserId });
+  }
+});
+
+// Pool cookies — view the shared cookie jar
+router.get('/pool/cookies', authMiddleware, (req, res) => {
+  res.json({ cookies: getAllCookies() });
+});
+
+// Pool cookies — clear the shared jar
+router.delete('/pool/cookies', authMiddleware, (req, res) => {
+  clearCookies();
+  res.json({ ok: true });
 });

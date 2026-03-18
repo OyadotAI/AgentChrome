@@ -1,0 +1,5 @@
+2026/03/17-20:07:33.182 8f03 Reusing MANIFEST /Users/mk/Dev/agentchrome/.test-e2e-tmp/browser-2/Partitions/oya-browser/Local Storage/leveldb/MANIFEST-000001
+2026/03/17-20:07:33.183 8f03 Recovering log #3
+2026/03/17-20:07:33.184 8f03 Level-0 table #3: started
+2026/03/17-20:07:33.189 8f03 Level-0 table #3: 64982 bytes OK
+2026/03/17-20:07:33.198 8f03 Delete type=0 #3

@@ -77,6 +77,7 @@
   <div class="c">
     <a href="/" class="logo"><img src="icon.png" alt="">Oya Browser</a>
     <div class="nav-links">
+      <a href="#pool">Pool</a>
       <a href="#download">Download</a>
       <a href="/docs">Docs</a>
       <a href="/dashboard" class="nav-btn">Dashboard</a>
@@ -195,6 +196,53 @@
     }
   }
 }</pre>
+    </div>
+  </div>
+
+  <!-- Pool mode -->
+  <div class="section" id="pool">
+    <div class="label">Scale</div>
+    <h2>Run 1,000 browsers as one pool</h2>
+    <p style="color: var(--muted); margin-bottom: 12px;">Set a single fleet token, point every browser at it, and they all join the same pool. The server round-robins commands across browsers and syncs cookies in real-time — so every browser has the same sessions, logins, and state.</p>
+    <p style="color: var(--muted); margin-bottom: 24px;">Your AI client connects to <strong style="color: var(--text);">one endpoint</strong>: <code>/mcp/pool</code>. No browser IDs, no per-instance config.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Set one fleet token</h3>
+        <p>Add <code>FLEET_TOKEN=secret</code> to your server env. That's the only config.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Connect N browsers</h3>
+        <p>Every browser uses the fleet token as its API key. They auto-join the pool and sync cookies.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>One MCP endpoint</h3>
+        <p>Point your AI at <code>/mcp/pool</code>. Commands rotate across browsers. Cookies stay in sync.</p>
+      </div>
+    </div>
+
+    <div class="term" style="margin-top: 20px;">
+      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <pre><span class="c2">// AI client config — one pool endpoint for all browsers</span>
+{
+  <span class="g2">"mcpServers"</span>: {
+    <span class="g2">"oya-pool"</span>: {
+      <span class="g2">"url"</span>: <span class="y2">"https://browser.oya.ai/mcp/pool"</span>,
+      <span class="g2">"transport"</span>: <span class="y2">"streamable-http"</span>,
+      <span class="g2">"headers"</span>: { <span class="g2">"Authorization"</span>: <span class="y2">"Bearer YOUR_FLEET_TOKEN"</span> }
+    }
+  }
+}</pre>
+    </div>
+
+    <div class="tools" style="margin-top: 20px;">
+      <div class="tool"><div class="tool-name">Round-robin</div><div class="tool-desc">Each navigate/analyze picks the next browser</div></div>
+      <div class="tool"><div class="tool-name">Cookie sync</div><div class="tool-desc">Login once, all browsers get the session</div></div>
+      <div class="tool"><div class="tool-name">Fleet provision</div><div class="tool-desc">POST /fleet/provision?count=1000 to batch-generate keys</div></div>
+      <div class="tool"><div class="tool-name">Pool status</div><div class="tool-desc">GET /pool to see all connected browsers</div></div>
     </div>
   </div>
 

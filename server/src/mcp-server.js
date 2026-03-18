@@ -7,10 +7,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
-import { isAdminKey } from './auth.js';
+import { isAdminKey, isFleetToken } from './auth.js';
+import { nextBrowser, poolStats } from './pool.js';
 
 /** @type {Map<string, McpServer>} */
 const mcpServers = new Map();
+
+/** Pool MCP: tracks which browser is "pinned" for stateful sequences (analyze→click) */
+let poolPinnedBrowser = null;
 
 /**
  * Create an MCP server for a browser session.
@@ -382,4 +386,209 @@ export function destroyMcpServer(browserId) {
     server.close?.();
     mcpServers.delete(browserId);
   }
+}
+
+// ─── Pool MCP ───────────────────────────────────────────────────────────────
+
+/**
+ * Create a pool MCP server that round-robins commands across all browsers
+ * sharing the same API key. Commands that start a new page context (navigate,
+ * analyze_page) advance the round-robin; subsequent commands (click, type, etc.)
+ * stay pinned to the last-used browser so element IDs remain valid.
+ */
+function createPoolMcpServer(apiKey) {
+  const server = new McpServer({
+    name: 'Oya Browser Pool',
+    version: '1.0.0',
+  });
+
+  // Current pinned browser for this pool session. When null, next
+  // navigate/analyze picks one via round-robin.
+  let pinned = null;
+
+  /** Pick browser: use pinned if set & alive, else round-robin. */
+  function pick(advance) {
+    if (pinned && registry.isConnected(pinned)) {
+      if (!advance) return pinned;
+    }
+    const id = nextBrowser(apiKey);
+    if (!id) return null;
+    pinned = id;
+    return id;
+  }
+
+  function browserTag(id) {
+    const b = registry.get(id);
+    return b ? `[${b.name} ${id.slice(0, 8)}]` : `[${id.slice(0, 8)}]`;
+  }
+
+  // ── Tools (mirror the per-browser tools but route through pool) ──
+
+  server.tool(
+    'analyze_page',
+    `Analyze the current page on the next pool browser. Returns structured markdown with interactive elements.`,
+    {},
+    async () => {
+      const bid = pick(true); // advance round-robin
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'analyze');
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      const { markdown, elements, truncated } = result.data;
+      const visible = elements.filter(e => e.visible);
+      const offscreen = elements.filter(e => !e.visible);
+      let index = `\n\n## Element Index (${elements.length} total, ${visible.length} visible)\n`;
+      if (visible.length > 0) {
+        index += '\n### Visible\n' + visible.map(e => {
+          let l = `  [#${e.id}] ${e.type}`; if (e.text) l += `: ${e.text}`; if (e.href) l += ` → ${e.href}`;
+          if (e.value) l += ` value="${e.value}"`; if (e.checked) l += ' ✓'; if (e.disabled) l += ' (disabled)'; return l;
+        }).join('\n') + '\n';
+      }
+      if (offscreen.length > 0) {
+        index += '\n### Off-screen (scroll to reveal)\n' + offscreen.map(e => {
+          let l = `  [#${e.id}] ${e.type}`; if (e.text) l += `: ${e.text}`; if (e.disabled) l += ' (disabled)'; return l;
+        }).join('\n') + '\n';
+      }
+      if (truncated) index += '\n⚠ Page content was truncated.\n';
+      return { content: [{ type: 'text', text: `${browserTag(bid)}\n${markdown}${index}` }] };
+    }
+  );
+
+  server.tool('navigate', 'Navigate the next pool browser to a URL.',
+    { url: z.string() },
+    async ({ url }) => {
+      const bid = pick(true);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'navigate', { url }, 90000);
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Navigated to ${url}` }] };
+    }
+  );
+
+  server.tool('click', 'Click an element on the pinned pool browser.',
+    { element_id: z.number() },
+    async ({ element_id }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'click', { selector: `[data-ac-id="${element_id}"]` });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Clicked element ${element_id}` }] };
+    }
+  );
+
+  server.tool('type', 'Type text into an input on the pinned pool browser.',
+    { element_id: z.number(), text: z.string() },
+    async ({ element_id, text }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'type', { selector: `[data-ac-id="${element_id}"]`, text });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Typed "${text}" into element ${element_id}` }] };
+    }
+  );
+
+  server.tool('screenshot', 'Capture screenshot from pinned pool browser.', {},
+    async () => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'screenshot');
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      if (result.data?.screenshot) {
+        const base64 = result.data.screenshot.replace(/^data:image\/png;base64,/, '');
+        return { content: [{ type: 'image', data: base64, mimeType: 'image/png' }] };
+      }
+      return { content: [{ type: 'text', text: 'No image data returned' }] };
+    }
+  );
+
+  server.tool('press_key', 'Press a keyboard key on the pinned pool browser.',
+    { key: z.string() },
+    async ({ key }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'press_key', { key });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Pressed ${key}` }] };
+    }
+  );
+
+  server.tool('scroll', 'Scroll the pinned pool browser.',
+    { direction: z.enum(['up', 'down']), amount: z.number().optional() },
+    async ({ direction, amount }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'scroll', { direction, amount }, 15000);
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      if (result.data?.markdown && result.data?.elements) {
+        const { markdown, elements } = result.data;
+        const visible = elements.filter(e => e.visible);
+        let index = `\n\n## Element Index (${elements.length} total, ${visible.length} visible)\n`;
+        if (visible.length > 0) {
+          index += '\n### Visible\n' + visible.map(e => {
+            let l = `  [#${e.id}] ${e.type}`; if (e.text) l += `: ${e.text}`; return l;
+          }).join('\n') + '\n';
+        }
+        return { content: [{ type: 'text', text: `${browserTag(bid)}\n${markdown}${index}` }] };
+      }
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Scrolled ${direction} ${amount || 500}px` }] };
+    }
+  );
+
+  server.tool('wait', 'Wait for element on pinned pool browser.',
+    { selector: z.string(), timeout: z.number().optional() },
+    async ({ selector, timeout }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'wait', { selector, timeout });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Element found: ${selector}` }] };
+    }
+  );
+
+  server.tool('pool_status', 'Show pool size and connected browsers.', {},
+    async () => {
+      const stats = poolStats(apiKey);
+      const lines = stats.browsers.map(b => `  ${b.name} (${b.id.slice(0, 8)}) — ${b.currentUrl || 'idle'}`);
+      return { content: [{ type: 'text', text: `Pool: ${stats.size} browsers\n${lines.join('\n')}` }] };
+    }
+  );
+
+  // ── Resource ──
+  server.resource('pool-status', 'browser://pool-status',
+    { description: 'Pool size and browser list' },
+    async () => {
+      const stats = poolStats(apiKey);
+      return { contents: [{ uri: 'browser://pool-status', text: JSON.stringify(stats, null, 2), mimeType: 'application/json' }] };
+    }
+  );
+
+  return server;
+}
+
+/** @type {Map<string, McpServer>} pool MCP servers keyed by apiKey */
+const poolMcpServers = new Map();
+
+/**
+ * Express handler for pool MCP endpoint: POST/GET/DELETE /mcp/pool
+ */
+export async function handlePoolMcpRequest(req, res) {
+  const apiKey = req.headers.authorization?.slice(7) || '';
+
+  if (!apiKey) {
+    res.status(401).json({ error: 'Missing API key' });
+    return;
+  }
+
+  let server = poolMcpServers.get(apiKey);
+  if (!server) {
+    server = createPoolMcpServer(apiKey);
+    poolMcpServers.set(apiKey, server);
+  }
+
+  await server.close?.();
+
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
 }

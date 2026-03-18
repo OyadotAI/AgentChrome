@@ -1,0 +1,19 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Oya Browser",
+  "name_for_model": "oya_browser",
+  "description_for_human": "Control a real Chrome browser with your cookies, logins, and extensions — no headless automation.",
+  "description_for_model": "Use this skill to control a real desktop Chrome browser. Unlike headless automation (Playwright/Puppeteer), this uses the user's actual browser with their cookies, sessions, and extensions already loaded. You can navigate pages, analyze DOM content as markdown, click elements, type text, take screenshots, manage tabs, and scroll. The browser numbers every interactive element so you can refer to them by ID. Always analyze the page after any action to get fresh element IDs. For multi-browser pools, use the pool endpoints which round-robin commands across browsers and sync cookies.",
+  "auth": {
+    "type": "service_http",
+    "authorization_type": "bearer",
+    "verification_tokens": {}
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://browser.oya.ai/openapi.json"
+  },
+  "logo_url": "https://browser.oya.ai/icon.png",
+  "contact_email": "support@oya.ai",
+  "legal_info_url": "https://oya.ai/legal"
+}

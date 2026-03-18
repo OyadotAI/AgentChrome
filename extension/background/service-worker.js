@@ -225,6 +225,96 @@ function startPingLoop() {
   }, PING_INTERVAL_MS);
 }
 
+// ─── Cookie Sync ───
+
+/** Dump all cookies to the server so the pool jar stays in sync. */
+async function dumpCookies() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    const cookies = await chrome.cookies.getAll({});
+    const slim = cookies.map(c => ({
+      name: c.name, value: c.value, domain: c.domain, path: c.path,
+      secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite,
+      expirationDate: c.expirationDate,
+    }));
+    ws.send(JSON.stringify({ type: 'cookie_dump', cookies: slim }));
+    console.log(`[oya] Sent cookie dump: ${slim.length} cookies`);
+  } catch (e) {
+    console.error('[oya] Cookie dump failed:', e);
+  }
+}
+
+/** Apply a full cookie jar from the server (replaces local cookies). */
+async function applyCookieSync(cookies) {
+  if (!Array.isArray(cookies)) return;
+  let applied = 0;
+  for (const c of cookies) {
+    try {
+      const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
+      await chrome.cookies.set({
+        url,
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path || '/',
+        secure: c.secure || false,
+        httpOnly: c.httpOnly || false,
+        sameSite: c.sameSite || 'unspecified',
+        expirationDate: c.expirationDate || undefined,
+      });
+      applied++;
+    } catch {}
+  }
+  console.log(`[oya] Cookie sync applied: ${applied}/${cookies.length}`);
+}
+
+/** Apply an incremental cookie update from the server. */
+async function applyCookieUpdate(change) {
+  if (!change?.cookie) return;
+  const c = change.cookie;
+  const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
+  try {
+    if (change.removed) {
+      await chrome.cookies.remove({ url, name: c.name });
+    } else {
+      await chrome.cookies.set({
+        url,
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path || '/',
+        secure: c.secure || false,
+        httpOnly: c.httpOnly || false,
+        sameSite: c.sameSite || 'unspecified',
+        expirationDate: c.expirationDate || undefined,
+      });
+    }
+  } catch {}
+}
+
+// Track whether we're currently applying a sync to avoid echo loops
+let applyingSync = false;
+
+// Listen for local cookie changes and forward to server
+chrome.cookies.onChanged.addListener((changeInfo) => {
+  if (applyingSync) return; // don't echo back server-pushed changes
+  if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) return;
+  const c = changeInfo.cookie;
+  try {
+    ws.send(JSON.stringify({
+      type: 'cookie_changed',
+      change: {
+        removed: changeInfo.removed,
+        cookie: {
+          name: c.name, value: c.value, domain: c.domain, path: c.path,
+          secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite,
+          expirationDate: c.expirationDate,
+        },
+      },
+    }));
+  } catch {}
+});
+
 // ─── Server Message Handling ───
 
 function handleServerMessage(msg) {
@@ -243,6 +333,8 @@ function handleServerMessage(msg) {
         browser_id: currentBrowserId,
         browser_name: currentBrowserName,
       });
+      // Send our cookies to the server for pool sync
+      dumpCookies();
       break;
 
     case 'ping':
@@ -259,6 +351,18 @@ function handleServerMessage(msg) {
     case 'pong':
       missedPongs = 0;
       lastPongAt = Date.now();
+      break;
+
+    case 'cookie_sync':
+      // Full cookie jar from server — apply without echoing back
+      applyingSync = true;
+      applyCookieSync(msg.cookies).finally(() => { applyingSync = false; });
+      break;
+
+    case 'cookie_update':
+      // Incremental cookie change from another browser in the pool
+      applyingSync = true;
+      applyCookieUpdate(msg.change).finally(() => { applyingSync = false; });
       break;
 
     case 'stream_start':

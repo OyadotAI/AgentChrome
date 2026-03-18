@@ -120,6 +120,52 @@ analyze_page returns elements inline in the markdown:
 
 Element IDs are real attributes (data-ac-id) on the DOM — click(5) resolves via querySelector('[data-ac-id="5"]').
 
+## Browser Pool (scale mode)
+
+Run hundreds or thousands of browsers as a single pool with round-robin dispatch and automatic cookie sync.
+
+### Setup
+
+Set FLEET_TOKEN env var on the server. All browsers use that token as their API key. They auto-join the pool.
+
+### Pool MCP Endpoint
+
+    POST /mcp/pool
+    Authorization: Bearer FLEET_TOKEN
+
+Same tools as per-browser MCP. navigate and analyze_page advance the round-robin. click/type/screenshot stay pinned to the last-used browser so element IDs remain valid.
+
+Additional tool: pool_status — shows pool size and connected browsers.
+
+### Cookie Sync
+
+All browsers in the pool share cookies automatically:
+- On connect: browser sends its cookies to the server, receives the shared jar
+- On change: cookie changes are broadcast to all other pool browsers in real-time
+- Login once in any browser → all browsers get the session
+
+### Pool REST API
+
+    GET  /pool                      Pool status (size + browser list)
+    POST /pool/command              Round-robin command dispatch
+    GET  /pool/cookies              View shared cookie jar
+    DELETE /pool/cookies            Clear shared cookie jar
+    POST /fleet/provision?count=N   Batch-generate N API keys (admin only)
+
+### Pool MCP Config (for AI clients)
+
+    {
+      "mcpServers": {
+        "oya-pool": {
+          "url": "https://browser.oya.ai/mcp/pool",
+          "transport": "streamable-http",
+          "headers": {
+            "Authorization": "Bearer FLEET_TOKEN"
+          }
+        }
+      }
+    }
+
 ## REST API
 
 All endpoints require Authorization: Bearer API_KEY header (except /health and /register-key).
@@ -133,6 +179,11 @@ Interactive API testing (Swagger UI): GET /swagger
     GET  /live/:id?key=...          SSE live view frame stream
     GET  /mcp/:id                   MCP Streamable HTTP endpoint
     POST /mcp/:id                   MCP Streamable HTTP endpoint
+    POST /mcp/pool                  Pool MCP endpoint (round-robin)
+    GET  /pool                      Pool status
+    POST /pool/command              Pool round-robin command
+    GET  /pool/cookies              Shared cookie jar
+    POST /fleet/provision?count=N   Batch-generate API keys
     GET  /config                    Get server settings
     POST /config                    Update server settings
 

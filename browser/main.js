@@ -7,7 +7,7 @@
  * Protocol for full native control. Human-like timing and mouse paths.
  */
 
-const { app, BrowserWindow, BrowserView, ipcMain, session, nativeImage } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
@@ -257,6 +257,104 @@ const tabs = [];
 let activeTabId = null;
 let nextTabId = 1;
 
+// ─── Cookie Sync ───
+
+const BROWSER_PARTITION = 'persist:oya-browser';
+let applyingCookieSync = false;
+
+function getBrowserSession() {
+  return electronSession.fromPartition(BROWSER_PARTITION);
+}
+
+/** Dump all cookies to the server for pool sync. */
+async function dumpCookies() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    const cookies = await getBrowserSession().cookies.get({});
+    const slim = cookies.map(c => ({
+      name: c.name, value: c.value, domain: c.domain, path: c.path,
+      secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite || 'unspecified',
+      expirationDate: c.expirationDate,
+    }));
+    ws.send(JSON.stringify({ type: 'cookie_dump', cookies: slim }));
+  } catch (e) {
+    console.log('[oya] Cookie dump failed:', e.message);
+  }
+}
+
+/** Apply a full cookie jar from the server. */
+async function applyCookieSync(cookies) {
+  if (!Array.isArray(cookies)) return;
+  applyingCookieSync = true;
+  let applied = 0;
+  for (const c of cookies) {
+    try {
+      const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
+      await getBrowserSession().cookies.set({
+        url,
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path || '/',
+        secure: c.secure || false,
+        httpOnly: c.httpOnly || false,
+        sameSite: c.sameSite || 'unspecified',
+        expirationDate: c.expirationDate || undefined,
+      });
+      applied++;
+    } catch {}
+  }
+  applyingCookieSync = false;
+  console.log(`[oya] Cookie sync applied: ${applied}/${cookies.length}`);
+}
+
+/** Apply an incremental cookie update from the server. */
+async function applyCookieUpdate(change) {
+  if (!change?.cookie) return;
+  const c = change.cookie;
+  const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
+  applyingCookieSync = true;
+  try {
+    if (change.removed) {
+      await getBrowserSession().cookies.remove(url, c.name);
+    } else {
+      await getBrowserSession().cookies.set({
+        url,
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path || '/',
+        secure: c.secure || false,
+        httpOnly: c.httpOnly || false,
+        sameSite: c.sameSite || 'unspecified',
+        expirationDate: c.expirationDate || undefined,
+      });
+    }
+  } catch {}
+  applyingCookieSync = false;
+}
+
+/** Start listening for local cookie changes and forward to server. */
+function startCookieChangeListener() {
+  getBrowserSession().cookies.on('changed', (event, cookie, cause, removed) => {
+    if (applyingCookieSync) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) return;
+    try {
+      ws.send(JSON.stringify({
+        type: 'cookie_changed',
+        change: {
+          removed,
+          cookie: {
+            name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
+            secure: cookie.secure, httpOnly: cookie.httpOnly, sameSite: cookie.sameSite || 'unspecified',
+            expirationDate: cookie.expirationDate,
+          },
+        },
+      }));
+    } catch {}
+  });
+}
+
 // ─── WebSocket ───
 
 let ws = null;
@@ -272,6 +370,7 @@ let missedPongs = 0;
 app.whenReady().then(() => {
   loadConfig();
   createWindow();
+  startCookieChangeListener();
   if (config.apiKey) connect();
 });
 
@@ -575,6 +674,14 @@ function handleServerMessage(msg) {
       if (msg.browser_id) browserId = msg.browser_id;
       startPingLoop(); sendStatus();
       if (!browsingMode) enterBrowsingMode('https://google.com');
+      // Send our cookies to the server for pool sync
+      dumpCookies();
+      break;
+    case 'cookie_sync':
+      applyCookieSync(msg.cookies);
+      break;
+    case 'cookie_update':
+      applyCookieUpdate(msg.change);
       break;
     case 'ping': missedPongs = 0; try { ws.send(JSON.stringify({ type: 'pong' })); } catch {} break;
     case 'pong': missedPongs = 0; break;

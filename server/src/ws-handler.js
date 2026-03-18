@@ -6,6 +6,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { validateApiKey } from './auth.js';
 import { registry } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
+import { mergeDump, applyChange, getAll as getAllCookies } from './cookie-store.js';
+import { broadcastToPool } from './pool.js';
 
 const PING_INTERVAL = 20000;
 const PONG_TIMEOUT = PING_INTERVAL * 2.5;
@@ -66,6 +68,14 @@ export function handleConnection(ws) {
         browser_id: browserId,
       }));
 
+      // Send current shared cookie jar so this browser syncs immediately
+      const cookies = getAllCookies();
+      if (cookies.length > 0) {
+        try {
+          ws.send(JSON.stringify({ type: 'cookie_sync', cookies }));
+        } catch {}
+      }
+
       // Start ping loop
       startPing();
       return;
@@ -94,6 +104,38 @@ export function handleConnection(ws) {
     if (msg.type === 'frame') {
       if (msg.data) {
         registry.pushFrame(browserId, msg.data);
+      }
+      return;
+    }
+
+    // ── Cookie dump (full jar from browser on connect) ──
+    if (msg.type === 'cookie_dump') {
+      if (Array.isArray(msg.cookies)) {
+        const merged = mergeDump(msg.cookies);
+        const browser = registry.get(browserId);
+        if (browser) {
+          // Sync the full merged jar to all OTHER pool browsers
+          broadcastToPool(browser.apiKey, browserId, {
+            type: 'cookie_sync',
+            cookies: merged,
+          });
+        }
+        console.log(`[ws] Cookie dump from ${browserId}: ${msg.cookies.length} cookies, jar now ${merged.length}`);
+      }
+      return;
+    }
+
+    // ── Cookie change (incremental update) ──
+    if (msg.type === 'cookie_changed') {
+      if (msg.change) {
+        const change = applyChange(msg.change);
+        const browser = registry.get(browserId);
+        if (browser) {
+          broadcastToPool(browser.apiKey, browserId, {
+            type: 'cookie_update',
+            change,
+          });
+        }
       }
       return;
     }

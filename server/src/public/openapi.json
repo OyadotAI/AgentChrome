@@ -423,6 +423,217 @@
         }
       }
     },
+    "/pool": {
+      "get": {
+        "summary": "Pool status",
+        "operationId": "getPool",
+        "description": "Returns pool size and list of connected browsers sharing the caller's API key.",
+        "responses": {
+          "200": {
+            "description": "Pool status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "size": { "type": "integer", "description": "Number of browsers in pool" },
+                    "browsers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "name": { "type": "string" },
+                          "currentUrl": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pool/command": {
+      "post": {
+        "summary": "Round-robin command",
+        "operationId": "poolCommand",
+        "description": "Send a command to the next browser in the pool via round-robin. Response includes _browser field showing which browser handled it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["action"],
+                "properties": {
+                  "action": { "type": "string", "description": "Command action (navigate, analyze, click, type, etc.)" },
+                  "params": { "type": "object", "description": "Action parameters" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Command result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/CommandResult" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "_browser": { "type": "string", "description": "Browser ID that handled the command" }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No browsers available in pool",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pool/cookies": {
+      "get": {
+        "summary": "View shared cookie jar",
+        "operationId": "getPoolCookies",
+        "description": "Returns all cookies in the shared pool cookie jar. Cookies are synced across all browsers in the pool.",
+        "responses": {
+          "200": {
+            "description": "Cookie jar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cookies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "value": { "type": "string" },
+                          "domain": { "type": "string" },
+                          "path": { "type": "string" },
+                          "secure": { "type": "boolean" },
+                          "httpOnly": { "type": "boolean" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clear shared cookie jar",
+        "operationId": "clearPoolCookies",
+        "responses": {
+          "200": {
+            "description": "Cookies cleared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fleet/provision": {
+      "post": {
+        "summary": "Batch-generate API keys",
+        "operationId": "fleetProvision",
+        "description": "Generate N API keys in one call. Admin key required. Use query param or body to specify count (max 10000).",
+        "parameters": [
+          {
+            "name": "count",
+            "in": "query",
+            "schema": { "type": "integer", "default": 1 },
+            "description": "Number of keys to generate"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Generated keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "count": { "type": "integer" },
+                    "keys": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin key required",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp/pool": {
+      "post": {
+        "summary": "Pool MCP endpoint",
+        "operationId": "mcpPool",
+        "description": "MCP Streamable HTTP endpoint for the browser pool. Round-robins commands across all browsers sharing the caller's API key. navigate/analyze_page advance the round-robin; click/type/screenshot stay pinned to the last-used browser.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "MCP JSON-RPC request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MCP JSON-RPC response or SSE stream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "MCP JSON-RPC response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/config": {
       "get": {
         "summary": "Get server configuration",

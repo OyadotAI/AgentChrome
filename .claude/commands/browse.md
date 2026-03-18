@@ -80,6 +80,15 @@ Never click or type blindly. Always analyze first to get element IDs.
 4. click(option_id)
 ```
 
+## Pool Mode
+
+If connected to `/mcp/pool` instead of `/mcp/:browserId`, commands are round-robined across all browsers in the pool:
+- `navigate` and `analyze_page` advance to the **next** browser
+- `click`, `type`, `screenshot`, etc. stay **pinned** to the last-used browser
+- Each response includes a browser tag like `[Browser-1 abc12345]`
+- Use `pool_status` tool to see how many browsers are connected
+- Cookies are synced across all pool browsers automatically
+
 ## Tips
 
 - `[#5 link "Settings" → /settings]` — element #5 is a link labeled "Settings" pointing to /settings. Use `click(element_id=5)`.
