@@ -7,4 +7,5 @@ server/dist/
 k8s/secrets.yaml
 k8s/ghcr.env
 server/data/
+server/downloads/
 .test-e2e-tmp/*

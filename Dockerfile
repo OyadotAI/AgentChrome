@@ -13,6 +13,9 @@ COPY server/build.js ./
 # Minify HTML/CSS/JS → dist/
 RUN node build.js
 
+# Copy browser downloads (served publicly at /downloads)
+COPY server/downloads/ ./downloads/
+
 # Remove devDependencies and build artifacts
 RUN npm prune --omit=dev && rm -f build.js
 

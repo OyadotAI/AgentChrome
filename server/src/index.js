@@ -31,6 +31,9 @@ app.use(express.static(publicDir));
 // .well-known discovery (dotfiles not served by express.static by default)
 app.use('/.well-known', express.static(join(publicDir, '.well-known')));
 
+// Public binary downloads (served outside of git)
+app.use('/downloads', express.static(join(__dirname, '..', 'downloads')));
+
 // Swagger UI at /swagger
 app.use('/swagger', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
