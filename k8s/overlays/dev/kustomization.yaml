@@ -9,7 +9,7 @@ resources:
 - cert.yaml
 
 images:
-- name: ghcr.io/a2abaseai/oya-browser-server
+- name: ghcr.io/oyadotia/oya-browser-server
   newTag: dev
 
 labels:

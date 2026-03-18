@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/a2abaseai/oya-browser-server
+  IMAGE: ghcr.io/oyadotia/oya-browser-server
   NAMESPACE: oya-browser
 
 jobs:
@@ -66,8 +66,8 @@ jobs:
 
     - name: Create GHCR pull secret
       run: |
-        kubectl delete secret ghcr-a2abaseai -n ${{ env.NAMESPACE }} 2>/dev/null || true
-        kubectl create secret docker-registry ghcr-a2abaseai \
+        kubectl delete secret ghcr-oyadotia -n ${{ env.NAMESPACE }} 2>/dev/null || true
+        kubectl create secret docker-registry ghcr-oyadotia \
           --docker-server=ghcr.io \
           --docker-username=${{ github.repository_owner }} \
           --docker-password=${{ secrets.GHCR_PAT }} \
