@@ -21,10 +21,10 @@ spec:
     spec:
       terminationGracePeriodSeconds: 60
       imagePullSecrets:
-        - name: ghcr-oyadotia
+        - name: ghcr-oyadotai
       containers:
       - name: server
-        image: ghcr.io/oyadotia/oya-browser-server:latest
+        image: ghcr.io/oyadotai/oya-browser-server:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 3100
