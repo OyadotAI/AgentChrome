@@ -26,6 +26,15 @@ function deepQuery(selector) {
       const found = host.shadowRoot.querySelector(selector);
       if (found) return found;
     }
+    if (host.tagName === 'IFRAME') {
+      try {
+        const iframeDoc = host.contentDocument;
+        if (iframeDoc) {
+          const found = iframeDoc.querySelector(selector);
+          if (found) return found;
+        }
+      } catch {}
+    }
   }
   return null;
 }

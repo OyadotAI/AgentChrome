@@ -10,11 +10,8 @@ import { sendCommand } from './ws-handler.js';
 import { isAdminKey, isFleetToken } from './auth.js';
 import { nextBrowser, poolStats } from './pool.js';
 
-/** @type {Map<string, McpServer>} */
-const mcpServers = new Map();
-
-/** Pool MCP: tracks which browser is "pinned" for stateful sequences (analyze→click) */
-let poolPinnedBrowser = null;
+/** Pool pinned browser state: apiKey → browserId */
+const poolPinned = new Map();
 
 /**
  * Create an MCP server for a browser session.
@@ -358,33 +355,26 @@ export async function handleMcpRequest(req, res) {
     return;
   }
 
-  let server = mcpServers.get(browserId);
-  if (!server) {
-    server = createMcpServer(browserId);
-    mcpServers.set(browserId, server);
-  }
-
-  // Stateless transport can only handle one request — create fresh transport per request.
-  // Must disconnect from previous transport before connecting to new one.
-  await server.close?.();
-
+  // Create a fresh server+transport per request so concurrent requests don't
+  // destroy each other's transports (the old close/reconnect pattern was fatal
+  // for any in-flight response).
+  const server = createMcpServer(browserId);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless
   });
   await server.connect(transport);
-
-  // Pass req.body — express.json() consumes the stream, so transport must use pre-parsed body
   await transport.handleRequest(req, res, req.body);
 }
 
 /**
- * Destroy MCP server when browser disconnects.
+ * Clean up when browser disconnects.
+ * Servers are now created per-request (stateless), so nothing to destroy.
  */
 export function destroyMcpServer(browserId) {
-  const server = mcpServers.get(browserId);
-  if (server) {
-    server.close?.();
-    mcpServers.delete(browserId);
+  // No cached servers to clean up — per-request servers are self-contained.
+  // Clear pool pin if this browser was pinned.
+  for (const [key, pinned] of poolPinned) {
+    if (pinned === browserId) poolPinned.delete(key);
   }
 }
 
@@ -402,18 +392,15 @@ function createPoolMcpServer(apiKey) {
     version: '1.0.0',
   });
 
-  // Current pinned browser for this pool session. When null, next
-  // navigate/analyze picks one via round-robin.
-  let pinned = null;
-
   /** Pick browser: use pinned if set & alive, else round-robin. */
   function pick(advance) {
+    const pinned = poolPinned.get(apiKey);
     if (pinned && registry.isConnected(pinned)) {
       if (!advance) return pinned;
     }
     const id = nextBrowser(apiKey);
     if (!id) return null;
-    pinned = id;
+    poolPinned.set(apiKey, id);
     return id;
   }
 
@@ -564,9 +551,6 @@ function createPoolMcpServer(apiKey) {
   return server;
 }
 
-/** @type {Map<string, McpServer>} pool MCP servers keyed by apiKey */
-const poolMcpServers = new Map();
-
 /**
  * Express handler for pool MCP endpoint: POST/GET/DELETE /mcp/pool
  */
@@ -578,14 +562,9 @@ export async function handlePoolMcpRequest(req, res) {
     return;
   }
 
-  let server = poolMcpServers.get(apiKey);
-  if (!server) {
-    server = createPoolMcpServer(apiKey);
-    poolMcpServers.set(apiKey, server);
-  }
-
-  await server.close?.();
-
+  // Fresh server+transport per request — pool pinned state lives in the
+  // external poolPinned Map so it persists across requests.
+  const server = createPoolMcpServer(apiKey);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
   });

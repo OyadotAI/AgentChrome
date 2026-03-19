@@ -10,7 +10,7 @@ import { mergeDump, applyChange, getAll as getAllCookies } from './cookie-store.
 import { broadcastToPool } from './pool.js';
 
 const PING_INTERVAL = 20000;
-const PONG_TIMEOUT = PING_INTERVAL * 2.5;
+const PONG_TIMEOUT = PING_INTERVAL * 4;
 
 // Pending commands: cmdId → { resolve, reject, timer }
 const pendingCommands = new Map();

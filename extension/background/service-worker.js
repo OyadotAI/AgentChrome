@@ -16,8 +16,8 @@ let pingInterval = null;
 let lastPongAt = 0;
 let missedPongs = 0;
 const MAX_RECONNECT_DELAY = 10000;
-const PING_INTERVAL_MS = 15000;
-const MAX_MISSED_PONGS = 2;
+const PING_INTERVAL_MS = 20000;
+const MAX_MISSED_PONGS = 4;
 
 let currentBrowserId = null;
 let currentBrowserName = null;
@@ -139,6 +139,19 @@ async function connect() {
         clearInterval(pingInterval);
         console.log(`[oya] WS closed: ${event.reason || `code=${event.code}`}`);
         broadcastToPopup({ type: 'ws_status', status: 'disconnected' });
+
+        // Don't reconnect on fatal/intentional close codes
+        const code = event.code;
+        if (code === 4000) {
+          // Replaced by a new connection with same browser_id — stop reconnecting
+          console.log('[oya] Connection replaced by new session — not reconnecting');
+          return;
+        }
+        if (code === 4001 || code === 4003) {
+          // Auth timeout or invalid key — reconnecting won't help
+          console.log('[oya] Auth failure — not reconnecting');
+          return;
+        }
         scheduleReconnect();
       }
     };
@@ -610,9 +623,15 @@ async function findOrOpenTab(url) {
 
   const tabs = await chrome.tabs.query({ url: pattern });
   if (tabs.length > 0) {
-    await chrome.tabs.update(tabs[0].id, { active: true });
-    await chrome.windows.update(tabs[0].windowId, { focused: true });
-    return tabs[0].id;
+    const existing = tabs[0];
+    if (existing.url !== url) {
+      // Same origin but different path — navigate to the actual URL
+      await chrome.tabs.update(existing.id, { active: true, url });
+    } else {
+      await chrome.tabs.update(existing.id, { active: true });
+    }
+    await chrome.windows.update(existing.windowId, { focused: true });
+    return existing.id;
   }
 
   const tab = await chrome.tabs.create({ url, active: true });

@@ -644,7 +644,21 @@ function connect() {
       handleServerMessage(msg);
     });
 
-    socket.on('close', () => { wsReady = false; clearInterval(pingInterval); sendStatus(); scheduleReconnect(); });
+    socket.on('close', (code) => {
+      wsReady = false;
+      clearInterval(pingInterval);
+      sendStatus();
+      // Don't reconnect on fatal/intentional close codes
+      if (code === 4000) {
+        console.log('[oya] Connection replaced by new session — not reconnecting');
+        return;
+      }
+      if (code === 4001 || code === 4003) {
+        console.log('[oya] Auth failure — not reconnecting');
+        return;
+      }
+      scheduleReconnect();
+    });
     socket.on('error', () => {});
     ws = socket;
   } catch { scheduleReconnect(); }
@@ -695,9 +709,9 @@ function startPingLoop() {
   clearInterval(pingInterval); missedPongs = 0;
   pingInterval = setInterval(() => {
     missedPongs++;
-    if (missedPongs > 2) { clearInterval(pingInterval); if (ws) try { ws.close(); } catch {} return; }
+    if (missedPongs > 4) { clearInterval(pingInterval); if (ws) try { ws.close(); } catch {} return; }
     try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
-  }, 15000);
+  }, 20000);
 }
 
 // ─── Command Handling ───
@@ -709,13 +723,27 @@ const FIND_ELEMENT_JS = (selector) => `(() => {
   if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
   el.scrollIntoView({ behavior: 'instant', block: 'center' });
   const rect = el.getBoundingClientRect();
+  let offsetX = 0, offsetY = 0;
+  // If element is inside an iframe, offset by the iframe's position in the parent page
+  const ownerDoc = el.ownerDocument;
+  if (ownerDoc !== document) {
+    for (const iframe of document.querySelectorAll('iframe')) {
+      try { if (iframe.contentDocument === ownerDoc) {
+        const iframeRect = iframe.getBoundingClientRect();
+        offsetX = iframeRect.x;
+        offsetY = iframeRect.y;
+        break;
+      }} catch {}
+    }
+  }
   return {
     ok: true,
     data: {
-      x: rect.x + rect.width / 2,
-      y: rect.y + rect.height / 2,
+      x: rect.x + rect.width / 2 + offsetX,
+      y: rect.y + rect.height / 2 + offsetY,
       tag: el.tagName,
       editable: el.isContentEditable,
+      inIframe: ownerDoc !== document,
     },
   };
 })()`;
@@ -792,6 +820,26 @@ async function handleCommand(msg) {
 
       await cdpClick(view, info.data.x, info.data.y);
 
+      // For iframe elements, also dispatch full pointer/mouse event sequence — CDP
+      // mouse events may not trigger framework handlers (jsaction, etc.) in iframes.
+      if (info.data.inIframe) {
+        await view.webContents.executeJavaScript(`(() => {
+          const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+          const el = f(${JSON.stringify(params?.selector || '')});
+          if (!el) return;
+          const rect = el.getBoundingClientRect();
+          const x = rect.x + rect.width / 2;
+          const y = rect.y + rect.height / 2;
+          const w = el.ownerDocument.defaultView;
+          const opts = { bubbles: true, cancelable: true, view: w, clientX: x, clientY: y, screenX: x, screenY: y };
+          el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerId: 1, pointerType: 'mouse' }));
+          el.dispatchEvent(new MouseEvent('mousedown', { ...opts, button: 0, buttons: 1 }));
+          el.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1, pointerType: 'mouse' }));
+          el.dispatchEvent(new MouseEvent('mouseup', { ...opts, button: 0 }));
+          el.dispatchEvent(new MouseEvent('click', { ...opts, button: 0 }));
+        })()`, true).catch(() => {});
+      }
+
       // Wait for potential navigation
       await sleep(300);
       if (view.webContents.isLoading()) {
@@ -825,11 +873,33 @@ async function handleCommand(msg) {
       const text = params?.text || '';
       if (!text) { sendResult(id, true, { typed: true }); return; }
 
-      // Clear existing content
-      await cdpClearField(view);
+      if (info.data.inIframe) {
+        // CDP keyboard events don't route to iframe frames — use JS clear + Electron insertText
+        await view.webContents.executeJavaScript(`(() => {
+          const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+          const el = f(${JSON.stringify(params?.selector || '')});
+          if (!el) return;
+          el.focus();
+          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { el.value = ''; }
+          else if (el.isContentEditable) { el.textContent = ''; }
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`, true).catch(() => {});
+        await sleep(50);
 
-      // Type with human cadence
-      await cdpTypeText(view, text);
+        // Type character by character using insertText (routes to focused iframe element)
+        let prev = '';
+        for (const ch of text) {
+          await view.webContents.insertText(ch);
+          await sleep(typingDelay(ch, prev));
+          prev = ch;
+        }
+      } else {
+        // Clear existing content
+        await cdpClearField(view);
+
+        // Type with human cadence
+        await cdpTypeText(view, text);
+      }
 
       await sleep(80);
       await view.webContents.executeJavaScript(
@@ -845,7 +915,11 @@ async function handleCommand(msg) {
     if (action === 'press_key') {
       const view = getActiveView();
       const key = params?.key || 'Enter';
-      await cdpPressKey(view, key);
+      // Use sendInputEvent (routes to focused frame) instead of CDP (main frame only)
+      const def = keyDef(key);
+      view.webContents.sendInputEvent({ type: 'keyDown', keyCode: def.key });
+      await sleep(20 + Math.random() * 30);
+      view.webContents.sendInputEvent({ type: 'keyUp', keyCode: def.key });
 
       if (key === 'Enter') {
         await sleep(300);

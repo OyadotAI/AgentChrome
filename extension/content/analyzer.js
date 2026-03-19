@@ -29,7 +29,7 @@
 
   const SKIP_TAGS = new Set([
     'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'LINK', 'META',
-    'HEAD', 'IFRAME', 'OBJECT', 'EMBED', 'CANVAS', 'MAP', 'TEMPLATE',
+    'HEAD', 'OBJECT', 'EMBED', 'CANVAS', 'MAP', 'TEMPLATE',
   ]);
 
   const LANDMARK_TAGS = { HEADER: 'header', FOOTER: 'footer', NAV: 'nav', MAIN: 'main', ASIDE: 'aside', FORM: 'form', SECTION: 'section', ARTICLE: 'article' };
@@ -111,9 +111,12 @@
       const dom = queryShadow(el.selector);
       if (dom) {
         const rect = dom.getBoundingClientRect();
-        el.visible = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw && rect.width > 0 && rect.height > 0;
-        el.x = Math.round(rect.left);
-        el.y = Math.round(rect.top);
+        const off = getIframeOffset(dom);
+        const top = rect.top + off.y, bottom = rect.bottom + off.y;
+        const left = rect.left + off.x, right = rect.right + off.x;
+        el.visible = bottom > 0 && top < vh && right > 0 && left < vw && rect.width > 0 && rect.height > 0;
+        el.x = Math.round(left);
+        el.y = Math.round(top);
       } else {
         el.visible = false;
       }
@@ -192,6 +195,26 @@
     if (node.getAttribute('aria-hidden') === 'true') {
       const r = node.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return '';
+    }
+
+    // ── Iframes: traverse into same-origin iframes ──
+    if (tag === 'IFRAME') {
+      try {
+        const iframeDoc = node.contentDocument;
+        if (iframeDoc && iframeDoc.body) {
+          const src = node.src || '';
+          let iframeLabel = 'iframe';
+          try {
+            iframeLabel = new URL(src, location.origin).pathname;
+          } catch {}
+          return `\n<!-- iframe: ${iframeLabel} -->\n${nodeToMarkdown(iframeDoc.body, depth)}\n<!-- /iframe -->\n`;
+        }
+      } catch {
+        // Cross-origin — can't access contentDocument
+      }
+      // Cross-origin or empty iframe — note it but skip content
+      const src = node.src || '';
+      return src ? ` [iframe: ${src.slice(0, 80)}] ` : '';
     }
 
     // ── Interactive elements ──
@@ -645,6 +668,21 @@
     return false;
   }
 
+  /** Return {x, y} offset if element lives inside a same-origin iframe. */
+  function getIframeOffset(el) {
+    const ownerDoc = el.ownerDocument;
+    if (ownerDoc === document) return { x: 0, y: 0 };
+    for (const iframe of document.querySelectorAll('iframe')) {
+      try {
+        if (iframe.contentDocument === ownerDoc) {
+          const r = iframe.getBoundingClientRect();
+          return { x: r.left, y: r.top };
+        }
+      } catch {}
+    }
+    return { x: 0, y: 0 };
+  }
+
   // ─── Shadow DOM query ───
 
   function queryShadow(selector, root = document) {
@@ -655,6 +693,16 @@
       if (host.shadowRoot) {
         const found = queryShadow(selector, host.shadowRoot);
         if (found) return found;
+      }
+      // Search inside same-origin iframes
+      if (host.tagName === 'IFRAME') {
+        try {
+          const iframeDoc = host.contentDocument;
+          if (iframeDoc) {
+            const found = queryShadow(selector, iframeDoc);
+            if (found) return found;
+          }
+        } catch {}
       }
     }
     return null;
@@ -705,6 +753,18 @@
         s.textContent = HIGHLIGHT_CSS;
         host.shadowRoot.appendChild(s);
       }
+      // Inject highlight styles into same-origin iframes
+      if (host.tagName === 'IFRAME') {
+        try {
+          const iframeDoc = host.contentDocument;
+          if (iframeDoc && iframeDoc.head && !iframeDoc.getElementById('ac-highlight-style')) {
+            const s = iframeDoc.createElement('style');
+            s.id = 'ac-highlight-style';
+            s.textContent = HIGHLIGHT_CSS;
+            iframeDoc.head.appendChild(s);
+          }
+        } catch {}
+      }
     }
 
     const oldContainer = document.getElementById('ac-labels');
@@ -727,12 +787,13 @@
 
       const rect = dom.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) continue;
+      const off = getIframeOffset(dom);
 
       const label = document.createElement('div');
       label.className = 'ac-label';
       label.style.background = color;
-      label.style.left = `${rect.left + scrollX - 2}px`;
-      label.style.top = `${rect.top + scrollY - 18}px`;
+      label.style.left = `${rect.left + off.x + scrollX - 2}px`;
+      label.style.top = `${rect.top + off.y + scrollY - 18}px`;
       const parts = [el.id, el.type];
       if (el.text) parts.push(`"${el.text.slice(0, 25)}"`);
       if (dom.id) parts.push(`#${dom.id}`);
@@ -753,6 +814,20 @@
     document.querySelectorAll('[data-ac-id]').forEach((el) => {
       el.removeAttribute('data-ac-id');
       el.style.removeProperty('--ac-hl-color');
+    });
+
+    // Clean up inside same-origin iframes
+    document.querySelectorAll('iframe').forEach((iframe) => {
+      try {
+        const iframeDoc = iframe.contentDocument;
+        if (!iframeDoc) return;
+        const iframeStyle = iframeDoc.getElementById('ac-highlight-style');
+        if (iframeStyle) iframeStyle.remove();
+        iframeDoc.querySelectorAll('[data-ac-id]').forEach((el) => {
+          el.removeAttribute('data-ac-id');
+          el.style.removeProperty('--ac-hl-color');
+        });
+      } catch {}
     });
   }
 

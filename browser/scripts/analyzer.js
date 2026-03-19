@@ -18,7 +18,7 @@
 
   const SKIP_TAGS = new Set([
     'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'LINK', 'META',
-    'HEAD', 'IFRAME', 'OBJECT', 'EMBED', 'CANVAS', 'MAP', 'TEMPLATE',
+    'HEAD', 'OBJECT', 'EMBED', 'CANVAS', 'MAP', 'TEMPLATE',
   ]);
 
   const LANDMARK_TAGS = { HEADER: 'header', FOOTER: 'footer', NAV: 'nav', MAIN: 'main', ASIDE: 'aside', FORM: 'form', SECTION: 'section', ARTICLE: 'article' };
@@ -94,7 +94,10 @@
       const dom = queryShadow(el.selector);
       if (dom) {
         const rect = dom.getBoundingClientRect();
-        el.visible = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw && rect.width > 0 && rect.height > 0;
+        const off = getIframeOffset(dom);
+        const top = rect.top + off.y, bottom = rect.bottom + off.y;
+        const left = rect.left + off.x, right = rect.right + off.x;
+        el.visible = bottom > 0 && top < vh && right > 0 && left < vw && rect.width > 0 && rect.height > 0;
       } else {
         el.visible = false;
       }
@@ -152,6 +155,21 @@
     if (node.getAttribute('aria-hidden') === 'true') {
       const r = node.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return '';
+    }
+
+    // ── Iframes: traverse into same-origin iframes ──
+    if (tag === 'IFRAME') {
+      try {
+        const iframeDoc = node.contentDocument;
+        if (iframeDoc && iframeDoc.body) {
+          const src = node.src || '';
+          let iframeLabel = 'iframe';
+          try { iframeLabel = new URL(src, location.origin).pathname; } catch {}
+          return `\n<!-- iframe: ${iframeLabel} -->\n${nodeToMarkdown(iframeDoc.body, depth)}\n<!-- /iframe -->\n`;
+        }
+      } catch {}
+      const src = node.src || '';
+      return src ? ` [iframe: ${src.slice(0, 80)}] ` : '';
     }
 
     const interType = getInteractiveType(node);
@@ -392,11 +410,33 @@
     try { const s = window.getComputedStyle(node); return s.display === 'none' || s.visibility === 'hidden'; } catch { return false; }
   }
 
+  /** Return {x, y} offset if element lives inside a same-origin iframe. */
+  function getIframeOffset(el) {
+    const ownerDoc = el.ownerDocument;
+    if (ownerDoc === document) return { x: 0, y: 0 };
+    for (const iframe of document.querySelectorAll('iframe')) {
+      try {
+        if (iframe.contentDocument === ownerDoc) {
+          const r = iframe.getBoundingClientRect();
+          return { x: r.left, y: r.top };
+        }
+      } catch {}
+    }
+    return { x: 0, y: 0 };
+  }
+
   function queryShadow(selector, root = document) {
     const el = root.querySelector(selector);
     if (el) return el;
-    for (const h of root.querySelectorAll('*'))
+    for (const h of root.querySelectorAll('*')) {
       if (h.shadowRoot) { const f = queryShadow(selector, h.shadowRoot); if (f) return f; }
+      if (h.tagName === 'IFRAME') {
+        try {
+          const iframeDoc = h.contentDocument;
+          if (iframeDoc) { const f = queryShadow(selector, iframeDoc); if (f) return f; }
+        } catch {}
+      }
+    }
     return null;
   }
 
@@ -423,6 +463,18 @@
   function addHighlights() {
     let style = document.getElementById('ac-highlight-style');
     if (!style) { style = document.createElement('style'); style.id = 'ac-highlight-style'; style.textContent = HIGHLIGHT_CSS + LABEL_CSS; document.head.appendChild(style); }
+    // Inject highlight styles into same-origin iframes
+    for (const iframe of document.querySelectorAll('iframe')) {
+      try {
+        const iframeDoc = iframe.contentDocument;
+        if (iframeDoc && iframeDoc.head && !iframeDoc.getElementById('ac-highlight-style')) {
+          const s = iframeDoc.createElement('style');
+          s.id = 'ac-highlight-style';
+          s.textContent = HIGHLIGHT_CSS;
+          iframeDoc.head.appendChild(s);
+        }
+      } catch {}
+    }
     let c = document.getElementById('ac-labels');
     if (c) c.remove();
     c = document.createElement('div');
@@ -437,11 +489,12 @@
       dom.style.setProperty('--ac-hl-color', color);
       const rect = dom.getBoundingClientRect();
       if (!rect.width && !rect.height) continue;
+      const off = getIframeOffset(dom);
       const lbl = document.createElement('div');
       lbl.className = 'ac-label';
       lbl.style.background = color;
-      lbl.style.left = `${rect.left + sx - 2}px`;
-      lbl.style.top = `${rect.top + sy - 18}px`;
+      lbl.style.left = `${rect.left + off.x + sx - 2}px`;
+      lbl.style.top = `${rect.top + off.y + sy - 18}px`;
       lbl.textContent = `${el.id} ${el.type}`;
       c.appendChild(lbl);
     }
@@ -457,6 +510,16 @@
     const c = document.getElementById('ac-labels'); if (c) c.remove();
     const s = document.getElementById('ac-highlight-style'); if (s) s.remove();
     document.querySelectorAll('[data-ac-id]').forEach(el => { el.removeAttribute('data-ac-id'); el.style.removeProperty('--ac-hl-color'); });
+    // Clean up inside same-origin iframes
+    document.querySelectorAll('iframe').forEach(iframe => {
+      try {
+        const iframeDoc = iframe.contentDocument;
+        if (!iframeDoc) return;
+        const iframeStyle = iframeDoc.getElementById('ac-highlight-style');
+        if (iframeStyle) iframeStyle.remove();
+        iframeDoc.querySelectorAll('[data-ac-id]').forEach(el => { el.removeAttribute('data-ac-id'); el.style.removeProperty('--ac-hl-color'); });
+      } catch {}
+    });
   }
 
   window.__acCleanup = cleanup;
@@ -553,7 +616,10 @@
               if (el.disabled) entry.disabled = true;
               if (el.id) entry.domId = el.id;
               const rect = el.getBoundingClientRect();
-              entry.visible = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw && rect.width > 0 && rect.height > 0;
+              const off = getIframeOffset(el);
+              const top = rect.top + off.y, bottom = rect.bottom + off.y;
+              const left = rect.left + off.x, right = rect.right + off.x;
+              entry.visible = bottom > 0 && top < vh && right > 0 && left < vw && rect.width > 0 && rect.height > 0;
               elementMap.push(entry);
 
               // Add highlight label
@@ -564,8 +630,8 @@
                   const lbl = document.createElement('div');
                   lbl.className = 'ac-label';
                   lbl.style.background = color;
-                  lbl.style.left = `${rect.left + sx - 2}px`;
-                  lbl.style.top = `${rect.top + sy - 18}px`;
+                  lbl.style.left = `${left + sx - 2}px`;
+                  lbl.style.top = `${top + sy - 18}px`;
                   lbl.textContent = `${id} ${type}`;
                   labelContainer.appendChild(lbl);
                 }
