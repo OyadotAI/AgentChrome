@@ -73,18 +73,21 @@ cd "$ROOT"
 log_info "Copying binaries to server/downloads/"
 mkdir -p server/downloads
 
-DMG="browser/dist/Oya.Browser-${VERSION}-universal.dmg"
-APPIMAGE="browser/dist/Oya.Browser-${VERSION}-arm64.AppImage"
+# electron-builder outputs "Oya Browser-*" (space), download links use "Oya.Browser-*" (dot)
+SRC_DMG="browser/dist/Oya Browser-${VERSION}-universal.dmg"
+SRC_APPIMAGE="browser/dist/Oya Browser-${VERSION}-arm64.AppImage"
+DST_DMG="server/downloads/Oya.Browser-${VERSION}-universal.dmg"
+DST_APPIMAGE="server/downloads/Oya.Browser-${VERSION}-arm64.AppImage"
 
 COPIED=0
-if [ -f "$DMG" ]; then
-  cp "$DMG" server/downloads/
-  log_ok "Copied $(basename "$DMG")"
+if [ -f "$SRC_DMG" ]; then
+  cp "$SRC_DMG" "$DST_DMG"
+  log_ok "Copied → $(basename "$DST_DMG")"
   COPIED=$((COPIED + 1))
 fi
-if [ -f "$APPIMAGE" ]; then
-  cp "$APPIMAGE" server/downloads/
-  log_ok "Copied $(basename "$APPIMAGE")"
+if [ -f "$SRC_APPIMAGE" ]; then
+  cp "$SRC_APPIMAGE" "$DST_APPIMAGE"
+  log_ok "Copied → $(basename "$DST_APPIMAGE")"
   COPIED=$((COPIED + 1))
 fi
 
@@ -95,17 +98,13 @@ fi
 
 # ── Update download links in HTML ──
 
-OLD_VERSION="${LATEST:-v1.0.0}"
-OLD_VERSION="${OLD_VERSION#v}"
+log_info "Updating download links → $VERSION"
 
-log_info "Updating download links: $OLD_VERSION → $VERSION"
-
-# index.html
-sed -i.bak "s/Oya\.Browser-${OLD_VERSION}-/Oya.Browser-${VERSION}-/g" server/src/public/index.html
+# Match any existing version in the download filenames (e.g. Oya.Browser-1.0.0- → Oya.Browser-1.0.19-)
+sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" server/src/public/index.html
 rm -f server/src/public/index.html.bak
 
-# docs.html
-sed -i.bak "s/Oya\.Browser-${OLD_VERSION}-/Oya.Browser-${VERSION}-/g" server/src/public/docs.html
+sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" server/src/public/docs.html
 rm -f server/src/public/docs.html.bak
 
 log_ok "Updated index.html and docs.html"
@@ -135,15 +134,15 @@ log_ok "Pushed branch and tag"
 
 log_info "Creating GitHub release $TAG..."
 
-RELEASE_ASSETS=""
-if [ -f "$DMG" ]; then
-  RELEASE_ASSETS="$RELEASE_ASSETS $DMG"
+RELEASE_ASSETS=()
+if [ -f "$DST_DMG" ]; then
+  RELEASE_ASSETS+=("$DST_DMG")
 fi
-if [ -f "$APPIMAGE" ]; then
-  RELEASE_ASSETS="$RELEASE_ASSETS $APPIMAGE"
+if [ -f "$DST_APPIMAGE" ]; then
+  RELEASE_ASSETS+=("$DST_APPIMAGE")
 fi
 
-gh release create "$TAG" $RELEASE_ASSETS \
+gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
   --title "Oya Browser $TAG" \
   --generate-notes
 
