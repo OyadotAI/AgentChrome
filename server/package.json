@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@supabase/supabase-js": "^2.99.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "swagger-ui-express": "^5.0.1",

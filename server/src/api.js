@@ -3,7 +3,13 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware, registerApiKey, isAdminKey, provisionKeys } from './auth.js';
+import { randomBytes } from 'crypto';
+import {
+  authMiddleware, userAuthMiddleware,
+  registerApiKey, listApiKeys, deleteApiKey,
+  isAdminKey, provisionKeys,
+  signup, login, getProfile,
+} from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
@@ -34,24 +40,97 @@ router.get('/health', (req, res) => {
   });
 });
 
+// ─── User Auth ────────────────────────────────────────────────────────────────
+
+router.post('/auth/signup', async (req, res) => {
+  const { email, password, display_name } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password required' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  try {
+    const result = await signup(email, password, display_name);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password required' });
+  }
+  try {
+    const result = await login(email, password);
+    res.json(result);
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+router.get('/auth/me', userAuthMiddleware, async (req, res) => {
+  try {
+    const profile = await getProfile(req.user.id);
+    res.json(profile);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── API Key Management (authenticated users) ────────────────────────────────
+
+router.get('/auth/keys', userAuthMiddleware, async (req, res) => {
+  try {
+    const keys = await listApiKeys(req.user.id);
+    res.json(keys);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/auth/keys', userAuthMiddleware, async (req, res) => {
+  const { label } = req.body;
+  try {
+    const key = randomBytes(24).toString('base64url');
+    await registerApiKey(key, req.user.id, label);
+    res.json({ key, label: label || 'Default' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/auth/keys/:key', userAuthMiddleware, async (req, res) => {
+  try {
+    await deleteApiKey(req.params.key, req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Legacy key registration (still works for dashboard generate button) ─────
+
 // Register a new API key (public — anyone can create a key)
-router.post('/register-key', (req, res) => {
+router.post('/register-key', async (req, res) => {
   const { key } = req.body;
   if (!key || typeof key !== 'string' || key.length < 32) {
     return res.status(400).json({ error: 'Key must be at least 32 characters' });
   }
-  registerApiKey(key);
+  await registerApiKey(key);
   res.json({ ok: true });
 });
 
 // Batch-provision API keys (admin only)
-router.post('/fleet/provision', authMiddleware, (req, res) => {
+router.post('/fleet/provision', authMiddleware, async (req, res) => {
   const key = getKey(req);
   if (!isAdminKey(key)) {
     return res.status(403).json({ error: 'Admin key required' });
   }
   const count = Math.min(Math.max(parseInt(req.query.count || req.body?.count) || 1, 1), 10000);
-  const keys = provisionKeys(count);
+  const keys = await provisionKeys(count);
   res.json({ ok: true, count: keys.length, keys });
 });
 
