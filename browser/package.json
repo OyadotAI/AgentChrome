@@ -1,6 +1,6 @@
 {
   "name": "oya-browser",
-  "version": "1.0.0",
+  "version": "1.0.18",
   "description": "AI-controlled browser — your real browser as an MCP server",
   "main": "main.js",
   "author": "Oya <hello@oya.ai>",
@@ -35,26 +35,46 @@
       "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "target": [
-        { "target": "dmg", "arch": ["universal"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
       ]
     },
     "win": {
       "icon": "build/icon.png",
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "linux": {
       "icon": "build/icon.png",
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Network"
     },
     "dmg": {
       "title": "Oya Browser",
       "iconSize": 80,
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "nsis": {
