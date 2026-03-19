@@ -26,7 +26,9 @@ jobs:
     - name: Download browser binaries from release
       run: |
         mkdir -p server/downloads
-        gh release download ${{ github.ref_name }} --pattern '*.dmg' --pattern '*.AppImage' --dir server/downloads --clobber
+        gh release download ${{ github.ref_name }} --pattern '*.dmg' --dir server/downloads --clobber || true
+        gh release download ${{ github.ref_name }} --pattern '*.AppImage' --dir server/downloads --clobber || true
+        ls -lh server/downloads/ || true
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

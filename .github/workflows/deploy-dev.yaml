@@ -49,7 +49,9 @@ jobs:
         mkdir -p server/downloads
         LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
         echo "Downloading binaries from release $LATEST_TAG"
-        gh release download "$LATEST_TAG" --pattern '*.dmg' --pattern '*.AppImage' --dir server/downloads --clobber
+        gh release download "$LATEST_TAG" --pattern '*.dmg' --dir server/downloads --clobber || true
+        gh release download "$LATEST_TAG" --pattern '*.AppImage' --dir server/downloads --clobber || true
+        ls -lh server/downloads/ || true
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
