@@ -44,10 +44,12 @@ jobs:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Download browser binaries from release
+    - name: Download browser binaries from latest release
       run: |
         mkdir -p server/downloads
-        gh release download v1.0.0 --pattern '*.dmg' --pattern '*.AppImage' --dir server/downloads --clobber
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+        echo "Downloading binaries from release $LATEST_TAG"
+        gh release download "$LATEST_TAG" --pattern '*.dmg' --pattern '*.AppImage' --dir server/downloads --clobber
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
