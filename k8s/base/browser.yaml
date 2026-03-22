@@ -47,10 +47,10 @@ spec:
         # OYA_DOCKER is set in the Dockerfile
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
             memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
             cpu: "2000m"
         # /dev/shm must be large enough for Chromium
         volumeMounts:
@@ -60,4 +60,4 @@ spec:
       - name: dshm
         emptyDir:
           medium: Memory
-          sizeLimit: 2Gi
+          sizeLimit: 4Gi

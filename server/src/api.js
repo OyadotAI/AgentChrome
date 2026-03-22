@@ -116,6 +116,19 @@ router.post('/auth/keys', userAuthMiddleware, async (req, res) => {
   }
 });
 
+router.post('/auth/keys/import', userAuthMiddleware, async (req, res) => {
+  const { key, label } = req.body;
+  if (!key || typeof key !== 'string' || key.length < 1) {
+    return res.status(400).json({ error: 'key is required' });
+  }
+  try {
+    await registerApiKey(key, req.user.id, label || 'Imported');
+    res.json({ ok: true, key, label: label || 'Imported' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/auth/keys/:key', userAuthMiddleware, async (req, res) => {
   try {
     await deleteApiKey(req.params.key, req.user.id);

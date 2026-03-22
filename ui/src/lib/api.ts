@@ -87,6 +87,19 @@ export async function createApiKey(token: string, label?: string) {
   return res.json();
 }
 
+export async function importApiKey(token: string, key: string, label?: string) {
+  const res = await fetch(apiUrl('/auth/keys/import'), {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ key, label }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to import key');
+  }
+  return res.json();
+}
+
 export async function deleteApiKey(token: string, key: string) {
   const res = await fetch(apiUrl(`/auth/keys/${key}`), {
     method: 'DELETE',

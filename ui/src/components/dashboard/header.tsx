@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Radio, Key, Plus, Trash2, ChevronDown, Settings, LogOut,
-  User, Eye, EyeOff, Loader2, Check, Copy
+  User, Eye, EyeOff, Loader2, Check, Copy, Import
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
-import { apiUrl, authHeaders, listApiKeys, createApiKey, deleteApiKey } from '@/lib/api';
+import { apiUrl, authHeaders, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
 import { useToast } from './toast';
 
 interface ApiKeyEntry {
@@ -101,11 +101,16 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
 
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [showLabelInput, setShowLabelInput] = useState(false);
+  const [showImportInput, setShowImportInput] = useState(false);
+  const [importKeyValue, setImportKeyValue] = useState('');
+  const [importKeyLabel, setImportKeyLabel] = useState('');
+  const [importingKey, setImportingKey] = useState(false);
 
   const handleCreateKey = async () => {
     if (!token) return;
     if (!showLabelInput) {
       setShowLabelInput(true);
+      setShowImportInput(false);
       return;
     }
     setCreatingKey(true);
@@ -124,6 +129,35 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
       setCreatingKey(false);
       setShowLabelInput(false);
       setNewKeyLabel('');
+    }
+  };
+
+  const handleImportKey = async () => {
+    if (!token) return;
+    if (!showImportInput) {
+      setShowImportInput(true);
+      setShowLabelInput(false);
+      return;
+    }
+    const key = importKeyValue.trim();
+    if (!key) {
+      toast('Please enter an API key', 'error');
+      return;
+    }
+    setImportingKey(true);
+    try {
+      await importApiKey(token, key, importKeyLabel.trim() || undefined);
+      await loadKeys();
+      setApiKey(key);
+      localStorage.setItem('oya_api_key', key);
+      toast('Key added', 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to add key', 'error');
+    } finally {
+      setImportingKey(false);
+      setShowImportInput(false);
+      setImportKeyValue('');
+      setImportKeyLabel('');
     }
   };
 
@@ -232,7 +266,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                 </div>
               ))}
             </div>
-            <div className="p-2 border-t border-border">
+            <div className="p-2 border-t border-border space-y-2">
               {showLabelInput && (
                 <input
                   type="text"
@@ -241,17 +275,48 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                   value={newKeyLabel}
                   onChange={(e) => setNewKeyLabel(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCreateKey(); if (e.key === 'Escape') { setShowLabelInput(false); setNewKeyLabel(''); } }}
-                  className="w-full h-9 mb-2 rounded-md border border-border bg-transparent px-3 text-sm text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  className="w-full h-9 rounded-md border border-border bg-transparent px-3 text-sm text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50"
                 />
               )}
-              <button
-                onClick={handleCreateKey}
-                disabled={creatingKey}
-                className="w-full flex items-center justify-center gap-1.5 h-9 px-4 rounded-md bg-accent text-neutral-950 text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
-              >
-                {creatingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                {showLabelInput ? 'Create' : 'Create New Key'}
-              </button>
+              {showImportInput && (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Paste API key"
+                    value={importKeyValue}
+                    onChange={(e) => setImportKeyValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleImportKey(); if (e.key === 'Escape') { setShowImportInput(false); setImportKeyValue(''); setImportKeyLabel(''); } }}
+                    className="w-full h-9 rounded-md border border-border bg-transparent px-3 text-sm text-text font-mono placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Label (optional)"
+                    value={importKeyLabel}
+                    onChange={(e) => setImportKeyLabel(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleImportKey(); if (e.key === 'Escape') { setShowImportInput(false); setImportKeyValue(''); setImportKeyLabel(''); } }}
+                    className="w-full h-9 rounded-md border border-border bg-transparent px-3 text-sm text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreateKey}
+                  disabled={creatingKey}
+                  className="flex-1 flex items-center justify-center gap-1.5 h-9 px-3 rounded-md bg-accent text-neutral-950 text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
+                >
+                  {creatingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {showLabelInput ? 'Create' : 'New'}
+                </button>
+                <button
+                  onClick={handleImportKey}
+                  disabled={importingKey}
+                  className="flex-1 flex items-center justify-center gap-1.5 h-9 px-3 rounded-md border border-border text-text-muted text-sm font-medium hover:bg-white/5 hover:text-text transition-colors disabled:opacity-50"
+                >
+                  {importingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Import className="w-4 h-4" />}
+                  {showImportInput ? 'Add' : 'Add Existing'}
+                </button>
+              </div>
             </div>
           </div>
         )}
