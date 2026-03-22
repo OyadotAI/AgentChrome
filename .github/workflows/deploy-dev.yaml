@@ -25,6 +25,7 @@ jobs:
         filters: |
           server:
             - 'server/**'
+            - 'ui/**'
             - 'Dockerfile'
             - 'browser/scripts/**'
           k8s:

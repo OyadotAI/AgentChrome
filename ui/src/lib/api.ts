@@ -1,7 +1,10 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export function apiUrl(path: string): string {
-  return `${API_URL}${path}`;
+  // In production: same origin, API at /api
+  // In dev: NEXT_PUBLIC_API_URL=http://localhost:3100 (no /api prefix on dev server)
+  if (API_URL) return `${API_URL}${path}`;
+  return `/api${path}`;
 }
 
 export function authHeaders(token: string): HeadersInit {

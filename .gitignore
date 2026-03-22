@@ -9,3 +9,4 @@ k8s/ghcr.env
 server/data/
 server/downloads/
 .test-e2e-tmp/*
+server/ui-static/

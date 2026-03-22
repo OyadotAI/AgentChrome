@@ -14,10 +14,8 @@ export default function McpTab({ selectedBrowser, apiKey }: McpTabProps) {
   const toast = useToast();
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
-
   const config = useMemo(() => {
-    const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : API_URL;
+    const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'https://browser.oya.ai';
     const browserUrl = selectedBrowser ? `${baseUrl}/mcp/${selectedBrowser}` : 'Select a browser';
     const poolUrl = `${baseUrl}/mcp/pool`;
     const authEntry = apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {};
@@ -28,7 +26,7 @@ export default function McpTab({ selectedBrowser, apiKey }: McpTabProps) {
     const poolConfig = JSON.stringify({ mcpServers: { 'oya-browser-pool': { url: poolUrl, transport: 'streamable-http', ...authEntry } } }, null, 2);
 
     return { browserUrl, poolUrl, browserConfig, poolConfig };
-  }, [selectedBrowser, apiKey, API_URL]);
+  }, [selectedBrowser, apiKey]);
 
   const copySection = (key: string, text: string) => {
     if (text.startsWith('//')) return;
