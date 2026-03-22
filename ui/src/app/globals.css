@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: #09090b;
+  --color-bg-card: #111113;
+  --color-bg-elevated: #111113;
+  --color-bg-input: transparent;
+  --color-border: #1e1e21;
+  --color-border-focus: #a3a3a3;
+  --color-text: #fafafa;
+  --color-text-muted: #a1a1aa;
+  --color-text-dim: #52525b;
+  --color-accent: #22c55e;
+  --color-accent-hover: #4ade80;
+  --color-indigo: #6366f1;
+  --color-indigo-hover: #818cf8;
+  --color-red: #f87171;
+  --color-yellow: #fbbf24;
+
+  --font-sans: var(--font-jakarta), system-ui, sans-serif;
+  --font-display: var(--font-outfit), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, 'SF Mono', monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  min-height: 100dvh;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #404040; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #525252; }
+* { scrollbar-width: thin; scrollbar-color: #404040 transparent; }
+
+/* Selection */
+::selection { background: rgba(34, 197, 94, 0.2); color: #fff; }
+
+/* Focus visible */
+:focus-visible {
+  outline: 1px solid #a3a3a3;
+  outline-offset: 2px;
+}
+
+/* Smooth transitions globally */
+button, a, input, select, textarea {
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Landing page subtle grid */
+.landing-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+/* ─── Entrance animations ─── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Toast */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+
+/* Staggered fade-in utility */
+.animate-in {
+  animation: fade-in-up 0.6s ease-out both;
+}
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+.delay-4 { animation-delay: 0.4s; }
+.delay-5 { animation-delay: 0.5s; }

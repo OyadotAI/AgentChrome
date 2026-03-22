@@ -103,11 +103,10 @@ function keyDef(ch) {
 // ── Human-like timing ──
 
 function typingDelay(ch, prev) {
-  // Base: ~55-130ms per char (roughly 50-100 WPM)
-  let ms = 55 + Math.random() * 75;
-  if (prev === ' ') ms += 40 + Math.random() * 90;          // word boundary pause
-  if (!/[a-zA-Z0-9 ]/.test(ch)) ms += 20 + Math.random() * 50; // special char
-  if (Math.random() < 0.04) ms += 120 + Math.random() * 250;   // rare hesitation
+  let ms = 8 + Math.random() * 18;                          // 8-26ms base (~200-300 WPM)
+  if (prev === ' ') ms += 5 + Math.random() * 15;           // small word boundary pause
+  if (!/[a-zA-Z0-9 ]/.test(ch)) ms += 5 + Math.random() * 10; // special char
+  if (Math.random() < 0.02) ms += 30 + Math.random() * 50;    // 2% micro-hesitation
   return ms;
 }
 
@@ -164,9 +163,9 @@ async function cdpSelectAll(view) {
 
 async function cdpClearField(view) {
   await cdpSelectAll(view);
-  await sleep(30 + Math.random() * 40);
+  await sleep(10 + Math.random() * 15);
   await cdpPressKey(view, 'Backspace');
-  await sleep(30 + Math.random() * 40);
+  await sleep(10 + Math.random() * 15);
 }
 
 // ── CDP mouse (human-like Bézier paths) ──
@@ -214,14 +213,14 @@ async function cdpMouseMove(view, toX, toY) {
 async function cdpClick(view, x, y) {
   const ix = Math.round(x), iy = Math.round(y);
   await cdpMouseMove(view, ix, iy);
-  // Hover pause — human acquires target before pressing
-  await sleep(40 + Math.random() * 80);
+  // Brief hover before click
+  await sleep(10 + Math.random() * 20);
   await cdp(view, 'Input.dispatchMouseEvent', {
     type: 'mousePressed', x: ix, y: iy,
     button: 'left', clickCount: 1, buttons: 1,
   });
-  // Hold — humans don't release instantly
-  await sleep(40 + Math.random() * 70);
+  // Brief hold before release
+  await sleep(10 + Math.random() * 20);
   await cdp(view, 'Input.dispatchMouseEvent', {
     type: 'mouseReleased', x: ix, y: iy,
     button: 'left', clickCount: 1,
@@ -722,7 +721,13 @@ const FIND_ELEMENT_JS = (selector) => `(() => {
   const el = f(${JSON.stringify(selector)});
   if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
   el.scrollIntoView({ behavior: 'instant', block: 'center' });
-  const rect = el.getBoundingClientRect();
+  // Check if element is behind a sticky header and adjust scroll
+  let rect = el.getBoundingClientRect();
+  if (rect.top < 80) {
+    // Likely behind a sticky nav (LinkedIn, Reddit, HN all have sticky headers ~52-80px)
+    window.scrollBy(0, rect.top - 100);
+    rect = el.getBoundingClientRect();
+  }
   let offsetX = 0, offsetY = 0;
   // If element is inside an iframe, offset by the iframe's position in the parent page
   const ownerDoc = el.ownerDocument;
@@ -868,7 +873,7 @@ async function handleCommand(msg) {
       if (!info?.ok) { sendResult(id, false, null, info?.error || 'Element not found'); return; }
 
       await cdpClick(view, info.data.x, info.data.y);
-      await sleep(80 + Math.random() * 60);
+      await sleep(20 + Math.random() * 30);
 
       const text = params?.text || '';
       if (!text) { sendResult(id, true, { typed: true }); return; }
@@ -884,7 +889,7 @@ async function handleCommand(msg) {
           else if (el.isContentEditable) { el.textContent = ''; }
           el.dispatchEvent(new Event('input', { bubbles: true }));
         })()`, true).catch(() => {});
-        await sleep(50);
+        await sleep(15);
 
         // Type character by character using insertText (routes to focused iframe element)
         let prev = '';
@@ -894,14 +899,35 @@ async function handleCommand(msg) {
           prev = ch;
         }
       } else {
-        // Clear existing content
-        await cdpClearField(view);
+        // Clear existing content — use JS to target the specific element
+        // instead of CDP Cmd+A which can select the entire page
+        const cleared = await view.webContents.executeJavaScript(`(() => {
+          const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+          const el = f(${JSON.stringify(params?.selector || '')});
+          if (!el) return false;
+          el.focus();
+          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+            el.select();
+            return 'select';
+          } else if (el.isContentEditable) {
+            const sel = window.getSelection();
+            sel.selectAllChildren(el);
+            return 'select';
+          }
+          return false;
+        })()`, true).catch(() => false);
+
+        if (cleared === 'select') {
+          await sleep(10 + Math.random() * 15);
+          await cdpPressKey(view, 'Backspace');
+          await sleep(10 + Math.random() * 15);
+        }
 
         // Type with human cadence
         await cdpTypeText(view, text);
       }
 
-      await sleep(80);
+      await sleep(20);
       await view.webContents.executeJavaScript(
         'if (typeof window.__acForcePollState === "function") window.__acForcePollState()', true
       ).catch(() => {});
@@ -934,6 +960,97 @@ async function handleCommand(msg) {
         }
       }
       sendResult(id, true, { key });
+      return;
+    }
+
+    // ── Click at coordinates (CDP mouse) ──
+
+    if (action === 'click_coordinates') {
+      const view = getActiveView();
+      const x = params?.x ?? 0;
+      const y = params?.y ?? 0;
+      await cdpClick(view, x, y);
+      await sleep(100);
+      const newUrl = view.webContents.getURL();
+      const title = view.webContents.getTitle();
+      sendResult(id, true, { clicked: true, x, y, url: newUrl, title });
+      return;
+    }
+
+    // ── Mouse move (CDP mouse) ──
+
+    if (action === 'mouse_move') {
+      const view = getActiveView();
+      const x = params?.x ?? 0;
+      const y = params?.y ?? 0;
+      await cdpMouseMove(view, x, y);
+      sendResult(id, true, { moved: true, x, y });
+      return;
+    }
+
+    // ── Double click at coordinates (CDP mouse) ──
+
+    if (action === 'double_click') {
+      const view = getActiveView();
+      let x, y;
+      if (params?.x !== undefined && params?.y !== undefined) {
+        x = params.x;
+        y = params.y;
+      } else if (params?.selector) {
+        await injectScripts(view);
+        const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(params.selector), true);
+        if (!info?.ok) { sendResult(id, false, null, info?.error || 'Element not found'); return; }
+        x = info.data.x;
+        y = info.data.y;
+      } else {
+        sendResult(id, false, null, 'Provide x,y coordinates or element_id'); return;
+      }
+      await cdpMouseMove(view, x, y);
+      await sleep(10 + Math.random() * 15);
+      await cdp(view, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await cdp(view, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+      await sleep(60 + Math.random() * 40);
+      await cdp(view, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 2 });
+      await cdp(view, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 2 });
+      await sleep(100);
+      sendResult(id, true, { double_clicked: true, x, y });
+      return;
+    }
+
+    // ── Keyboard type raw text (CDP keyboard, no element focus) ──
+
+    if (action === 'keyboard_type') {
+      const view = getActiveView();
+      const text = params?.text || '';
+      if (!text) { sendResult(id, true, { typed: true }); return; }
+      await cdpTypeText(view, text);
+      sendResult(id, true, { typed: true, text });
+      return;
+    }
+
+    // ── Drag (CDP mouse) ──
+
+    if (action === 'drag') {
+      const view = getActiveView();
+      const fromX = params?.from_x ?? 0;
+      const fromY = params?.from_y ?? 0;
+      const toX = params?.to_x ?? 0;
+      const toY = params?.to_y ?? 0;
+      await cdpMouseMove(view, fromX, fromY);
+      await sleep(10 + Math.random() * 15);
+      await cdp(view, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: fromX, y: fromY, button: 'left', buttons: 1 });
+      await sleep(30);
+      // Move along path
+      const steps = 10;
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const x = Math.round(fromX + (toX - fromX) * t);
+        const y = Math.round(fromY + (toY - fromY) * t);
+        await cdp(view, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 });
+        await sleep(10);
+      }
+      await cdp(view, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: toX, y: toY, button: 'left' });
+      sendResult(id, true, { dragged: true, from: { x: fromX, y: fromY }, to: { x: toX, y: toY } });
       return;
     }
 

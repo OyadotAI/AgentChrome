@@ -1,0 +1,1 @@
+../../../plugins/browser-agent/skills/browser-agent/SKILL.md

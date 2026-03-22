@@ -167,4 +167,85 @@ Use element IDs with click/type tools. Includes page metadata, full content, and
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'click_coordinates',
+      description: 'Click at specific x,y pixel coordinates on the page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: 'X coordinate in pixels' },
+          y: { type: 'number', description: 'Y coordinate in pixels' },
+        },
+        required: ['x', 'y'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'mouse_move',
+      description: 'Move mouse to x,y coordinates without clicking. Triggers hover states and tooltips.',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number', description: 'X coordinate in pixels' },
+          y: { type: 'number', description: 'Y coordinate in pixels' },
+        },
+        required: ['x', 'y'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'double_click',
+      description: 'Double-click an element by ID or at x,y coordinates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          element_id: { type: 'number', description: 'Element ID (from analyze_page)' },
+          x: { type: 'number', description: 'X coordinate (if no element_id)' },
+          y: { type: 'number', description: 'Y coordinate (if no element_id)' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'keyboard_type',
+      description: 'Type text into whatever is currently focused, without targeting a specific element.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'Text to type' },
+        },
+        required: ['text'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'drag',
+      description: 'Drag from one point to another. For sliders, drag-and-drop, or text selection.',
+      parameters: {
+        type: 'object',
+        properties: {
+          from_x: { type: 'number', description: 'Start X' },
+          from_y: { type: 'number', description: 'Start Y' },
+          to_x: { type: 'number', description: 'End X' },
+          to_y: { type: 'number', description: 'End Y' },
+        },
+        required: ['from_x', 'from_y', 'to_x', 'to_y'],
+        additionalProperties: false,
+      },
+    },
+  },
 ];

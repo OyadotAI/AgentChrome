@@ -258,6 +258,97 @@ Use element IDs with click/type tools. The output includes:
     }
   );
 
+  // ── Mouse & Keyboard Tools ──
+
+  server.tool(
+    'click_coordinates',
+    'Click at specific x,y pixel coordinates on the page. Use when you know the exact position (e.g. from a screenshot).',
+    {
+      x: z.number().describe('X coordinate in pixels from the left edge'),
+      y: z.number().describe('Y coordinate in pixels from the top edge'),
+    },
+    async ({ x, y }) => {
+      const result = await sendCommand(browserId, 'click_coordinates', { x, y });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Clicked at (${x}, ${y})` }] };
+    }
+  );
+
+  server.tool(
+    'mouse_move',
+    'Move the mouse cursor to specific x,y coordinates without clicking. Useful for triggering hover states, tooltips, or dropdown menus.',
+    {
+      x: z.number().describe('X coordinate in pixels'),
+      y: z.number().describe('Y coordinate in pixels'),
+    },
+    async ({ x, y }) => {
+      const result = await sendCommand(browserId, 'mouse_move', { x, y });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Mouse moved to (${x}, ${y})` }] };
+    }
+  );
+
+  server.tool(
+    'double_click',
+    'Double-click an element by ID or at specific x,y coordinates.',
+    {
+      element_id: z.number().optional().describe('Element ID to double-click (from analyze_page)'),
+      x: z.number().optional().describe('X coordinate (used if no element_id)'),
+      y: z.number().optional().describe('Y coordinate (used if no element_id)'),
+    },
+    async ({ element_id, x, y }) => {
+      const params = {};
+      if (element_id !== undefined) {
+        params.selector = `[data-ac-id="${element_id}"]`;
+      } else {
+        params.x = x;
+        params.y = y;
+      }
+      const result = await sendCommand(browserId, 'double_click', params);
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: element_id ? `Double-clicked element ${element_id}` : `Double-clicked at (${x}, ${y})` }] };
+    }
+  );
+
+  server.tool(
+    'keyboard_type',
+    'Type text using the keyboard without targeting a specific element. Types into whatever is currently focused.',
+    {
+      text: z.string().describe('Text to type'),
+    },
+    async ({ text }) => {
+      const result = await sendCommand(browserId, 'keyboard_type', { text });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Typed "${text}"` }] };
+    }
+  );
+
+  server.tool(
+    'drag',
+    'Drag from one point to another. Useful for sliders, drag-and-drop, or selecting text.',
+    {
+      from_x: z.number().describe('Start X coordinate'),
+      from_y: z.number().describe('Start Y coordinate'),
+      to_x: z.number().describe('End X coordinate'),
+      to_y: z.number().describe('End Y coordinate'),
+    },
+    async ({ from_x, from_y, to_x, to_y }) => {
+      const result = await sendCommand(browserId, 'drag', { from_x, from_y, to_x, to_y });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Dragged from (${from_x}, ${from_y}) to (${to_x}, ${to_y})` }] };
+    }
+  );
+
   // ── Tab Management Tools ──
 
   server.tool(
@@ -528,6 +619,62 @@ function createPoolMcpServer(apiKey) {
       const result = await sendCommand(bid, 'wait', { selector, timeout });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Element found: ${selector}` }] };
+    }
+  );
+
+  server.tool('click_coordinates', 'Click at x,y coordinates on pinned pool browser.',
+    { x: z.number(), y: z.number() },
+    async ({ x, y }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'click_coordinates', { x, y });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Clicked at (${x}, ${y})` }] };
+    }
+  );
+
+  server.tool('mouse_move', 'Move mouse to x,y on pinned pool browser.',
+    { x: z.number(), y: z.number() },
+    async ({ x, y }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'mouse_move', { x, y });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Mouse moved to (${x}, ${y})` }] };
+    }
+  );
+
+  server.tool('double_click', 'Double-click element or coordinates on pinned pool browser.',
+    { element_id: z.number().optional(), x: z.number().optional(), y: z.number().optional() },
+    async ({ element_id, x, y }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const params = element_id !== undefined ? { selector: `[data-ac-id="${element_id}"]` } : { x, y };
+      const result = await sendCommand(bid, 'double_click', params);
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Double-clicked${element_id !== undefined ? ` element ${element_id}` : ` at (${x}, ${y})`}` }] };
+    }
+  );
+
+  server.tool('keyboard_type', 'Type text using keyboard on pinned pool browser (types into whatever is focused).',
+    { text: z.string() },
+    async ({ text }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'keyboard_type', { text });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Typed "${text}"` }] };
+    }
+  );
+
+  server.tool('drag', 'Drag from one point to another on pinned pool browser.',
+    { from_x: z.number(), from_y: z.number(), to_x: z.number(), to_y: z.number() },
+    async ({ from_x, from_y, to_x, to_y }) => {
+      const bid = pick(false);
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      const result = await sendCommand(bid, 'drag', { from_x, from_y, to_x, to_y });
+      if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      return { content: [{ type: 'text', text: `${browserTag(bid)} Dragged from (${from_x}, ${from_y}) to (${to_x}, ${to_y})` }] };
     }
   );
 

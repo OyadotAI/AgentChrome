@@ -19,6 +19,7 @@
   const SKIP_TAGS = new Set([
     'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'LINK', 'META',
     'HEAD', 'OBJECT', 'EMBED', 'CANVAS', 'MAP', 'TEMPLATE',
+    'PICTURE', // skip <picture>, the <img> inside will be caught
   ]);
 
   const LANDMARK_TAGS = { HEADER: 'header', FOOTER: 'footer', NAV: 'nav', MAIN: 'main', ASIDE: 'aside', FORM: 'form', SECTION: 'section', ARTICLE: 'article' };
@@ -36,6 +37,10 @@
     '[role="menuitem"]', '[role="combobox"]', '[role="option"]', '[role="treeitem"]',
     '[onclick]', '[ng-click]', '[data-action]', '[jsaction]',
     '[data-control-name]', '[data-click]',
+    // Site-specific
+    '[data-testid]',                  // X/Twitter
+    '[data-click-id]',                // Reddit
+    '[data-tracking-control-name]',   // LinkedIn
   ].join(', ');
 
   let elementCounter = 0;
@@ -58,9 +63,13 @@
     if (options.selector) {
       root = document.querySelector(options.selector);
     } else {
-      // Find visible modal dialogs — iterate backwards to find the topmost one
+      // Find visible modal dialogs — iterate backwards to find the topmost one.
+      // Also catches LinkedIn overlays, Amazon popups, Reddit lightboxes.
       const modals = document.querySelectorAll(
-        '[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"], dialog[open]'
+        '[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"], dialog[open], ' +
+        '[role="dialog"]:not([aria-modal="false"]), ' +  // Some sites omit aria-modal
+        '.artdeco-modal__content, ' +                     // LinkedIn modals
+        '[data-testid="sheetDialog"]'                     // X/Twitter sheets
       );
       for (let i = modals.length - 1; i >= 0; i--) {
         const m = modals[i];
@@ -141,6 +150,12 @@
     };
   };
 
+  // ─── Site Detection ───
+
+  function isHackerNews() {
+    return location.hostname === 'news.ycombinator.com';
+  }
+
   // ─── DOM → Markdown ───
 
   function nodeToMarkdown(node, depth) {
@@ -150,11 +165,13 @@
     if (SKIP_TAGS.has(tag)) return '';
     if (isHardHidden(node)) return '';
     if (node.id === 'ac-labels' || node.id === 'ac-highlight-style') return '';
-    // Only skip aria-hidden elements if they're also visually hidden (zero size).
+    // Only skip aria-hidden elements if they're also visually hidden (zero size or no opacity).
     // LinkedIn sets aria-hidden="true" on main content when messaging is open.
+    // Reddit uses aria-hidden on expandable content.
     if (node.getAttribute('aria-hidden') === 'true') {
       const r = node.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return '';
+      try { if (window.getComputedStyle(node).opacity === '0') return ''; } catch {}
     }
 
     // ── Iframes: traverse into same-origin iframes ──
@@ -197,7 +214,12 @@
       case 'P': return `\n${children.trim()}\n`;
       case 'UL': case 'OL': return '\n' + listMarkdown(node, tag === 'OL', depth) + '\n';
       case 'LI': { const i = children.trim(); return i ? `- ${i}\n` : ''; }
-      case 'TABLE': return '\n' + tableMarkdown(node) + '\n';
+      case 'TABLE': {
+        // HackerNews uses tables for layout — treat as container, not data table.
+        // Also detect other layout tables: no <th> and mostly single-cell rows.
+        if (isHackerNews() || isLayoutTable(node)) return '\n' + childrenMarkdown(node, depth) + '\n';
+        return '\n' + tableMarkdown(node) + '\n';
+      }
       case 'IMG': {
         const alt = node.getAttribute('alt'), src = node.getAttribute('src') || '';
         return alt ? `![${alt}](${src})` : '[image]';
@@ -223,7 +245,36 @@
         const assigned = node.assignedNodes ? node.assignedNodes({ flatten: true }) : [];
         return assigned.map(c => nodeToMarkdown(c, depth)).join('');
       }
-      default: return children;
+      case 'TIME': {
+        const dt = node.getAttribute('datetime') || node.getAttribute('title') || node.textContent.trim();
+        return dt;
+      }
+      case 'TR': {
+        // HN post rows: render as a line with separator
+        if (isHackerNews() && node.classList.contains('athing')) {
+          return '\n' + childrenMarkdown(node, depth).trim() + ' ';
+        }
+        // HN subtext row (points, author, comments)
+        if (isHackerNews() && node.querySelector('.subtext')) {
+          return childrenMarkdown(node, depth).trim() + '\n';
+        }
+        // HN spacer rows
+        if (isHackerNews() && node.classList.contains('spacer')) return '\n';
+        return childrenMarkdown(node, depth);
+      }
+      case 'TD': {
+        // Skip empty layout cells
+        const text = node.textContent.trim();
+        if (!text && !node.querySelector('a, button, input, select, textarea, [role="button"]')) return '';
+        return childrenMarkdown(node, depth);
+      }
+      default: {
+        // Reddit custom elements: traverse into shadow DOM
+        if (tag.includes('-') && node.shadowRoot) {
+          return childrenMarkdown(node, depth);
+        }
+        return children;
+      }
     }
   }
 
@@ -269,8 +320,24 @@
     if (node.hasAttribute('ng-click')) return true;
     if (node.hasAttribute('data-action')) return true;
     if (node.hasAttribute('jsaction')) return true;
-    if (node.hasAttribute('data-control-name')) return true;
+    if (node.hasAttribute('data-control-name')) return true;  // LinkedIn
     if (node.hasAttribute('data-click')) return true;
+    // LinkedIn: ember-style actions, feed controls
+    if (node.hasAttribute('data-urn')) return true;
+    if (node.hasAttribute('data-tracking-control-name')) return true;
+    // X / Twitter: React event delegation
+    if (node.hasAttribute('data-testid')) {
+      const tid = node.getAttribute('data-testid');
+      if (/like|retweet|reply|bookmark|share|follow|tweet/i.test(tid)) return true;
+    }
+    // Reddit: custom interactive elements
+    if (node.tagName === 'SHREDDIT-POST' || node.tagName === 'FACEPLATE-TRACKER') return true;
+    if (node.hasAttribute('data-click-id')) return true;  // Reddit
+    if (node.hasAttribute('data-faceplate-tracking-context')) return true;  // Reddit
+    // Amazon: interactive product elements
+    if (node.hasAttribute('data-action')) return true;
+    if (node.hasAttribute('data-cel-widget')) return true;
+    if (node.hasAttribute('data-asin')) return true;
     return false;
   }
 
@@ -328,6 +395,23 @@
       }
     } catch {}
 
+    // ── Site-specific interactive element detection ──
+
+    // LinkedIn: feed cards, connection actions, messaging items
+    const cls = node.className || '';
+    if (typeof cls === 'string') {
+      // LinkedIn feed items and actions
+      if (cls.includes('feed-shared-social-action') || cls.includes('artdeco-button') ||
+          cls.includes('social-actions-button') || cls.includes('msg-conversation-card')) return 'button';
+      // Reddit: vote buttons, expand/collapse
+      if (cls.includes('voteButton') || cls.includes('_1rZYMD_4xY3gRcSS3p8ODO')) return 'button';
+      // Amazon: add-to-cart, buy-now area elements
+      if (cls.includes('a-button') || cls.includes('s-product-image-container')) return 'button';
+    }
+
+    // HackerNews: vote links (they use <a> without href but with onclick via id)
+    if (tag === 'A' && !node.href && node.id?.startsWith('up_')) return 'button';
+
     return null;
   }
 
@@ -359,6 +443,18 @@
       case 'link': {
         let h = '';
         try { const u = new URL(node.href || '', location.origin); h = u.hostname === location.hostname ? u.pathname : u.hostname + u.pathname; } catch {}
+        // HN: enrich "reply" links with the comment author for context
+        if (isHackerNews() && label === 'reply') {
+          const commentRow = node.closest('.athing');
+          const user = commentRow?.querySelector('.hnuser')?.textContent;
+          if (user) return ` [#${id} link "reply to ${user}"] `;
+        }
+        // HN: enrich "N comments" links with post title
+        if (isHackerNews() && /^\d+\s*comment/.test(label)) {
+          const postRow = node.closest('tr')?.previousElementSibling;
+          const title = postRow?.querySelector('.titleline a')?.textContent?.slice(0, 40);
+          if (title) return ` [#${id} link "${label}" on "${title}"] `;
+        }
         return ` [#${id} link "${label}"${h ? ' → ' + h.slice(0, 50) : ''}] `;
       }
       case 'button': return ` [#${id} button "${label}"${node.disabled ? ' disabled' : ''}] `;
@@ -389,16 +485,53 @@
   function getLabel(node, type) {
     const aria = node.getAttribute('aria-label');
     if (aria) return aria.trim().slice(0, 80);
+    // aria-labelledby
+    const labelledBy = node.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const parts = labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent?.trim()).filter(Boolean);
+      if (parts.length) return parts.join(' ').slice(0, 80);
+    }
     if (node.id && ['input', 'checkbox', 'radio', 'select', 'textarea'].includes(type)) {
       const l = document.querySelector(`label[for="${CSS.escape(node.id)}"]`);
       if (l?.textContent?.trim()) return l.textContent.trim().slice(0, 80);
     }
+    // X/Twitter: data-testid often has a semantic name
+    const testId = node.getAttribute('data-testid');
+    if (testId && !node.textContent?.trim()) return testId.replace(/[-_]/g, ' ').slice(0, 80);
+    // LinkedIn: data-control-name
+    const controlName = node.getAttribute('data-control-name');
+    if (controlName && !node.textContent?.trim()) return controlName.replace(/[_-]/g, ' ').slice(0, 80);
     const direct = [];
     for (const c of node.childNodes) if (c.nodeType === Node.TEXT_NODE && c.textContent.trim()) direct.push(c.textContent.trim());
     if (direct.length) return direct.join(' ').slice(0, 80);
     const t = node.innerText?.replace(/\s+/g, ' ').trim();
     if (t) return t.slice(0, 80);
-    return node.getAttribute('title')?.trim()?.slice(0, 80) || node.placeholder?.slice(0, 80) || node.name || '';
+    // Check title attribute (HN vote arrows use title="upvote")
+    const title = node.getAttribute('title')?.trim();
+    if (title) return title.slice(0, 80);
+    // Check child element titles (HN: <a><div class="votearrow" title="upvote"></div></a>)
+    const childTitle = node.querySelector('[title]');
+    if (childTitle) return childTitle.getAttribute('title').trim().slice(0, 80);
+    return node.placeholder?.slice(0, 80) || node.name || '';
+  }
+
+  /** Detect layout tables (no <th>, used for positioning not data). */
+  function isLayoutTable(table) {
+    if (table.querySelector('th')) return false;
+    if (table.getAttribute('role') === 'presentation' || table.getAttribute('role') === 'none') return true;
+    // If most rows have just 1-2 cells with mixed content, it's probably layout
+    const rows = table.querySelectorAll(':scope > tbody > tr, :scope > tr');
+    if (rows.length === 0) return false;
+    let layoutScore = 0;
+    for (const row of rows) {
+      const cells = row.querySelectorAll(':scope > td');
+      if (cells.length <= 2) layoutScore++;
+      // Cells containing interactive elements = layout
+      for (const cell of cells) {
+        if (cell.querySelector('a, button, input, img')) layoutScore++;
+      }
+    }
+    return layoutScore > rows.length;
   }
 
   function landmarkFromRole(node) {
@@ -407,7 +540,16 @@
   }
 
   function isHardHidden(node) {
-    try { const s = window.getComputedStyle(node); return s.display === 'none' || s.visibility === 'hidden'; } catch { return false; }
+    try {
+      const s = window.getComputedStyle(node);
+      if (s.display === 'none' || s.visibility === 'hidden') return true;
+      // Catch elements moved off-screen (common on LinkedIn, Amazon for screen readers)
+      if (s.position === 'absolute' || s.position === 'fixed') {
+        const r = node.getBoundingClientRect();
+        if (r.right < -100 || r.bottom < -100 || r.left > window.innerWidth + 100) return true;
+      }
+      return false;
+    } catch { return false; }
   }
 
   /** Return {x, y} offset if element lives inside a same-origin iframe. */
