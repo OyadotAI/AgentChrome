@@ -2,26 +2,22 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install all deps (including devDependencies for build)
+# Install server deps
 COPY server/package.json server/package-lock.json ./
-RUN npm ci
+RUN npm ci --omit=dev
 
-# Copy source + build script
+# Copy server source
 COPY server/src/ ./src/
-COPY server/build.js ./
 
-# Minify HTML/CSS/JS → dist/
-RUN node build.js
+# Static files (openapi.json, llms.txt)
+COPY server/src/public/ ./src/public/
 
-# Browser binaries for public download (populated by CI before build)
+# Browser binaries for download (populated by CI before build)
 COPY server/downloads/ ./downloads/
-
-# Remove devDependencies and build artifacts
-RUN npm prune --omit=dev && rm -f build.js
 
 EXPOSE 3100
 
 ENV NODE_ENV=production
 ENV PORT=3100
 
-CMD ["node", "dist/index.js"]
+CMD ["node", "src/index.js"]

@@ -96,31 +96,22 @@ if [ "$COPIED" -eq 0 ]; then
   exit 1
 fi
 
-# ── Update download links in HTML ──
+# ── Update download links in UI ──
 
 log_info "Updating download links → $VERSION"
 
-# Match any existing version in the download filenames (e.g. Oya.Browser-1.0.0- → Oya.Browser-1.0.19-)
-sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" server/src/public/index.html
-rm -f server/src/public/index.html.bak
-
-sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" server/src/public/docs.html
-rm -f server/src/public/docs.html.bak
-
-log_ok "Updated index.html and docs.html"
-
-# ── Build server (minify with updated links) ──
-
-log_info "Building server (minify assets)..."
-cd "$ROOT/server"
-npm run build
-cd "$ROOT"
-log_ok "Server built"
+UI_PAGE="ui/src/app/page.tsx"
+if [ -f "$UI_PAGE" ]; then
+  sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" "$UI_PAGE"
+  rm -f "${UI_PAGE}.bak"
+  log_ok "Updated $UI_PAGE"
+fi
 
 # ── Commit, tag, push ──
 
 log_info "Committing version bump and link updates"
-git add browser/package.json server/src/public/index.html server/src/public/docs.html
+git add browser/package.json
+[ -f "$UI_PAGE" ] && git add "$UI_PAGE"
 git commit -m "release: $TAG — update browser version and download links"
 
 git tag "$TAG"

@@ -5,9 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "build": "node build.js",
-    "start": "node dist/index.js",
-    "start:dev": "node src/index.js",
+    "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
@@ -19,7 +17,5 @@
     "uuid": "^11.1.0",
     "ws": "^8.18.1"
   },
-  "devDependencies": {
-    "html-minifier-terser": "^7.2.0"
-  }
+  "devDependencies": {}
 }

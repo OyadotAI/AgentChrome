@@ -1,21 +1,32 @@
-.PHONY: help server server-dev browser browser-dev browser-build browser-dist-mac browser-dist-linux deploy-dev deploy-prod release logs-dev logs-prod pods-dev pods-prod restart-dev restart-prod k8s-dev k8s-prod secrets-dev secrets-prod
+.PHONY: help server server-dev browser browser-dev browser-build browser-dist-mac browser-dist-linux ui ui-dev ui-build deploy-dev deploy-prod release logs-dev logs-prod pods-dev pods-prod restart-dev restart-prod k8s-dev k8s-prod
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 # ── Server ──
 
-server-build: ## Build server (minify HTML/CSS/JS)
-	cd server && npm run build
-
-server: server-build ## Start server (production, minified)
+server: ## Start server
 	cd server && npm start
 
-server-dev: ## Start server with auto-reload (unminified)
+server-dev: ## Start server with auto-reload
 	cd server && npm run dev
 
 server-install: ## Install server dependencies
 	cd server && npm install
+
+# ── UI (Next.js) ──
+
+ui: ## Start UI (production)
+	cd ui && npm run build && npm start
+
+ui-dev: ## Start UI dev server
+	cd ui && npm run dev
+
+ui-build: ## Build UI for production
+	cd ui && npm run build
+
+ui-install: ## Install UI dependencies
+	cd ui && npm install
 
 # ── Browser App ──
 
@@ -95,8 +106,13 @@ status-prod: ## Full prod status
 
 # ── Setup ──
 
-install: server-install browser-install ## Install all dependencies
+install: server-install ui-install browser-install ## Install all dependencies
 
 setup: install ## First-time setup
 	cd server && cp -n .env.example .env 2>/dev/null || true
-	@echo "\n✓ Done. Edit server/.env then run: make server"
+	cd ui && cp -n .env.example .env.local 2>/dev/null || true
+	@echo "\n✓ Done. Edit server/.env and ui/.env.local then run: make server-dev & make ui-dev"
+
+dev: ## Start server + UI in dev mode (parallel)
+	@echo "Starting server and UI..."
+	@make server-dev & make ui-dev

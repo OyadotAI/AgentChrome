@@ -26,6 +26,7 @@ jobs:
           server:
             - 'server/**'
             - 'Dockerfile'
+            - 'browser/scripts/**'
           k8s:
             - 'k8s/**'
 
