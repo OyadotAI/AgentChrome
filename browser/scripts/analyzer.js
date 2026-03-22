@@ -165,7 +165,10 @@
   // ─── DOM → Markdown ───
 
   function nodeToMarkdown(node, depth) {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/\s+/g, ' ').trim();
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent.replace(/[ \t]+/g, ' ');
+      return text.trim() ? text : (text.includes('\n') ? '\n' : ' ');
+    }
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
     const tag = node.tagName;
     if (SKIP_TAGS.has(tag)) return '';
@@ -204,8 +207,19 @@
     }
 
     const children = childrenMarkdown(node, depth);
+
+    // Forms get special context for LLM comprehension
+    if (tag === 'FORM') {
+      const c = children.trim();
+      if (!c) return '';
+      const action = node.getAttribute('action') || '';
+      const name = node.getAttribute('aria-label') || node.getAttribute('name') || '';
+      const label = name ? `form: ${name}` : 'form';
+      return `\n<!-- ${label}${action ? ' → ' + action : ''} -->\n${c}\n<!-- /form -->\n`;
+    }
+
     const landmark = LANDMARK_TAGS[tag] || landmarkFromRole(node);
-    if (landmark && children.trim()) {
+    if (landmark && landmark !== 'form' && children.trim()) {
       const label = node.getAttribute('aria-label');
       return `\n<!-- ${label ? landmark + ': ' + label : landmark} -->\n${children}\n<!-- /${landmark} -->\n`;
     }
@@ -304,7 +318,7 @@
     const rows = [];
     for (const tr of el.querySelectorAll('tr')) {
       const cells = [];
-      for (const td of tr.querySelectorAll('th, td')) cells.push(td.textContent.replace(/\s+/g, ' ').trim());
+      for (const td of tr.querySelectorAll('th, td')) cells.push(childrenMarkdown(td, 0).replace(/\s+/g, ' ').trim());
       if (cells.length) rows.push(cells);
     }
     if (!rows.length) return '';
@@ -442,6 +456,15 @@
     if (node.disabled) entry.disabled = true;
     if (node.checked !== undefined) entry.checked = node.checked;
     if (node.id) entry.domId = node.id;
+    // Rich metadata for SPA recovery
+    if (node.name) entry.name = node.name;
+    const ariaLabel = node.getAttribute('aria-label');
+    if (ariaLabel) entry.ariaLabel = ariaLabel;
+    const testId = node.getAttribute('data-testid');
+    if (testId) entry.testId = testId;
+    // Form context
+    const form = node.closest('form');
+    if (form) entry.formName = form.getAttribute('aria-label') || form.getAttribute('name') || form.getAttribute('action') || '';
     elementMap.push(entry);
 
     const label = text || node.tagName.toLowerCase();
@@ -500,6 +523,12 @@
     if (node.id && ['input', 'checkbox', 'radio', 'select', 'textarea'].includes(type)) {
       const l = document.querySelector(`label[for="${CSS.escape(node.id)}"]`);
       if (l?.textContent?.trim()) return l.textContent.trim().slice(0, 80);
+    }
+    // Parent <label> wrapping this element
+    const parentLabel = node.closest('label');
+    if (parentLabel) {
+      const labelText = parentLabel.textContent.replace(node.textContent || '', '').trim();
+      if (labelText) return labelText.slice(0, 80);
     }
     // X/Twitter: data-testid often has a semantic name
     const testId = node.getAttribute('data-testid');
@@ -590,17 +619,45 @@
 
   window.__acQueryShadow = queryShadow;
 
-  // Robust element lookup: stored ref → data-ac-id → shadow DOM query
+  // Element lookup: ID-only. Never falls back to CSS selectors.
   window.__acFindElement = function (selector) {
-    // Try stored reference first (survives React re-renders)
     const match = selector.match(/data-ac-id="(\d+)"/);
-    if (match) {
-      const id = parseInt(match[1], 10);
-      const ref = elementRefs.get(id);
-      if (ref && ref.isConnected) return ref;
+    if (!match) return null;
+
+    const id = parseInt(match[1], 10);
+
+    // 1. Live reference from elementRefs map
+    const ref = elementRefs.get(id);
+    if (ref && ref.isConnected) return ref;
+
+    // 2. DOM query by data-ac-id (may have been re-attached by observer)
+    const byAttr = document.querySelector(`[data-ac-id="${id}"]`);
+    if (byAttr) { elementRefs.set(id, byAttr); return byAttr; }
+
+    // 3. Shadow DOM + iframe search by data-ac-id
+    const byShadow = queryShadow(`[data-ac-id="${id}"]`);
+    if (byShadow) { elementRefs.set(id, byShadow); return byShadow; }
+
+    // 4. Recovery: find replacement element by stored metadata
+    const replacement = findReplacementElement(id);
+    if (replacement) {
+      replacement.setAttribute('data-ac-id', String(id));
+      elementRefs.set(id, replacement);
+      return replacement;
     }
-    // Fall back to DOM query (pierces shadow DOM)
-    return queryShadow(selector);
+
+    // 5. Last resort: try by DOM id from metadata
+    const entry = elementMap.find(e => e.id === id);
+    if (entry?.domId) {
+      const byDomId = document.getElementById(entry.domId);
+      if (byDomId) {
+        byDomId.setAttribute('data-ac-id', String(id));
+        elementRefs.set(id, byDomId);
+        return byDomId;
+      }
+    }
+
+    return null;
   };
 
   // ─── Highlight Overlays ───
@@ -793,6 +850,60 @@
     pendingNodes.clear();
   }
 
+  /** Find a replacement element in the DOM matching stored metadata. */
+  function findReplacementElement(id) {
+    const entry = elementMap.find(e => e.id === id);
+    if (!entry) return null;
+
+    // 1. By DOM id
+    if (entry.domId) {
+      const byId = document.getElementById(entry.domId);
+      if (byId && !byId.hasAttribute('data-ac-id')) return byId;
+    }
+    // 2. By name attribute
+    if (entry.name) {
+      const byName = document.querySelector(`${entry.tag}[name="${CSS.escape(entry.name)}"]`);
+      if (byName && !byName.hasAttribute('data-ac-id')) return byName;
+    }
+    // 3. By data-testid
+    if (entry.testId) {
+      const byTestId = document.querySelector(`[data-testid="${CSS.escape(entry.testId)}"]`);
+      if (byTestId && !byTestId.hasAttribute('data-ac-id')) return byTestId;
+    }
+    // 4. By aria-label + tag
+    if (entry.ariaLabel) {
+      const byAria = document.querySelector(`${entry.tag}[aria-label="${CSS.escape(entry.ariaLabel)}"]`);
+      if (byAria && !byAria.hasAttribute('data-ac-id')) return byAria;
+    }
+    // 5. By tag + text content match
+    if (entry.text) {
+      const candidates = document.querySelectorAll(entry.tag);
+      for (const c of candidates) {
+        if (c.hasAttribute('data-ac-id')) continue;
+        const cText = getLabel(c, entry.type);
+        if (cText === entry.text) return c;
+      }
+    }
+    return null;
+  }
+
+  /** Re-attach data-ac-id to a re-rendered element. */
+  function reattachElement(id) {
+    const ref = elementRefs.get(id);
+    if (ref && ref.isConnected) return; // still alive
+
+    // Check if data-ac-id already exists in DOM (was re-rendered with it)
+    const existing = document.querySelector(`[data-ac-id="${id}"]`);
+    if (existing) { elementRefs.set(id, existing); return; }
+
+    // Find replacement
+    const replacement = findReplacementElement(id);
+    if (replacement) {
+      replacement.setAttribute('data-ac-id', String(id));
+      elementRefs.set(id, replacement);
+    }
+  }
+
   const observer = new MutationObserver((mutations) => {
     let hasEditableChange = false;
     for (const m of mutations) {
@@ -825,6 +936,21 @@
           hasEditableChange = true;
         }
       } else {
+        // Track removed elements for SPA re-render recovery
+        for (const node of m.removedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          const removed = node.querySelectorAll ? [node, ...node.querySelectorAll('[data-ac-id]')] : [node];
+          for (const oldEl of removed) {
+            const aid = oldEl.getAttribute?.('data-ac-id');
+            if (!aid) continue;
+            const id = parseInt(aid, 10);
+            const ref = elementRefs.get(id);
+            if (ref && !ref.isConnected) {
+              // Element was removed — try to find replacement after addedNodes are processed
+              setTimeout(() => reattachElement(id), 100);
+            }
+          }
+        }
         for (const node of m.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) pendingNodes.add(node);
         }

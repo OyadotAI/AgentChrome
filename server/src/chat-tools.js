@@ -42,10 +42,10 @@ Use element IDs with click/type tools. Includes page metadata, full content, and
     type: 'function',
     function: {
       name: 'press_key',
-      description: 'Press a key (Enter, Escape, ArrowDown, ArrowUp, Tab, etc.).',
+      description: 'Press a safe navigation key. Allowed: Enter, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Backspace, Delete, Space, Home, End, PageUp, PageDown. Do NOT press F-keys, Meta, Control, Alt, or Shift.',
       parameters: {
         type: 'object',
-        properties: { key: { type: 'string', description: 'Key to press' } },
+        properties: { key: { type: 'string', enum: ['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Space', 'Home', 'End', 'PageUp', 'PageDown'], description: 'Key to press' } },
         required: ['key'],
         additionalProperties: false,
       },

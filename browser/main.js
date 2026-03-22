@@ -1049,7 +1049,7 @@ function startPingLoop() {
 const FIND_ELEMENT_JS = (selector) => `(() => {
   window.__oyaInternalCall = true;
   try {
-  const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+  const f = window.__acFindElement || ((s) => document.querySelector(s));
   const el = f(${JSON.stringify(selector)});
   if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
   el.scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -1162,7 +1162,7 @@ async function handleCommand(msg) {
       // mouse events may not trigger framework handlers (jsaction, etc.) in iframes.
       if (info.data.inIframe) {
         await view.webContents.executeJavaScript(`(() => {
-          const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+          const f = window.__acFindElement || ((s) => document.querySelector(s));
           const el = f(${JSON.stringify(params?.selector || '')});
           if (!el) return;
           const rect = el.getBoundingClientRect();
@@ -1214,7 +1214,7 @@ async function handleCommand(msg) {
       if (info.data.inIframe) {
         // CDP keyboard events don't route to iframe frames — use JS clear + Electron insertText
         await view.webContents.executeJavaScript(`(() => {
-          const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+          const f = window.__acFindElement || ((s) => document.querySelector(s));
           const el = f(${JSON.stringify(params?.selector || '')});
           if (!el) return;
           el.focus();
@@ -1235,7 +1235,7 @@ async function handleCommand(msg) {
         // Clear existing content — use JS to target the specific element
         // instead of CDP Cmd+A which can select the entire page
         const cleared = await view.webContents.executeJavaScript(`(() => {
-          const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+          const f = window.__acFindElement || ((s) => document.querySelector(s));
           const el = f(${JSON.stringify(params?.selector || '')});
           if (!el) return false;
           el.focus();
@@ -1260,12 +1260,24 @@ async function handleCommand(msg) {
         await cdpTypeText(view, text);
       }
 
-      await sleep(20);
+      // Wait for autocomplete/suggestions to appear
+      await sleep(800);
       await view.webContents.executeJavaScript(
         'if (typeof window.__acForcePollState === "function") window.__acForcePollState()', true
       ).catch(() => {});
 
-      sendResult(id, true, { typed: true });
+      // Check if suggestions/autocomplete appeared
+      await injectScripts(view);
+      const hasDropdown = await view.webContents.executeJavaScript(`(() => {
+        const lists = document.querySelectorAll('[role="listbox"], [role="menu"], [role="list"], .pac-container, [class*="suggest"], [class*="autocomplete"], [class*="dropdown"], [id*="suggest"], [id*="autocomplete"], ul[class*="result"]');
+        for (const l of lists) {
+          const r = l.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        return false;
+      })()`, true).catch(() => false);
+
+      sendResult(id, true, { typed: true, suggestions_visible: hasDropdown });
       return;
     }
 
@@ -1274,6 +1286,18 @@ async function handleCommand(msg) {
     if (action === 'press_key') {
       const view = getActiveView();
       const key = params?.key || 'Enter';
+      // Block dangerous keys that zoom, open emoji picker, or trigger OS shortcuts
+      const BLOCKED_KEYS = new Set([
+        'F11', 'F12', 'F5',
+        'Meta', 'Control', 'Alt', 'Shift',  // bare modifier keys
+        'ZoomIn', 'ZoomOut', 'BrowserBack', 'BrowserForward',
+        'MediaPlayPause', 'MediaTrackNext', 'MediaTrackPrevious',
+        'AudioVolumeUp', 'AudioVolumeDown', 'AudioVolumeMute',
+      ]);
+      if (BLOCKED_KEYS.has(key)) {
+        sendResult(id, false, null, `Key "${key}" is blocked — it can change browser state`);
+        return;
+      }
       // Use sendInputEvent (routes to focused frame) instead of CDP (main frame only)
       const def = keyDef(key);
       view.webContents.sendInputEvent({ type: 'keyDown', keyCode: def.key });
@@ -1434,7 +1458,7 @@ async function handleCommand(msg) {
       const view = getActiveView();
       await injectScripts(view);
       const result = await view.webContents.executeJavaScript(`(() => {
-        const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
+        const f = window.__acFindElement || ((s) => document.querySelector(s));
         const el = f(${JSON.stringify(params?.selector || '')});
         if (!el || el.tagName !== 'SELECT') return { ok: false, error: 'Select element not found' };
         el.value = ${JSON.stringify(params?.value || '')};
@@ -1498,7 +1522,7 @@ function buildActionJS(action, params) {
     case 'analyze':
       return `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params || {})}) : { ok: false, error: 'Analyzer not loaded' }`;
     case 'wait':
-      return `(async () => { const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document); const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (f(${JSON.stringify(params?.selector || '')})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`;
+      return `(async () => { const f = window.__acFindElement || ((s) => document.querySelector(s)); const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (f(${JSON.stringify(params?.selector || '')})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`;
     case 'read_page':
       return `({ ok: true, data: { url: location.href, title: document.title, elements: [] } })`;
     default:

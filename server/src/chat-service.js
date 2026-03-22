@@ -16,6 +16,16 @@ CRITICAL RULES — follow these exactly:
 5. To submit a search/form after typing, use press_key(key="Enter").
 6. When done, give a brief summary and stop. Don't keep calling tools.
 
+AUTOCOMPLETE / SUGGESTIONS:
+- After type() returns, it tells you if suggestions are visible. If "AUTOCOMPLETE SUGGESTIONS ARE VISIBLE" appears in the response, you MUST call analyze_page to see and click a suggestion — do NOT press Enter blindly.
+- To select a suggestion: analyze_page → find the suggestion element → click(element_id).
+- Only press Enter if no suggestions appeared or you want to submit the typed text as-is.
+
+KEYBOARD SAFETY:
+- Only use press_key with: Enter, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Backspace, Delete, Space, Home, End, PageUp, PageDown.
+- NEVER press: F-keys, Meta, Control, Alt, Shift alone, or any key combos. These can zoom the page, open emoji pickers, or trigger OS shortcuts.
+- For form navigation: Tab to move between fields, Enter to submit, Escape to close dropdowns/modals.
+
 Workflow: analyze_page → read element IDs → act (click/type/press_key) → if page changed → analyze_page again → continue.`;
 
 /**
@@ -66,7 +76,11 @@ async function executeTool(browserId, name, args) {
       }
       case 'type': {
         const r = await sendCommand(browserId, 'type', { selector: `[data-ac-id="${args.element_id}"]`, text: args.text });
-        return r.ok ? `Typed into element ${args.element_id}` : `Error: ${r.error}`;
+        if (!r.ok) return `Error: ${r.error}`;
+        if (r.data?.suggestions_visible) {
+          return `Typed "${args.text}" into element ${args.element_id}. AUTOCOMPLETE SUGGESTIONS ARE VISIBLE — call analyze_page now to see and click a suggestion, or press Enter to submit as-is.`;
+        }
+        return `Typed "${args.text}" into element ${args.element_id}`;
       }
       case 'screenshot': {
         const r = await sendCommand(browserId, 'screenshot');

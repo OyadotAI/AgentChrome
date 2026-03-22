@@ -156,8 +156,8 @@ Use element IDs with click/type tools. The output includes:
 
   server.tool(
     'press_key',
-    'Press a keyboard key (Enter, Escape, Tab, Backspace, ArrowDown, ArrowUp, or any character).',
-    { key: z.string().describe('Key to press — e.g. "Enter", "Escape", "Tab", "a"') },
+    'Press a safe navigation key. Allowed: Enter, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Backspace, Delete, Space, Home, End, PageUp, PageDown. Do NOT use for F-keys, Meta, Control, Alt, or Shift.',
+    { key: z.enum(['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Space', 'Home', 'End', 'PageUp', 'PageDown']).describe('Key to press') },
     async ({ key }) => {
       const result = await sendCommand(browserId, 'press_key', { key });
       if (!result.ok) {
@@ -656,8 +656,8 @@ function createPoolMcpServer(apiKey) {
     }
   );
 
-  server.tool('press_key', 'Press a keyboard key on the pinned pool browser.',
-    { key: z.string() },
+  server.tool('press_key', 'Press a safe navigation key on the pinned pool browser. Allowed: Enter, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Backspace, Delete, Space.',
+    { key: z.enum(['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Space', 'Home', 'End', 'PageUp', 'PageDown']) },
     async ({ key }) => {
       const bid = pick(false);
       if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
