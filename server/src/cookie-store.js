@@ -4,13 +4,17 @@
  *
  * Primary storage: Supabase (oya_browser.cookies)
  * Fallback: local file (data/cookies.json) when Supabase is not configured.
+ *
+ * DB writes are incremental (single-row upsert/delete per change) and
+ * debounced for bulk operations like mergeDump.
  */
 
 import { readFileSync, mkdirSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { db } from './db.js';
+// DB disabled for cookies — volume too high for Supabase
+const db = null;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COOKIE_PATH = join(__dirname, '..', 'data', 'cookies.json');
@@ -20,10 +24,84 @@ const COOKIE_PATH = join(__dirname, '..', 'data', 'cookies.json');
  * @type {Map<string, object>}
  */
 const jar = new Map();
-let loaded = false;
 
 function cookieKey(c) {
   return `${c.domain}|${c.path || '/'}|${c.name}`;
+}
+
+// ── Pending DB writes (batched) ──
+const pendingUpserts = new Map();   // id → data
+const pendingDeletes = new Set();   // ids to delete
+let flushTimer = null;
+const FLUSH_DELAY = 2000; // 2s debounce
+
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    flush();
+  }, FLUSH_DELAY);
+}
+
+async function flush() {
+  if (db) {
+    await flushToDb();
+  } else {
+    await flushToFile();
+  }
+}
+
+async function flushToDb() {
+  // Grab and clear pending work
+  const upserts = [...pendingUpserts.entries()];
+  const deletes = [...pendingDeletes];
+  pendingUpserts.clear();
+  pendingDeletes.clear();
+
+  try {
+    if (upserts.length > 0) {
+      // Batch in chunks of 500 to stay within Supabase limits
+      for (let i = 0; i < upserts.length; i += 500) {
+        const chunk = upserts.slice(i, i + 500).map(([id, data]) => ({
+          id, data, updated_at: new Date().toISOString(),
+        }));
+        const { error } = await db.from('cookies').upsert(chunk, { onConflict: 'id' });
+        if (error) console.error('[cookies] upsert error:', error.message);
+      }
+    }
+    if (deletes.length > 0) {
+      for (let i = 0; i < deletes.length; i += 500) {
+        const chunk = deletes.slice(i, i + 500);
+        const { error } = await db.from('cookies').delete().in('id', chunk);
+        if (error) console.error('[cookies] delete error:', error.message);
+      }
+    }
+  } catch (e) {
+    console.error('[cookies] flush error:', e.message);
+  }
+}
+
+async function flushToFile() {
+  pendingUpserts.clear();
+  pendingDeletes.clear();
+  try {
+    mkdirSync(dirname(COOKIE_PATH), { recursive: true });
+    await writeFile(COOKIE_PATH, JSON.stringify([...jar.values()], null, 2));
+  } catch {}
+}
+
+// ── Queue a single cookie change ──
+
+function queueUpsert(id, data) {
+  pendingDeletes.delete(id);
+  pendingUpserts.set(id, data);
+  scheduleFlush();
+}
+
+function queueDelete(id) {
+  pendingUpserts.delete(id);
+  pendingDeletes.add(id);
+  scheduleFlush();
 }
 
 // ── Load on startup ──
@@ -52,59 +130,9 @@ function loadFromFile() {
   } catch {}
 }
 
-// Init: try DB first, fall back to file
 loadFromDb().then((ok) => {
   if (!ok) loadFromFile();
-  loaded = true;
 });
-
-// ── Persistence ──
-
-let saveQueued = false;
-
-function save() {
-  if (saveQueued) return;
-  saveQueued = true;
-  queueMicrotask(async () => {
-    saveQueued = false;
-    if (db) {
-      await saveToDb();
-    } else {
-      await saveToFile();
-    }
-  });
-}
-
-async function saveToDb() {
-  try {
-    // Upsert all current cookies
-    const rows = [];
-    for (const [id, data] of jar) {
-      rows.push({ id, data, updated_at: new Date().toISOString() });
-    }
-    if (rows.length > 0) {
-      const { error } = await db.from('cookies').upsert(rows, { onConflict: 'id' });
-      if (error) throw error;
-    }
-    // Delete cookies no longer in jar
-    const { data: existing } = await db.from('cookies').select('id');
-    if (existing) {
-      const toDelete = existing.filter(r => !jar.has(r.id)).map(r => r.id);
-      if (toDelete.length > 0) {
-        await db.from('cookies').delete().in('id', toDelete);
-      }
-    }
-  } catch (e) {
-    console.error('[cookies] Failed to save to Supabase:', e.message);
-  }
-}
-
-async function saveToFile() {
-  try {
-    mkdirSync(dirname(COOKIE_PATH), { recursive: true });
-    await writeFile(COOKIE_PATH, JSON.stringify([...jar.values()], null, 2));
-  } catch {}
-}
 
 // ── Public API (unchanged signatures) ──
 
@@ -114,9 +142,10 @@ async function saveToFile() {
  */
 export function mergeDump(cookies) {
   for (const c of cookies) {
-    jar.set(cookieKey(c), c);
+    const id = cookieKey(c);
+    jar.set(id, c);
+    queueUpsert(id, c);
   }
-  save();
   return getAll();
 }
 
@@ -126,13 +155,14 @@ export function mergeDump(cookies) {
  * @returns {object} the change to broadcast
  */
 export function applyChange(change) {
-  const key = cookieKey(change.cookie);
+  const id = cookieKey(change.cookie);
   if (change.removed) {
-    jar.delete(key);
+    jar.delete(id);
+    queueDelete(id);
   } else {
-    jar.set(key, change.cookie);
+    jar.set(id, change.cookie);
+    queueUpsert(id, change.cookie);
   }
-  save();
   return change;
 }
 
@@ -148,11 +178,13 @@ export function getAll() {
  */
 export function clear() {
   jar.clear();
+  pendingUpserts.clear();
+  pendingDeletes.clear();
   if (db) {
     db.from('cookies').delete().neq('id', '').then(({ error }) => {
       if (error) console.error('[cookies] Failed to clear in Supabase:', error.message);
     });
   } else {
-    save();
+    scheduleFlush();
   }
 }
