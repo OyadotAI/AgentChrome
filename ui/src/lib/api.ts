@@ -1,10 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export function apiUrl(path: string): string {
-  // In production: same origin, API at /api
-  // In dev: NEXT_PUBLIC_API_URL=http://localhost:3100 (no /api prefix on dev server)
-  if (API_URL) return `${API_URL}${path}`;
-  return `/api${path}`;
+  return `${API_URL}${path}`;
 }
 
 export function authHeaders(token: string): HeadersInit {
@@ -44,6 +41,19 @@ export async function signup(email: string, password: string, displayName?: stri
   if (!res.ok) {
     const data = await res.json();
     throw new Error(data.error || 'Signup failed');
+  }
+  return res.json();
+}
+
+export async function refreshToken(refreshToken: string) {
+  const res = await fetch(apiUrl('/auth/refresh'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Refresh failed');
   }
   return res.json();
 }

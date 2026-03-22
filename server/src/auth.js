@@ -90,6 +90,18 @@ export async function login(email, password) {
   };
 }
 
+export async function refreshSession(refreshToken) {
+  if (!supabaseAuth) throw new Error('Database not configured');
+  const { data, error } = await supabaseAuth.auth.refreshSession({ refresh_token: refreshToken });
+  if (error) throw error;
+  return {
+    user: { id: data.user.id, email: data.user.email },
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+    expires_at: data.session.expires_at,
+  };
+}
+
 // ── API key management ──
 
 export function validateApiKey(key) {

@@ -71,6 +71,20 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
+router.post('/auth/refresh', async (req, res) => {
+  const { refresh_token } = req.body;
+  if (!refresh_token) {
+    return res.status(400).json({ error: 'refresh_token required' });
+  }
+  try {
+    const { refreshSession } = await import('./auth.js');
+    const result = await refreshSession(refresh_token);
+    res.json(result);
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
 router.get('/auth/me', userAuthMiddleware, async (req, res) => {
   try {
     const profile = await getProfile(req.user.id);

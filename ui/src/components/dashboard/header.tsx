@@ -54,33 +54,36 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch keys
+  // Fetch keys from API
   const loadKeys = useCallback(async () => {
-    if (!token) return;
+    if (!token) { console.log('[header] loadKeys: no token'); return []; }
+    console.log('[header] loadKeys: fetching with token', token.slice(0, 20) + '...');
     try {
       const data = await listApiKeys(token);
-      const raw = data?.keys ?? data;
-      const keyList: ApiKeyEntry[] = Array.isArray(raw) ? raw : [];
+      console.log('[header] loadKeys: got', data);
+      const keyList: ApiKeyEntry[] = Array.isArray(data) ? data : Array.isArray(data?.keys) ? data.keys : [];
       setKeys(keyList);
-      // Auto-select first key if none selected
-      if (!apiKey && keyList.length > 0) {
-        const saved = typeof window !== 'undefined' ? localStorage.getItem('oya_api_key') : null;
-        const matchedKey = saved ? keyList.find(k => k.key === saved) : null;
-        if (matchedKey) {
-          setApiKey(matchedKey.key);
-        } else {
-          setApiKey(keyList[0].key);
-          localStorage.setItem('oya_api_key', keyList[0].key);
-        }
-      }
-    } catch {
-      // Server may not be running
+      console.log('[header] loadKeys: set', keyList.length, 'keys');
+      return keyList;
+    } catch (err) {
+      console.warn('[header] Failed to load API keys:', err);
+      return [];
     }
-  }, [token, apiKey, setApiKey]);
+  }, [token]);
 
+  // Load keys on mount, auto-select if needed
   useEffect(() => {
-    loadKeys();
-  }, [loadKeys]);
+    loadKeys().then((keyList) => {
+      if (!keyList || keyList.length === 0) return;
+      const currentKey = localStorage.getItem('oya_api_key');
+      if (currentKey && keyList.find(k => k.key === currentKey)) {
+        setApiKey(currentKey);
+      } else {
+        setApiKey(keyList[0].key);
+        localStorage.setItem('oya_api_key', keyList[0].key);
+      }
+    });
+  }, [loadKeys, setApiKey]);
 
   // Click outside handlers
   useEffect(() => {
@@ -96,24 +99,31 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  const [newKeyLabel, setNewKeyLabel] = useState('');
+  const [showLabelInput, setShowLabelInput] = useState(false);
+
   const handleCreateKey = async () => {
     if (!token) return;
+    if (!showLabelInput) {
+      setShowLabelInput(true);
+      return;
+    }
     setCreatingKey(true);
     try {
-      const data = await createApiKey(token);
+      const data = await createApiKey(token, newKeyLabel.trim() || undefined);
       await loadKeys();
       if (data.key) {
         setApiKey(data.key);
         localStorage.setItem('oya_api_key', data.key);
-        navigator.clipboard.writeText(data.key);
+        navigator.clipboard.writeText(data.key).catch(() => {});
         toast('Key created & copied to clipboard', 'success');
-      } else {
-        toast('API key created', 'success');
       }
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Failed to create key', 'error');
     } finally {
       setCreatingKey(false);
+      setShowLabelInput(false);
+      setNewKeyLabel('');
     }
   };
 
@@ -202,7 +212,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                   onClick={() => handleSelectKey(k.key)}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-text truncate">{k.label || 'Unnamed key'}</div>
+                    <div className="text-sm text-text truncate">{k.label && k.label !== 'Default' ? k.label : `Key ${k.key.slice(0, 8)}`}</div>
                     <div className="text-xs text-text-dim font-mono truncate">{k.key.slice(0, 16)}...</div>
                   </div>
                   <button
@@ -223,13 +233,24 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
               ))}
             </div>
             <div className="p-2 border-t border-border">
+              {showLabelInput && (
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Key name (e.g. cursor, claude)"
+                  value={newKeyLabel}
+                  onChange={(e) => setNewKeyLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCreateKey(); if (e.key === 'Escape') { setShowLabelInput(false); setNewKeyLabel(''); } }}
+                  className="w-full h-9 mb-2 rounded-md border border-border bg-transparent px-3 text-sm text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50"
+                />
+              )}
               <button
                 onClick={handleCreateKey}
                 disabled={creatingKey}
                 className="w-full flex items-center justify-center gap-1.5 h-9 px-4 rounded-md bg-accent text-neutral-950 text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
               >
                 {creatingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Create New Key
+                {showLabelInput ? 'Create' : 'Create New Key'}
               </button>
             </div>
           </div>
