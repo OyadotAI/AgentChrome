@@ -8,28 +8,7 @@
  */
 
 import { randomBytes } from 'crypto';
-import { createClient } from '@supabase/supabase-js';
-
-// ── Supabase ──
-
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || '';
-
-let supabase = null;
-if (supabaseUrl && supabaseKey) {
-  supabase = createClient(supabaseUrl, supabaseKey, {
-    db: { schema: 'oya_browser' },
-  });
-  console.log('[auth] Supabase connected');
-} else {
-  console.warn('[auth] SUPABASE_URL / SUPABASE_SERVICE_KEY not set — running without database');
-}
-
-// Separate client for auth operations (uses public schema)
-let supabaseAuth = null;
-if (supabaseUrl && supabaseKey) {
-  supabaseAuth = createClient(supabaseUrl, supabaseKey);
-}
+import { db as supabase, dbAuth as supabaseAuth } from './db.js';
 
 // ── Env-configured admin keys ──
 
