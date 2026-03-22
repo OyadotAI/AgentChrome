@@ -56,45 +56,29 @@ cd "$ROOT"
 log_info "Building browser app..."
 cd "$ROOT/browser"
 
-if [[ "$(uname)" == "Darwin" ]]; then
-  log_info "Building macOS DMG (universal)"
-  npm run dist:mac
-fi
-
-if [[ "$(uname)" == "Linux" ]]; then
-  log_info "Building Linux AppImage"
-  npm run dist:linux
-fi
+log_info "Building macOS DMG (universal)"
+npm run dist:mac
 
 cd "$ROOT"
 
-# ── Copy binaries to server/downloads ──
+# ── Copy macOS binary to server/downloads ──
 
 log_info "Copying binaries to server/downloads/"
 mkdir -p server/downloads
 
 # electron-builder outputs "Oya Browser-*" (space), download links use "Oya.Browser-*" (dot)
 SRC_DMG="browser/dist/Oya Browser-${VERSION}-universal.dmg"
-SRC_APPIMAGE="browser/dist/Oya Browser-${VERSION}-arm64.AppImage"
 DST_DMG="server/downloads/Oya.Browser-${VERSION}-universal.dmg"
-DST_APPIMAGE="server/downloads/Oya.Browser-${VERSION}-arm64.AppImage"
 
-COPIED=0
 if [ -f "$SRC_DMG" ]; then
   cp "$SRC_DMG" "$DST_DMG"
   log_ok "Copied → $(basename "$DST_DMG")"
-  COPIED=$((COPIED + 1))
-fi
-if [ -f "$SRC_APPIMAGE" ]; then
-  cp "$SRC_APPIMAGE" "$DST_APPIMAGE"
-  log_ok "Copied → $(basename "$DST_APPIMAGE")"
-  COPIED=$((COPIED + 1))
-fi
-
-if [ "$COPIED" -eq 0 ]; then
-  log_err "No binaries found in browser/dist/ — check build output"
+else
+  log_err "macOS DMG not found — check build output"
   exit 1
 fi
+
+log_info "Linux AppImage will be built by GitHub Actions"
 
 # ── Update download links in UI ──
 
@@ -125,17 +109,9 @@ log_ok "Pushed branch and tag"
 
 log_info "Creating GitHub release $TAG..."
 
-RELEASE_ASSETS=()
-if [ -f "$DST_DMG" ]; then
-  RELEASE_ASSETS+=("$DST_DMG")
-fi
-if [ -f "$DST_APPIMAGE" ]; then
-  RELEASE_ASSETS+=("$DST_APPIMAGE")
-fi
-
-gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
+gh release create "$TAG" "$DST_DMG" \
   --title "Oya Browser $TAG" \
   --generate-notes
 
-log_ok "GitHub release $TAG created with binaries"
-log_ok "Done — prod deploy workflow triggered"
+log_ok "GitHub release $TAG created with macOS binary"
+log_ok "Linux build + prod deploy will be triggered by the tag push"

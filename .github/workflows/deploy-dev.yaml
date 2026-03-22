@@ -26,13 +26,13 @@ jobs:
           server:
             - 'server/**'
             - 'ui/**'
-            - 'Dockerfile'
             - 'browser/scripts/**'
+            - 'Dockerfile'
           k8s:
             - 'k8s/**'
 
   build:
-    name: Build server
+    name: Build & push image
     needs: changes
     if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
@@ -46,6 +46,7 @@ jobs:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Download browser binaries from latest release
       run: |
         mkdir -p server/downloads
@@ -54,6 +55,16 @@ jobs:
         gh release download "$LATEST_TAG" --pattern '*.dmg' --dir server/downloads --clobber || true
         gh release download "$LATEST_TAG" --pattern '*.AppImage' --dir server/downloads --clobber || true
         ls -lh server/downloads/ || true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update download URLs in UI
+      run: |
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+        VERSION="${LATEST_TAG#v}"
+        echo "Updating download links to version $VERSION"
+        sed -i "s/Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*-/Oya.Browser-${VERSION}-/g" ui/src/app/page.tsx
+        grep -o 'Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*' ui/src/app/page.tsx | head -2
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -95,6 +106,8 @@ jobs:
       run: |
         kubectl create secret generic app-secrets \
           --from-literal=API_KEYS="${{ secrets.API_KEYS }}" \
+          --from-literal=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+          --from-literal=SUPABASE_SERVICE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}" \
           -n ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Create GHCR pull secret

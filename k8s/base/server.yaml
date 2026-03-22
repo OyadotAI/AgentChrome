@@ -36,7 +36,7 @@ spec:
           value: "3100"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /api/health
             port: 3100
           initialDelaySeconds: 10
           periodSeconds: 30
@@ -44,7 +44,7 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /api/health
             port: 3100
           initialDelaySeconds: 5
           periodSeconds: 10
