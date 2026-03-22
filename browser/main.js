@@ -364,10 +364,35 @@ let reconnectAttempts = 0;
 let pingInterval = null;
 let missedPongs = 0;
 
+// ─── Session Setup ───
+
+/** Configure the persistent browser session — user-agent, cookies, privacy. */
+function setupBrowserSession() {
+  const ses = getBrowserSession();
+
+  // Strip "Electron/..." from user-agent — Google (and others) block Electron UAs
+  const defaultUA = ses.getUserAgent();
+  const cleanUA = defaultUA
+    .replace(/\s*Electron\/[\d.]+/, '')
+    .replace(/\s*oya-browser\/[\d.]+/i, '');
+  ses.setUserAgent(cleanUA);
+
+  // Allow all cookies — prevent Google's "cookie settings" interstitial
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    // Ensure Sec-CH-UA headers don't leak Electron
+    const headers = { ...details.requestHeaders };
+    if (headers['Sec-CH-UA']) {
+      headers['Sec-CH-UA'] = headers['Sec-CH-UA'].replace(/Electron/g, 'Chrome');
+    }
+    callback({ requestHeaders: headers });
+  });
+}
+
 // ─── App Lifecycle ───
 
 app.whenReady().then(() => {
   loadConfig();
+  setupBrowserSession();
   createWindow();
   startCookieChangeListener();
   if (config.apiKey) connect();

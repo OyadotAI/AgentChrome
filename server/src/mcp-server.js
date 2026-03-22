@@ -446,15 +446,19 @@ export async function handleMcpRequest(req, res) {
     return;
   }
 
-  // Create a fresh server+transport per request so concurrent requests don't
-  // destroy each other's transports (the old close/reconnect pattern was fatal
-  // for any in-flight response).
-  const server = createMcpServer(browserId);
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless
-  });
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+  try {
+    const server = createMcpServer(browserId);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    console.error(`[mcp] Request error for browser ${browserId}:`, err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
 }
 
 /**
@@ -497,17 +501,17 @@ function createPoolMcpServer(apiKey) {
 
   function browserTag(id) {
     const b = registry.get(id);
-    return b ? `[${b.name} ${id.slice(0, 8)}]` : `[${id.slice(0, 8)}]`;
+    return b ? `[${b.name} ${id}]` : `[${id}]`;
   }
 
   // ── Tools (mirror the per-browser tools but route through pool) ──
 
   server.tool(
     'analyze_page',
-    `Analyze the current page on the next pool browser. Returns structured markdown with interactive elements.`,
+    `Analyze the current page on the pinned pool browser. Returns structured markdown with interactive elements.`,
     {},
     async () => {
-      const bid = pick(true); // advance round-robin
+      const bid = pick(false); // stay on pinned browser — analyzing current page, not switching
       if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
       const result = await sendCommand(bid, 'analyze');
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
@@ -681,7 +685,11 @@ function createPoolMcpServer(apiKey) {
   server.tool('pool_status', 'Show pool size and connected browsers.', {},
     async () => {
       const stats = poolStats(apiKey);
-      const lines = stats.browsers.map(b => `  ${b.name} (${b.id.slice(0, 8)}) — ${b.currentUrl || 'idle'}`);
+      const pinned = poolPinned.get(apiKey);
+      const lines = stats.browsers.map(b => {
+        const pin = b.id === pinned ? ' ★' : '';
+        return `  ${b.name} (${b.id})${pin} — ${b.currentUrl || 'idle'}`;
+      });
       return { content: [{ type: 'text', text: `Pool: ${stats.size} browsers\n${lines.join('\n')}` }] };
     }
   );
@@ -709,12 +717,17 @@ export async function handlePoolMcpRequest(req, res) {
     return;
   }
 
-  // Fresh server+transport per request — pool pinned state lives in the
-  // external poolPinned Map so it persists across requests.
-  const server = createPoolMcpServer(apiKey);
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
+  try {
+    const server = createPoolMcpServer(apiKey);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err) {
+    console.error(`[mcp] Pool request error:`, err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
 }

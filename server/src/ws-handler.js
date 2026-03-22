@@ -56,6 +56,14 @@ export function handleConnection(ws) {
       // If browser_id already connected, close the old one
       const existing = registry.get(browserId);
       if (existing) {
+        // Reject pending commands sent via the old connection
+        for (const [cmdId, pending] of pendingCommands) {
+          if (pending.browserId === browserId) {
+            clearTimeout(pending.timer);
+            pendingCommands.delete(cmdId);
+            pending.reject(new Error('Browser reconnected'));
+          }
+        }
         try { existing.ws.close(4000, 'Replaced by new connection'); } catch {}
         registry.remove(browserId);
         destroyMcpServer(browserId);
@@ -169,17 +177,23 @@ export function handleConnection(ws) {
     clearInterval(pingTimer);
 
     if (browserId) {
-      // Reject all pending commands for this browser
-      for (const [cmdId, pending] of pendingCommands) {
-        if (pending.browserId === browserId) {
-          clearTimeout(pending.timer);
-          pendingCommands.delete(cmdId);
-          pending.reject(new Error('Browser disconnected'));
+      // Guard: only clean up if WE are still the registered connection.
+      // When a browser reconnects, the new connection replaces us in the
+      // registry before our close event fires — removing the new entry
+      // would cause the "on/off" flapping loop.
+      const current = registry.get(browserId);
+      if (current && current.ws === ws) {
+        for (const [cmdId, pending] of pendingCommands) {
+          if (pending.browserId === browserId) {
+            clearTimeout(pending.timer);
+            pendingCommands.delete(cmdId);
+            pending.reject(new Error('Browser disconnected'));
+          }
         }
-      }
 
-      registry.remove(browserId);
-      destroyMcpServer(browserId);
+        registry.remove(browserId);
+        destroyMcpServer(browserId);
+      }
     }
   });
 
