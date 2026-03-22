@@ -6,3 +6,5 @@ node_modules
 extension
 .claude
 README.md
+browser/node_modules
+browser/dist

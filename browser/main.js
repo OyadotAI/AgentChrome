@@ -52,6 +52,10 @@ function loadConfig() {
     const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     config = { ...CONFIG_DEFAULTS, ...data };
   } catch {}
+  // Env vars override file config (for Docker / headless use)
+  if (process.env.OYA_SERVER_URL) config.serverUrl = process.env.OYA_SERVER_URL;
+  if (process.env.OYA_API_KEY) config.apiKey = process.env.OYA_API_KEY;
+  if (process.env.OYA_BROWSER_NAME) config.browserName = process.env.OYA_BROWSER_NAME;
 }
 
 function saveConfig() {
@@ -448,7 +452,7 @@ app.whenReady().then(() => {
   setupBrowserSession();
   createWindow();
   startCookieChangeListener();
-  if (config.apiKey) connect();
+  if (config.apiKey || process.env.OYA_AUTO_CONNECT === 'true') connect();
 });
 
 app.on('window-all-closed', () => { disconnect(); app.quit(); });
@@ -466,6 +470,7 @@ function createWindow() {
     },
   });
   mainWindow.loadFile('renderer/index.html');
+  if (process.env.OYA_DOCKER === 'true') mainWindow.maximize();
   mainWindow.on('resize', layoutActiveTab);
 }
 
@@ -945,7 +950,7 @@ function devLog(direction, type, data) {
 // ─── WebSocket ───
 
 function connect() {
-  if (!config.apiKey) return;
+  if (!config.apiKey && process.env.OYA_AUTO_CONNECT !== 'true') return;
   if (ws) disconnect();
   browserId = browserId || randomId();
 

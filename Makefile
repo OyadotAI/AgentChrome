@@ -1,4 +1,4 @@
-.PHONY: help server server-dev browser browser-dev browser-build browser-dist-mac browser-dist-linux ui ui-dev ui-build deploy-dev deploy-prod release logs-dev logs-prod pods-dev pods-prod restart-dev restart-prod k8s-dev k8s-prod
+.PHONY: help server server-dev browser browser-dev browser-build browser-dist-mac browser-dist-linux ui ui-dev ui-build deploy-dev deploy-prod release logs-dev logs-prod pods-dev pods-prod restart-dev restart-prod k8s-dev k8s-prod docker-build docker-run docker-up docker-down docker-browser docker-scale
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -61,6 +61,12 @@ docker-up: ## Start server via docker compose
 
 docker-down: ## Stop docker compose
 	docker compose down
+
+docker-browser: ## Build browser Docker image
+	docker build -t oya-browser browser
+
+docker-scale: ## Scale browser instances (usage: make docker-scale N=5)
+	docker compose up -d --scale browser=$(N)
 
 # ── Deploy ──
 
