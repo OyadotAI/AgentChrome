@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - namespace.yaml
 - server.yaml
+- browser.yaml
 
 labels:
   - pairs:

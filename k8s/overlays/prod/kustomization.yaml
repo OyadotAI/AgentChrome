@@ -8,8 +8,14 @@ resources:
 - ingress.yaml
 - cert.yaml
 
+replicas:
+- name: browser
+  count: 3
+
 images:
 - name: ghcr.io/oyadotai/oya-browser-server
+  newTag: latest
+- name: ghcr.io/oyadotai/oya-browser
   newTag: latest
 
 labels:

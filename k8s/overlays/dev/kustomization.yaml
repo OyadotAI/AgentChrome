@@ -11,6 +11,8 @@ resources:
 images:
 - name: ghcr.io/oyadotai/oya-browser-server
   newTag: dev
+- name: ghcr.io/oyadotai/oya-browser
+  newTag: dev
 
 labels:
   - pairs:

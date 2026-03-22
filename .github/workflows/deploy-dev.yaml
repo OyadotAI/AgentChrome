@@ -6,7 +6,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/oyadotai/oya-browser-server
+  IMAGE_SERVER: ghcr.io/oyadotai/oya-browser-server
+  IMAGE_BROWSER: ghcr.io/oyadotai/oya-browser
   TAG: dev
   NAMESPACE: oya-browser-dev
 
@@ -16,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       server: ${{ steps.filter.outputs.server }}
+      browser: ${{ steps.filter.outputs.browser }}
       k8s: ${{ steps.filter.outputs.k8s }}
     steps:
     - uses: actions/checkout@v4
@@ -28,6 +30,8 @@ jobs:
             - 'ui/**'
             - 'browser/scripts/**'
             - 'Dockerfile'
+          browser:
+            - 'browser/**'
           k8s:
             - 'k8s/**'
 
@@ -73,14 +77,39 @@ jobs:
       with:
         context: .
         push: true
-        tags: ${{ env.IMAGE }}:${{ env.TAG }}
+        tags: ${{ env.IMAGE_SERVER }}:${{ env.TAG }}
         platforms: linux/amd64
         cache-from: type=gha,scope=server-dev
         cache-to: type=gha,mode=max,scope=server-dev
 
+  build-browser:
+    name: Build & push browser image
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/build-push-action@v6
+      with:
+        context: browser
+        push: true
+        tags: ${{ env.IMAGE_BROWSER }}:${{ env.TAG }}
+        platforms: linux/amd64
+        cache-from: type=gha,scope=browser-dev
+        cache-to: type=gha,mode=max,scope=browser-dev
+
   deploy:
     name: Deploy to GKE (dev)
-    needs: [changes, build]
+    needs: [changes, build, build-browser]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     permissions:
@@ -122,14 +151,22 @@ jobs:
     - name: Deploy with Kustomize
       run: kubectl apply -k k8s/overlays/dev
 
-    - name: Rolling restart
+    - name: Rolling restart server
       if: needs.changes.outputs.server == 'true' || needs.changes.outputs.k8s == 'true'
       run: |
         kubectl patch deployment server -n ${{ env.NAMESPACE }} \
           -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
 
+    - name: Rolling restart browser
+      if: needs.changes.outputs.browser == 'true' || needs.changes.outputs.k8s == 'true'
+      run: |
+        kubectl patch deployment browser -n ${{ env.NAMESPACE }} \
+          -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
+
     - name: Wait for rollout
-      run: kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=120s || true
+      run: |
+        kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=120s || true
+        kubectl rollout status deployment/browser -n ${{ env.NAMESPACE }} --timeout=120s || true
 
     - name: Show status
       if: always()

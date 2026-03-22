@@ -54,7 +54,7 @@ function loadConfig() {
   } catch {}
   // Env vars override file config (for Docker / headless use)
   if (process.env.OYA_SERVER_URL) config.serverUrl = process.env.OYA_SERVER_URL;
-  if (process.env.OYA_API_KEY) config.apiKey = process.env.OYA_API_KEY;
+  if (process.env.OYA_API_KEY) config.apiKey = process.env.OYA_API_KEY.split(',')[0].trim();
   if (process.env.OYA_BROWSER_NAME) config.browserName = process.env.OYA_BROWSER_NAME;
 }
 

@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: browser
+  labels:
+    app: browser
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: browser
+  template:
+    metadata:
+      labels:
+        app: browser
+    spec:
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+        - name: ghcr-oyadotai
+      containers:
+      - name: browser
+        image: ghcr.io/oyadotai/oya-browser:latest
+        imagePullPolicy: Always
+        env:
+        - name: OYA_SERVER_URL
+          value: "ws://server:3100/ws"
+        - name: OYA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: API_KEYS
+        - name: OYA_AUTO_CONNECT
+          value: "true"
+        - name: OYA_BROWSER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: SCREEN_WIDTH
+          value: "1920"
+        - name: SCREEN_HEIGHT
+          value: "1080"
+        # OYA_DOCKER is set in the Dockerfile
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        # /dev/shm must be large enough for Chromium
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi

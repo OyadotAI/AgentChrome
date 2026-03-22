@@ -6,7 +6,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/oyadotai/oya-browser-server
+  IMAGE_SERVER: ghcr.io/oyadotai/oya-browser-server
+  IMAGE_BROWSER: ghcr.io/oyadotai/oya-browser
   NAMESPACE: oya-browser
 
 jobs:
@@ -96,15 +97,40 @@ jobs:
         context: .
         push: true
         tags: |
-          ${{ env.IMAGE }}:${{ github.ref_name }}
-          ${{ env.IMAGE }}:latest
+          ${{ env.IMAGE_SERVER }}:${{ github.ref_name }}
+          ${{ env.IMAGE_SERVER }}:latest
         platforms: linux/amd64
         cache-from: type=gha,scope=server-prod
         cache-to: type=gha,mode=max,scope=server-prod
 
+  build-browser:
+    name: Build & push browser image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/build-push-action@v6
+      with:
+        context: browser
+        push: true
+        tags: |
+          ${{ env.IMAGE_BROWSER }}:${{ github.ref_name }}
+          ${{ env.IMAGE_BROWSER }}:latest
+        platforms: linux/amd64
+        cache-from: type=gha,scope=browser-prod
+        cache-to: type=gha,mode=max,scope=browser-prod
+
   deploy:
     name: Deploy to GKE (prod)
-    needs: build-image
+    needs: [build-image, build-browser]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -149,9 +175,13 @@ jobs:
       run: |
         kubectl patch deployment server -n ${{ env.NAMESPACE }} \
           -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
+        kubectl patch deployment browser -n ${{ env.NAMESPACE }} \
+          -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
 
     - name: Wait for rollout
-      run: kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=120s || true
+      run: |
+        kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=120s || true
+        kubectl rollout status deployment/browser -n ${{ env.NAMESPACE }} --timeout=120s || true
 
     - name: Show status
       if: always()
