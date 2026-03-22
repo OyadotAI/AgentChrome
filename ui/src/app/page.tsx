@@ -24,6 +24,9 @@ import {
   Fingerprint,
   UserPlus,
   RefreshCw,
+  Cookie,
+  Lock,
+  Eye,
 } from 'lucide-react';
 
 /* ─── Copy button ─── */
@@ -210,17 +213,17 @@ export default function Home() {
             <div className="grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
               <div className="lg:col-span-7 reveal-stagger">
                 <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-indigo mb-4">
-                  Remote browser · MCP · Agent-native · Anonymous
+                  Cookie sync · Sandboxed · Native live view · MCP
                 </p>
                 <h1 className="font-display text-[2.5rem] sm:text-[3.25rem] lg:text-[3.5rem] font-bold tracking-tight leading-[1.05] mb-5">
-                  <span className="text-text">Give agents a real browser,</span>
+                  <span className="text-text">Login once. Every remote browser</span>
                   <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent via-amber-200 to-indigo">
-                    not a pile of selectors.
+                    is already authenticated.
                   </span>
                 </h1>
                 <p className="text-[17px] text-text-muted leading-relaxed max-w-xl mb-8">
-                  Built for AI from day one: structured markdown, numbered elements, and MCP endpoints — so models click by ID instead of burning tokens on vision and brittle CSS.
+                  Your cookies sync across every browser in the fleet. No re-login, no token juggling, no credential management. Just real Chrome sessions with native live view — no VNC needed.
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <a
@@ -273,7 +276,47 @@ export default function Home() {
 
         <div className="max-w-5xl mx-auto px-6 pb-6">
 
-        <section className="py-12 sm:py-14 relative">
+        {/* ─── THREE KEY FEATURES ─── */}
+        <section className="py-14 sm:py-18">
+          <SectionLabel>Why Oya Browser</SectionLabel>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-8 text-text">
+            The three things no other browser agent has
+          </h2>
+          <div className="grid sm:grid-cols-3 gap-4">
+            {/* Cookie Sync */}
+            <div className="relative group rounded-2xl border border-accent/25 bg-gradient-to-b from-accent/[0.06] to-transparent p-6 hover:border-accent/40 hover:shadow-[0_0_48px_-12px_rgba(228,168,46,0.3)] transition-all duration-300">
+              <div className="w-10 h-10 rounded-xl bg-accent/15 border border-accent/25 flex items-center justify-center mb-4">
+                <Cookie className="w-5 h-5 text-accent" />
+              </div>
+              <h3 className="text-[16px] font-bold text-text mb-2">Cookie sync</h3>
+              <p className="text-[13px] text-text-muted leading-relaxed">
+                Login on your local browser once. Every remote browser in the fleet gets your authenticated sessions automatically. Gmail, Slack, Notion, internal tools — all just work. No re-login. No credential management.
+              </p>
+            </div>
+            {/* Sandboxing */}
+            <div className="relative group rounded-2xl border border-indigo/25 bg-gradient-to-b from-indigo/[0.06] to-transparent p-6 hover:border-indigo/40 hover:shadow-[0_0_48px_-12px_rgba(99,102,241,0.3)] transition-all duration-300">
+              <div className="w-10 h-10 rounded-xl bg-indigo/15 border border-indigo/25 flex items-center justify-center mb-4">
+                <Lock className="w-5 h-5 text-indigo" />
+              </div>
+              <h3 className="text-[16px] font-bold text-text mb-2">Sandboxed execution</h3>
+              <p className="text-[13px] text-text-muted leading-relaxed">
+                Each browser runs in its own isolated environment. Agents can&apos;t escape the sandbox, can&apos;t touch your filesystem, can&apos;t interfere with each other. Full browser power with zero risk to your machine.
+              </p>
+            </div>
+            {/* Native Live View */}
+            <div className="relative group rounded-2xl border border-sky-400/25 bg-gradient-to-b from-sky-400/[0.06] to-transparent p-6 hover:border-sky-400/40 hover:shadow-[0_0_48px_-12px_rgba(56,189,248,0.3)] transition-all duration-300">
+              <div className="w-10 h-10 rounded-xl bg-sky-400/15 border border-sky-400/25 flex items-center justify-center mb-4">
+                <Eye className="w-5 h-5 text-sky-400" />
+              </div>
+              <h3 className="text-[16px] font-bold text-text mb-2">Native live view</h3>
+              <p className="text-[13px] text-text-muted leading-relaxed">
+                Watch your agent work in real time through a native Chromium view — not a laggy VNC stream or a static screenshot. Smooth, instant, pixel-perfect. Intervene anytime with your own mouse and keyboard.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="py-12 sm:py-14 border-t border-border/80 relative">
           <div className="absolute left-0 top-8 bottom-8 w-px bg-gradient-to-b from-accent/50 via-border to-transparent hidden sm:block" aria-hidden />
           <div className="sm:pl-8">
           <SectionLabel>The problem</SectionLabel>

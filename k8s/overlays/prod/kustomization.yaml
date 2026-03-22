@@ -10,7 +10,7 @@ resources:
 
 replicas:
 - name: browser
-  count: 1
+  count: 3
 
 images:
 - name: ghcr.io/oyadotai/oya-browser-server

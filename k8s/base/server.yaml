@@ -87,7 +87,7 @@ spec:
     kind: Deployment
     name: server
   minReplicas: 1
-  maxReplicas: 3
+  maxReplicas: 1
   metrics:
   - type: Resource
     resource:
