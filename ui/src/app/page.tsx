@@ -475,7 +475,7 @@ export default function Home() {
           </p>
           <div className="grid sm:grid-cols-2 gap-4">
             <a
-              href="/downloads/Oya.Browser-1.0.30-universal.dmg"
+              href="/downloads/Oya.Browser-1.0.31-universal.dmg"
               className="flex flex-col rounded-xl border border-border bg-bg-card/80 p-6 hover:border-accent/25 transition-colors shadow-[var(--shadow-card)]"
             >
               <h3 className="text-[15px] font-semibold mb-1 text-text">macOS</h3>
@@ -485,7 +485,7 @@ export default function Home() {
               </span>
             </a>
             <a
-              href="/downloads/Oya.Browser-1.0.30-arm64.AppImage"
+              href="/downloads/Oya.Browser-1.0.31-arm64.AppImage"
               className="flex flex-col rounded-xl border border-border bg-bg-card/80 p-6 hover:border-accent/25 transition-colors shadow-[var(--shadow-card)]"
             >
               <h3 className="text-[15px] font-semibold mb-1 text-text">Linux</h3>
