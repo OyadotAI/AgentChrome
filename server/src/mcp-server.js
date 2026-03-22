@@ -406,6 +406,80 @@ Use element IDs with click/type tools. The output includes:
     }
   );
 
+  // ── Anonymity Profile Management ──
+
+  server.tool(
+    'list_profiles',
+    'List available anonymity profiles. Each profile has a unique fingerprint, optional proxy, and isolated cookies.',
+    {},
+    async () => {
+      const result = await sendCommand(browserId, 'list_profiles', {});
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      const profiles = result.data?.profiles || [];
+      const active = result.data?.active;
+      let text = `## Profiles (${profiles.length})\n`;
+      if (active) text += `**Active:** ${active.id} (${active.platform})\n\n`;
+      else text += '**Active:** none (using default browser identity)\n\n';
+      for (const p of profiles) {
+        text += `- **${p.id}** — ${p.platform}, tz: ${p.timezone}${p.hasProxy ? ', proxy: yes' : ''}\n`;
+      }
+      if (profiles.length === 0) text += '_No profiles yet. Use create_profile to generate one._\n';
+      return { content: [{ type: 'text', text }] };
+    }
+  );
+
+  server.tool(
+    'create_profile',
+    'Create a new anonymity profile with a randomized browser fingerprint. Optionally specify platform, timezone, locale, and proxy.',
+    {
+      platform: z.enum(['Win32', 'MacIntel', 'Linux x86_64']).optional().describe('OS platform to emulate'),
+      timezone: z.string().optional().describe('IANA timezone (e.g. America/New_York)'),
+      locale: z.string().optional().describe('Locale (e.g. en-US)'),
+      proxy_type: z.enum(['http', 'socks5']).optional().describe('Proxy type'),
+      proxy_host: z.string().optional().describe('Proxy host'),
+      proxy_port: z.number().optional().describe('Proxy port'),
+      proxy_username: z.string().optional().describe('Proxy username'),
+      proxy_password: z.string().optional().describe('Proxy password'),
+    },
+    async (params) => {
+      const options = {};
+      if (params.platform) options.platform = params.platform;
+      if (params.timezone) options.timezone = params.timezone;
+      if (params.locale) options.locale = params.locale;
+      if (params.proxy_host) {
+        options.proxy = {
+          type: params.proxy_type || 'http',
+          host: params.proxy_host,
+          port: params.proxy_port || 8080,
+          username: params.proxy_username || '',
+          password: params.proxy_password || '',
+        };
+      }
+      const result = await sendCommand(browserId, 'create_profile', options);
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Created profile **${result.data.id}** (${result.data.platform}, tz: ${result.data.timezone}). Use set_profile to activate it.` }] };
+    }
+  );
+
+  server.tool(
+    'set_profile',
+    'Switch to a different anonymity profile. This closes all tabs and reopens with the new fingerprint, proxy, and cookie store.',
+    {
+      profile_id: z.string().describe('Profile ID to activate'),
+    },
+    async ({ profile_id }) => {
+      const result = await sendCommand(browserId, 'set_profile', { profile_id });
+      if (!result.ok) {
+        return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: `Switched to profile **${profile_id}** (${result.data.platform}). All tabs reloaded with new identity.` }] };
+    }
+  );
+
   // ── Resources ──
 
   server.resource(

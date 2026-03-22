@@ -11,6 +11,15 @@ const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nati
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
+const { applyTelemetryFlags, applyDomainBlocking } = require('./anonymity/telemetry');
+const { buildStealthScript } = require('./anonymity/stealth');
+const { generateProfile, buildFingerprintInjectScript } = require('./anonymity/fingerprint');
+const { configureProxy, applyDNSLeakPrevention } = require('./anonymity/proxy');
+const { ProfileStore } = require('./anonymity/profile-store');
+
+// Apply telemetry + DNS leak prevention flags before app is ready
+applyTelemetryFlags(app);
+applyDNSLeakPrevention(app);
 
 // Set dock icon on macOS (needed for dev mode — built app uses icon from package.json)
 if (process.platform === 'darwin') {
@@ -28,7 +37,11 @@ const CONFIG_DEFAULTS = {
   serverUrl: 'ws://localhost:3100/ws',
   apiKey: '',
   browserName: `Oya Browser ${process.platform}`,
+  activeProfileId: null,
 };
+
+let activeProfile = null;
+let profileStore = null;
 
 let config = { ...CONFIG_DEFAULTS };
 let configPath = null;
@@ -258,11 +271,15 @@ let nextTabId = 1;
 
 // ─── Cookie Sync ───
 
-const BROWSER_PARTITION = 'persist:oya-browser';
 let applyingCookieSync = false;
 
+function getPartitionName() {
+  if (activeProfile) return `persist:oya-${activeProfile.id}`;
+  return 'persist:oya-browser';
+}
+
 function getBrowserSession() {
-  return electronSession.fromPartition(BROWSER_PARTITION);
+  return electronSession.fromPartition(getPartitionName());
 }
 
 /** Dump all cookies to the server for pool sync. */
@@ -370,28 +387,64 @@ let missedPongs = 0;
 function setupBrowserSession() {
   const ses = getBrowserSession();
 
-  // Strip "Electron/..." from user-agent — Google (and others) block Electron UAs
+  // ── Block telemetry domains ──
+  applyDomainBlocking(ses);
+
+  // ── User-Agent: strip Electron/oya-browser tokens ──
   const defaultUA = ses.getUserAgent();
   const cleanUA = defaultUA
     .replace(/\s*Electron\/[\d.]+/, '')
     .replace(/\s*oya-browser\/[\d.]+/i, '');
   ses.setUserAgent(cleanUA);
 
-  // Allow all cookies — prevent Google's "cookie settings" interstitial
+  // Extract Chrome version for building correct Sec-CH-UA brand lists
+  const chromeFullVer = defaultUA.match(/Chrome\/([\d.]+)/)?.[1] || '134.0.0.0';
+  const chromeMajor = chromeFullVer.split('.')[0];
+
+  // ── Determine platform hint from active profile or real OS ──
+  const platformHint = activeProfile?.navigator?.platform === 'Win32' ? 'Windows'
+    : activeProfile?.navigator?.platform === 'Linux x86_64' ? 'Linux'
+    : process.platform === 'darwin' ? 'macOS'
+    : process.platform === 'win32' ? 'Windows' : 'Linux';
+
+  // ── Sec-CH-UA: rewrite client-hint headers to hide Electron ──
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    // Ensure Sec-CH-UA headers don't leak Electron
     const headers = { ...details.requestHeaders };
-    if (headers['Sec-CH-UA']) {
-      headers['Sec-CH-UA'] = headers['Sec-CH-UA'].replace(/Electron/g, 'Chrome');
+
+    for (const key of Object.keys(headers)) {
+      const lk = key.toLowerCase();
+      if (lk === 'sec-ch-ua') {
+        headers[key] = `"Chromium";v="${chromeMajor}", "Google Chrome";v="${chromeMajor}", "Not:A-Brand";v="24"`;
+      } else if (lk === 'sec-ch-ua-full-version-list') {
+        headers[key] = `"Chromium";v="${chromeFullVer}", "Google Chrome";v="${chromeFullVer}", "Not:A-Brand";v="24.0.0.0"`;
+      } else if (lk === 'sec-ch-ua-platform') {
+        headers[key] = `"${platformHint}"`;
+      } else if (lk === 'sec-ch-ua-mobile') {
+        headers[key] = '?0';
+      }
     }
+
     callback({ requestHeaders: headers });
   });
+
+  // ── Proxy: apply from active profile ──
+  if (activeProfile?.proxy?.host) {
+    configureProxy(ses, activeProfile.proxy);
+  }
 }
 
 // ─── App Lifecycle ───
 
 app.whenReady().then(() => {
   loadConfig();
+
+  // Initialize profile store and load active profile
+  profileStore = new ProfileStore(app.getPath('userData'));
+  const activeId = config.activeProfileId || profileStore.getActiveId();
+  if (activeId) {
+    activeProfile = profileStore.get(activeId);
+  }
+
   setupBrowserSession();
   createWindow();
   startCookieChangeListener();
@@ -423,7 +476,7 @@ function createTab(url, activate = true) {
   const view = new BrowserView({
     webPreferences: {
       contextIsolation: true, sandbox: true,
-      partition: 'persist:oya-browser', // cookies persist across restarts
+      partition: getPartitionName(),
     },
   });
 
@@ -462,7 +515,7 @@ function createTab(url, activate = true) {
         action: 'allow',
         overrideBrowserWindowOptions: {
           width: 500, height: 700,
-          webPreferences: { partition: 'persist:oya-browser' },
+          webPreferences: { partition: getPartitionName() },
         },
       };
     }
@@ -480,12 +533,34 @@ function createTab(url, activate = true) {
 function setupTabCDP(view) {
   try {
     cdpAttach(view);
-    // Auto-inject analyzer + agent into every new document (navigations, SPAs)
-    // The scripts' own guards prevent double-execution.
+
+    // Build injection chain: fingerprint → stealth → analyzer → agent
+    const parts = [];
+
+    // Fingerprint spoofing (if profile active)
+    if (activeProfile) {
+      parts.push(buildFingerprintInjectScript(activeProfile));
+    }
+
+    // Anti-detection stealth (always)
+    parts.push(buildStealthScript());
+
+    // Core scripts
+    parts.push(analyzerScript);
+    parts.push(agentScript);
+
     view.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: analyzerScript + '\n;\n' + agentScript,
+      source: parts.join('\n;\n'),
     }).catch(() => {});
     view.webContents.debugger.sendCommand('Page.enable').catch(() => {});
+
+    // Apply timezone/locale override via CDP if profile has them
+    if (activeProfile?.timezone) {
+      cdp(view, 'Emulation.setTimezoneOverride', { timezoneId: activeProfile.timezone }).catch(() => {});
+    }
+    if (activeProfile?.locale) {
+      cdp(view, 'Emulation.setLocaleOverride', { locale: activeProfile.locale }).catch(() => {});
+    }
   } catch {}
 }
 
@@ -621,6 +696,74 @@ ipcMain.handle('toggle-dev-panel', () => {
   return devPanelOpen;
 });
 
+// ─── Profile Management IPC ───
+
+ipcMain.handle('list-profiles', () => {
+  return profileStore ? profileStore.list() : [];
+});
+
+ipcMain.handle('create-profile', (e, options) => {
+  if (!profileStore) return null;
+  const profile = generateProfile(options || {});
+  profileStore.save(profile);
+  return { id: profile.id, platform: profile.navigator.platform, timezone: profile.timezone };
+});
+
+ipcMain.handle('activate-profile', async (e, profileId) => {
+  if (!profileStore) return false;
+  const profile = profileStore.get(profileId);
+  if (!profile) return false;
+
+  // Close all tabs before switching
+  while (tabs.length > 0) closeTab(tabs[0].id);
+
+  activeProfile = profile;
+  config.activeProfileId = profileId;
+  profileStore.setActiveId(profileId);
+  saveConfig();
+
+  // Re-setup session with new profile (proxy, headers, etc.)
+  setupBrowserSession();
+
+  // Open a fresh tab
+  enterBrowsingMode('https://google.com');
+  return true;
+});
+
+ipcMain.handle('deactivate-profile', async () => {
+  while (tabs.length > 0) closeTab(tabs[0].id);
+
+  activeProfile = null;
+  config.activeProfileId = null;
+  if (profileStore) profileStore.clearActive();
+  saveConfig();
+
+  setupBrowserSession();
+  enterBrowsingMode('https://google.com');
+  return true;
+});
+
+ipcMain.handle('delete-profile', (e, profileId) => {
+  if (!profileStore) return false;
+  if (activeProfile?.id === profileId) {
+    activeProfile = null;
+    config.activeProfileId = null;
+    profileStore.clearActive();
+    saveConfig();
+  }
+  return profileStore.delete(profileId);
+});
+
+ipcMain.handle('get-active-profile', () => {
+  if (!activeProfile) return null;
+  return {
+    id: activeProfile.id,
+    platform: activeProfile.navigator.platform,
+    timezone: activeProfile.timezone,
+    hasProxy: !!activeProfile.proxy?.host,
+  };
+});
+
 function sendToRenderer(channel, data) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data);
 }
@@ -742,6 +885,8 @@ function startPingLoop() {
 
 // Shared: find element via injected analyzer, return its center + metadata
 const FIND_ELEMENT_JS = (selector) => `(() => {
+  window.__oyaInternalCall = true;
+  try {
   const f = window.__acFindElement || window.__acQueryShadow || document.querySelector.bind(document);
   const el = f(${JSON.stringify(selector)});
   if (!el) return { ok: false, error: 'Element not found: ${selector.replace(/'/g, "\\'")}' };
@@ -776,6 +921,7 @@ const FIND_ELEMENT_JS = (selector) => `(() => {
       inIframe: ownerDoc !== document,
     },
   };
+  } finally { window.__oyaInternalCall = false; }
 })()`;
 
 async function handleCommand(msg) {
@@ -1135,6 +1281,42 @@ async function handleCommand(msg) {
         return { ok: true, data: { selected: el.value } };
       })()`, true);
       sendResult(id, result?.ok ?? true, result?.data, result?.error);
+      return;
+    }
+
+    // ── Profile management ──
+
+    if (action === 'list_profiles') {
+      const profiles = profileStore ? profileStore.list() : [];
+      const active = activeProfile ? { id: activeProfile.id, platform: activeProfile.navigator.platform } : null;
+      sendResult(id, true, { profiles, active });
+      return;
+    }
+
+    if (action === 'create_profile') {
+      if (!profileStore) { sendResult(id, false, null, 'Profile store not initialized'); return; }
+      const profile = generateProfile(params || {});
+      profileStore.save(profile);
+      sendResult(id, true, { id: profile.id, platform: profile.navigator.platform, timezone: profile.timezone });
+      return;
+    }
+
+    if (action === 'set_profile') {
+      if (!profileStore) { sendResult(id, false, null, 'Profile store not initialized'); return; }
+      const profileId = params?.profile_id;
+      if (!profileId) { sendResult(id, false, null, 'profile_id required'); return; }
+      const profile = profileStore.get(profileId);
+      if (!profile) { sendResult(id, false, null, `Profile ${profileId} not found`); return; }
+
+      // Close all tabs, switch profile, re-setup
+      while (tabs.length > 0) closeTab(tabs[0].id);
+      activeProfile = profile;
+      config.activeProfileId = profileId;
+      profileStore.setActiveId(profileId);
+      saveConfig();
+      setupBrowserSession();
+      enterBrowsingMode('https://google.com');
+      sendResult(id, true, { activated: profileId, platform: profile.navigator.platform });
       return;
     }
 

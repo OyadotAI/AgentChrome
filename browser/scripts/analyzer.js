@@ -48,6 +48,12 @@
   const elementRefs = new Map(); // id → DOM node (survives React re-renders)
 
   window.analyzePage = function (options = {}) {
+    // Bypass ClientRects noise from fingerprint spoofing during analysis
+    window.__oyaInternalCall = true;
+    try { return _analyzePageInner(options); } finally { window.__oyaInternalCall = false; }
+  };
+
+  function _analyzePageInner(options = {}) {
     cleanup();
     elementCounter = 0;
     elementMap = [];
