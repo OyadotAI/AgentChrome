@@ -3,7 +3,8 @@
  * When one browser's cookies change, the delta is broadcast to all others.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, mkdirSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -28,11 +29,18 @@ function cookieKey(c) {
   return `${c.domain}|${c.path || '/'}|${c.name}`;
 }
 
+let saveQueued = false;
+
 function save() {
-  try {
-    mkdirSync(dirname(COOKIE_PATH), { recursive: true });
-    writeFileSync(COOKIE_PATH, JSON.stringify([...jar.values()], null, 2));
-  } catch {}
+  if (saveQueued) return;
+  saveQueued = true;
+  queueMicrotask(async () => {
+    saveQueued = false;
+    try {
+      mkdirSync(dirname(COOKIE_PATH), { recursive: true });
+      await writeFile(COOKIE_PATH, JSON.stringify([...jar.values()], null, 2));
+    } catch {}
+  });
 }
 
 /**
