@@ -14,6 +14,7 @@ import {
   Globe,
   Zap,
   Menu,
+  Shield,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -90,9 +91,26 @@ export default function DocsPage() {
       ['close_tab', 'tabs', 'H3'],
       ['wait', 'wait', 'H2'],
       ['Wait for an element matching a CSS selector to appear on the page.', 'wait', 'P'],
+      ['Anonymity', 'anonymity', 'H2'],
+      ['Manage browser profiles with unique fingerprints, proxy routing, and isolated cookie stores', 'anonymity', 'P'],
+      ['Fingerprint Spoofing', 'fingerprint', 'H3'],
+      ['Canvas, WebGL, AudioContext, font, and ClientRects noise per profile', 'fingerprint', 'P'],
+      ['Proxy Support', 'proxy-support', 'H3'],
+      ['SOCKS5 and HTTP proxy per profile with DNS leak prevention', 'proxy-support', 'P'],
+      ['Anti-Detection Stealth', 'stealth', 'H3'],
+      ['Removes Electron markers, fixes window.chrome, navigator.webdriver, plugins', 'stealth', 'P'],
+      ['list_profiles', 'list_profiles', 'H2'],
+      ['List all available anonymity profiles with their platform, timezone, and proxy status', 'list_profiles', 'P'],
+      ['create_profile', 'create_profile', 'H2'],
+      ['Create a new anonymity profile with randomized fingerprint and optional proxy', 'create_profile', 'P'],
+      ['set_profile', 'set_profile', 'H2'],
+      ['Switch to a different profile — reloads all tabs with new fingerprint, proxy, and cookies', 'set_profile', 'P'],
       ['Dashboard', 'dashboard-overview', 'H2'],
       ['The dashboard at /dashboard is the control panel.', 'dashboard-overview', 'P'],
       ['Chat', 'chat', 'H3'],
+      ['Natural language browser control with formatted responses and tool badges', 'chat', 'P'],
+      ['Dev Panel', 'chat', 'H3'],
+      ['Chat, Actions, Network, and Source tabs in the desktop app dev panel', 'chat', 'P'],
       ['Live View', 'live-view', 'H3'],
       ['Settings', 'settings', 'H3'],
       ['REST API', 'rest-api', 'H2'],
@@ -288,6 +306,16 @@ export default function DocsPage() {
         <NavLink onClick={() => navClick('scroll')}>scroll</NavLink>
         <NavLink onClick={() => navClick('tabs')}>Tab management</NavLink>
         <NavLink onClick={() => navClick('wait')}>wait</NavLink>
+      </NavSection>
+
+      <NavSection icon={<Shield className="w-3 h-3" />} label="Anonymity">
+        <NavLink onClick={() => navClick('anonymity')}>Overview</NavLink>
+        <NavLink onClick={() => navClick('fingerprint')}>Fingerprint Spoofing</NavLink>
+        <NavLink onClick={() => navClick('proxy-support')}>Proxy Support</NavLink>
+        <NavLink onClick={() => navClick('stealth')}>Anti-Detection</NavLink>
+        <NavLink onClick={() => navClick('list_profiles')}>list_profiles</NavLink>
+        <NavLink onClick={() => navClick('create_profile')}>create_profile</NavLink>
+        <NavLink onClick={() => navClick('set_profile')}>set_profile</NavLink>
       </NavSection>
 
       <NavSection icon={<Globe className="w-3 h-3" />} label="Dashboard">
@@ -617,6 +645,91 @@ analyze_page()`}</CodeBlock>
           </p>
           <CodeBlock>{'wait({ selector: ".results", timeout: 10000 })'}</CodeBlock>
 
+          {/* ============ ANONYMITY ============ */}
+          <SectionHeading id="anonymity">Anonymity</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Create and manage browser profiles with unique fingerprints, proxy routing, and isolated cookie stores. Each profile is a complete identity — different canvas hash, WebGL renderer, navigator properties, and session storage. Switch identities with a single MCP call.
+          </p>
+          <NoteBox>
+            Anonymity features are available in the Oya Browser desktop app. The Chrome extension does not include fingerprint or proxy management.
+          </NoteBox>
+
+          <h3 id="fingerprint" className="text-base font-semibold mt-6 mb-2 text-text">Fingerprint Spoofing</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Each profile generates a coherent set of browser fingerprints that are internally consistent per platform. A Win32 profile gets Windows GPU strings, Windows fonts, and matching screen resolutions.
+          </p>
+          <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
+            <li><strong>Canvas</strong> — deterministic pixel noise on <InlineCode>toDataURL</InlineCode> and <InlineCode>toBlob</InlineCode></li>
+            <li><strong>WebGL</strong> — spoofed vendor/renderer strings from real GPU database</li>
+            <li><strong>AudioContext</strong> — noise on <InlineCode>OfflineAudioContext.startRendering</InlineCode></li>
+            <li><strong>ClientRects</strong> — sub-pixel noise on <InlineCode>getBoundingClientRect</InlineCode> (bypassed internally for click accuracy)</li>
+            <li><strong>Navigator</strong> — platform, hardwareConcurrency, deviceMemory, languages, vendor</li>
+            <li><strong>Screen</strong> — width, height, colorDepth, devicePixelRatio</li>
+            <li><strong>WebRTC</strong> — ICE candidates stripped to prevent local IP leak</li>
+            <li><strong>Fonts</strong> — platform-consistent font sets</li>
+          </ul>
+
+          <h3 id="proxy-support" className="text-base font-semibold mt-6 mb-2 text-text">Proxy Support</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Each profile can include a SOCKS5 or HTTP/HTTPS proxy. The proxy is applied at the Electron session level — all traffic routes through it, including DNS (for SOCKS5). Timezone and locale auto-match the proxy&apos;s geographic location via CDP Emulation.
+          </p>
+          <CodeBlock>{'create_profile({\n  platform: "Win32",\n  timezone: "America/New_York",\n  proxy_type: "socks5",\n  proxy_host: "1.2.3.4",\n  proxy_port: 1080,\n  proxy_username: "user",\n  proxy_password: "pass"\n})'}</CodeBlock>
+
+          <h3 id="stealth" className="text-base font-semibold mt-6 mb-2 text-text">Anti-Detection Stealth</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Always active — no configuration needed. The stealth layer removes automation indicators that anti-bot systems check for:
+          </p>
+          <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
+            <li><InlineCode>navigator.webdriver</InlineCode> removed</li>
+            <li>Electron globals (<InlineCode>window.process</InlineCode>, <InlineCode>window.require</InlineCode>) deleted</li>
+            <li><InlineCode>window.chrome</InlineCode> fixed to match real Chrome (app, runtime, csi, loadTimes)</li>
+            <li><InlineCode>navigator.plugins</InlineCode> populated with PDF viewers</li>
+            <li><InlineCode>navigator.permissions.query</InlineCode> patched</li>
+            <li>Sec-CH-UA headers rewritten to hide Electron</li>
+            <li>Google telemetry domains blocked at the network level</li>
+          </ul>
+
+          <SectionHeading id="list_profiles">list_profiles</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            List all available anonymity profiles on the connected browser. Shows which profile is active.
+          </p>
+          <CodeBlock>{'list_profiles()'}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">Returns each profile&apos;s ID, platform, timezone, and whether it has a proxy configured.</p>
+
+          <SectionHeading id="create_profile">create_profile</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Create a new anonymity profile with a randomized browser fingerprint. All values are generated to be internally consistent for the chosen platform.
+          </p>
+          <CodeBlock>{'create_profile({\n  platform: "Win32",\n  timezone: "Europe/London",\n  locale: "en-GB"\n})'}</CodeBlock>
+          <Table
+            headers={['Param', 'Type', 'Description']}
+            rows={[
+              [<InlineCode key="p">platform</InlineCode>, 'string', 'Win32, MacIntel, or Linux x86_64'],
+              [<InlineCode key="tz">timezone</InlineCode>, 'string', 'IANA timezone (e.g. America/New_York)'],
+              [<InlineCode key="lo">locale</InlineCode>, 'string', 'Locale (e.g. en-US, en-GB)'],
+              [<InlineCode key="pt">proxy_type</InlineCode>, 'string', 'http or socks5'],
+              [<InlineCode key="ph">proxy_host</InlineCode>, 'string', 'Proxy server hostname or IP'],
+              [<InlineCode key="pp">proxy_port</InlineCode>, 'number', 'Proxy server port'],
+              [<InlineCode key="pu">proxy_username</InlineCode>, 'string', 'Proxy auth username'],
+              [<InlineCode key="pw">proxy_password</InlineCode>, 'string', 'Proxy auth password'],
+            ]}
+          />
+
+          <SectionHeading id="set_profile">set_profile</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Switch to a different anonymity profile. This closes all open tabs and reopens the browser with the new profile&apos;s fingerprint, proxy, timezone, and isolated cookie store.
+          </p>
+          <CodeBlock>{'set_profile({ profile_id: "profile-a1b2c3" })'}</CodeBlock>
+          <Table
+            headers={['Param', 'Type', 'Description']}
+            rows={[
+              [<InlineCode key="pid">profile_id</InlineCode>, 'string (required)', 'ID of the profile to activate'],
+            ]}
+          />
+          <WarnBox>
+            Switching profiles closes all open tabs. The browser reopens on google.com with the new identity.
+          </WarnBox>
+
           {/* ============ DASHBOARD ============ */}
           <SectionHeading id="dashboard-overview">Dashboard</SectionHeading>
           <p className="mb-3 text-[15px] leading-relaxed">
@@ -631,11 +744,29 @@ analyze_page()`}</CodeBlock>
 
           <h3 id="chat" className="text-base font-semibold mt-6 mb-2 text-text">Chat</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
-            The chat input in the Commands tab lets you control the browser with natural language. Type &quot;go to google and search for cats&quot; and the AI will navigate, type, and click.
+            Control the browser with natural language — available in both the web dashboard and the desktop app&apos;s dev panel. Type &quot;go to google and search for cats&quot; and the AI navigates, types, clicks, and reports back.
           </p>
+          <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
+            <li>Formatted markdown responses with <strong>bold</strong>, <InlineCode>code</InlineCode>, lists, and headings</li>
+            <li>Tool call badges showing which MCP tools the AI used (analyze_page, click, type, etc.)</li>
+            <li>Copy button on hover to copy any response</li>
+            <li>Automatic context trimming when conversations get long</li>
+            <li>Conversation history preserved across messages</li>
+          </ul>
           <NoteBox>
-            Chat requires an OpenAI API key. Set it in the Settings panel (gear icon in the API key bar). This is optional — you don&apos;t need it for MCP tools.
+            Chat requires an OpenAI API key. Set it in the Settings panel (gear icon in the API key bar) or <InlineCode>OPENAI_API_KEY</InlineCode> env var on the server. This is optional — you don&apos;t need it for MCP tools.
           </NoteBox>
+
+          <h3 className="text-base font-semibold mt-6 mb-2 text-text">Dev Panel (Desktop App)</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            The desktop app&apos;s dev panel (<InlineCode>{'{}'}</InlineCode> button in the toolbar) has four tabs:
+          </p>
+          <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
+            <li><strong>Chat</strong> — natural language browser control with formatted responses and tool badges</li>
+            <li><strong>Actions</strong> — quick-fire buttons and input fields for every command: analyze, screenshot, navigate, click by element #, type, press keys, hover, scroll, wait, tab management</li>
+            <li><strong>Network</strong> — live WebSocket traffic with IN/OUT badges, expandable payloads, filter by direction or type (All, In, Out, Commands, Results)</li>
+            <li><strong>Source</strong> — view the page as AI sees it: toggle between Markdown (analyzePage output) and HTML source, refresh on demand</li>
+          </ul>
 
           <h3 id="live-view" className="text-base font-semibold mt-6 mb-2 text-text">Live View</h3>
           <p className="mb-3 text-[15px] leading-relaxed">

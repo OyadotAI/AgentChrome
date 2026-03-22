@@ -20,6 +20,10 @@ import {
   Menu,
   Copy,
   Check,
+  Shield,
+  Fingerprint,
+  UserPlus,
+  RefreshCw,
 } from 'lucide-react';
 
 /* ─── Copy button ─── */
@@ -56,6 +60,9 @@ const tools = [
   { name: 'list_tabs', desc: 'List all open browser tabs', icon: Terminal },
   { name: 'close_tab', desc: 'Close a specific tab', icon: X },
   { name: 'wait', desc: 'Wait for page loads and transitions', icon: Clock },
+  { name: 'list_profiles', desc: 'List available anonymity profiles', icon: Fingerprint },
+  { name: 'create_profile', desc: 'Create a new randomized fingerprint profile', icon: UserPlus },
+  { name: 'set_profile', desc: 'Switch fingerprint, proxy, and cookie store', icon: RefreshCw },
 ];
 
 /* ─── MCP config strings ─── */
@@ -203,7 +210,7 @@ export default function Home() {
             <div className="grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
               <div className="lg:col-span-7 reveal-stagger">
                 <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-indigo mb-4">
-                  Remote browser · MCP · Agent-native
+                  Remote browser · MCP · Agent-native · Anonymous
                 </p>
                 <h1 className="font-display text-[2.5rem] sm:text-[3.25rem] lg:text-[3.5rem] font-bold tracking-tight leading-[1.05] mb-5">
                   <span className="text-text">Give agents a real browser,</span>
@@ -370,10 +377,37 @@ export default function Home() {
           </CodeBlock>
         </section>
 
+        <section id="anonymity" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
+          <SectionLabel>Anonymity</SectionLabel>
+          <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-4 text-text">
+            Every session a different identity
+          </h2>
+          <p className="text-text-muted mb-6 leading-relaxed text-[15px]">
+            Create anonymity profiles with unique browser fingerprints, proxy routing, and isolated cookie stores. Canvas noise, WebGL spoofing, WebRTC leak prevention, and telemetry blocking — all built in. Agents can switch identities on the fly with a single MCP call.
+          </p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {[
+              { icon: Fingerprint, title: 'Fingerprint rotation', desc: 'Unique canvas, WebGL, audio, and font fingerprints per profile — deterministic and coherent' },
+              { icon: Shield, title: 'Stealth mode', desc: 'Removes Electron markers, fixes window.chrome, navigator.webdriver, plugins, and permissions' },
+              { icon: Globe, title: 'Proxy & DNS', desc: 'SOCKS5/HTTP proxy per profile with DNS leak prevention — route each identity through a different exit' },
+              { icon: X, title: 'Telemetry blocked', desc: 'Chromium phone-home domains blocked, Safe Browsing disabled, no background networking' },
+            ].map((f) => (
+              <div
+                key={f.title}
+                className="group rounded-xl border border-border bg-bg-card/80 p-4 hover:border-accent/30 hover:bg-bg-elevated/60 hover:shadow-[0_0_32px_-12px_rgba(228,168,46,0.35)] transition-all duration-300"
+              >
+                <f.icon className="w-4 h-4 text-accent mb-2.5" />
+                <p className="text-[13px] font-semibold text-text mb-1.5">{f.title}</p>
+                <p className="text-[11px] text-text-muted leading-snug">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section id="tools" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
           <SectionLabel>MCP Tools</SectionLabel>
           <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-6 text-text">
-            12 tools. Full browser control.
+            15 tools. Full browser control.
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
             {tools.map((t) => (

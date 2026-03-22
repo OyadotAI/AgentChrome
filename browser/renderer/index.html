@@ -273,34 +273,43 @@
     .dev-panel-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      padding: 8px 12px;
+      padding: 0;
       border-bottom: 1px solid #27272a;
       flex-shrink: 0;
     }
-    .dev-panel-header .title {
-      font-size: 12px;
+
+    .dev-tab {
+      padding: 8px 14px;
+      font-size: 11px;
       font-weight: 600;
-      color: #a1a1aa;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      color: #525252;
+      cursor: pointer;
+      border: none;
+      background: none;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s;
     }
-    .dev-panel-header .clear-btn {
+    .dev-tab:hover { color: #a1a1aa; }
+    .dev-tab.active { color: #fafafa; border-bottom-color: #3b82f6; }
+    .dev-tab-spacer { flex: 1; }
+    .dev-tab-btn {
       background: none;
       border: none;
       color: #525252;
       font-size: 11px;
       cursor: pointer;
+      padding: 8px 10px;
     }
-    .dev-panel-header .clear-btn:hover { color: #a1a1aa; }
+    .dev-tab-btn:hover { color: #a1a1aa; }
 
-    .dev-log {
+    .dev-pane {
       flex: 1;
       overflow-y: auto;
       overflow-x: hidden;
       min-height: 0;
-      padding: 4px 0;
+      display: none;
     }
+    .dev-pane.active { display: flex; flex-direction: column; }
 
     .dev-entry {
       padding: 6px 12px;
@@ -342,6 +351,312 @@
       overflow-y: auto;
     }
     .dev-entry.expanded .body { display: block; }
+
+    /* ── Actions pane ── */
+
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 10px;
+    }
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      color: #a1a1aa;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .action-btn:hover { background: #27272a; color: #fafafa; border-color: #3f3f46; }
+    .action-btn:active { transform: scale(0.97); }
+    .action-btn.running { opacity: 0.5; cursor: wait; }
+    .action-btn .action-icon { font-size: 13px; width: 18px; text-align: center; }
+
+    .action-label { font-size: 12px; font-weight: 600; color: #525252; padding: 10px 10px 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .action-result {
+      margin: 6px 10px;
+      padding: 8px;
+      background: #18181b;
+      border-radius: 6px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 10px;
+      color: #a1a1aa;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      display: none;
+    }
+    .action-result.visible { display: block; }
+    .action-result.error { color: #ef4444; }
+
+    .action-input-row {
+      display: flex;
+      gap: 4px;
+      padding: 4px 10px;
+      align-items: center;
+    }
+    .action-field {
+      flex: 1;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: #fafafa;
+      font-size: 11px;
+      outline: none;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      min-width: 0;
+    }
+    .action-field:focus { border-color: #3b82f6; }
+    .action-field::placeholder { color: #3f3f46; }
+    .action-field-sm { max-width: 50px; }
+    .action-btn-sm { flex-shrink: 0; padding: 6px 10px; }
+
+    /* ── Chat pane ── */
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .chat-empty {
+      color: #3f3f46;
+      font-size: 12px;
+      text-align: center;
+      padding: 40px 10px;
+    }
+    .chat-msg {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+      animation: chatIn 0.15s ease-out;
+    }
+    @keyframes chatIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .chat-msg.user {
+      align-self: flex-end;
+      background: #3b82f6;
+      color: #fff;
+      border-bottom-right-radius: 3px;
+    }
+    .chat-msg.assistant {
+      align-self: flex-start;
+      background: #18181b;
+      border: 1px solid #27272a;
+      color: #e4e4e7;
+      border-bottom-left-radius: 3px;
+    }
+    .chat-msg.error {
+      color: #ef4444;
+      background: #1a0a0a;
+      border-color: #3b1111;
+    }
+    .chat-msg code {
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 11px;
+      background: rgba(255,255,255,0.08);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+    .chat-msg pre {
+      background: #111;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      overflow-x: auto;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .chat-msg pre code {
+      background: none;
+      padding: 0;
+    }
+    .chat-msg strong { color: #fafafa; }
+    .chat-msg em { font-style: italic; }
+    .chat-copy {
+      display: none;
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 4px;
+      color: #a1a1aa;
+      font-size: 10px;
+      padding: 2px 6px;
+      cursor: pointer;
+      z-index: 1;
+    }
+    .chat-copy:hover { color: #fafafa; background: #3f3f46; }
+    .chat-msg { position: relative; }
+    .chat-msg:hover .chat-copy { display: block; }
+    .chat-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      margin-top: 6px;
+    }
+    .chat-tool-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #172554;
+      color: #60a5fa;
+      font-family: ui-monospace, monospace;
+    }
+    .chat-thinking {
+      align-self: flex-start;
+      padding: 8px 12px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 10px;
+      border-bottom-left-radius: 3px;
+      font-size: 12px;
+      color: #525252;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .chat-dots { display: inline-flex; gap: 3px; }
+    .chat-dots span {
+      width: 5px; height: 5px; background: #525252; border-radius: 50%;
+      animation: dotPulse 1.2s infinite;
+    }
+    .chat-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .chat-dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes dotPulse { 0%,80%,100%{opacity:0.3} 40%{opacity:1} }
+
+    .chat-input-bar {
+      display: flex;
+      gap: 4px;
+      padding: 8px 10px;
+      border-top: 1px solid #27272a;
+      flex-shrink: 0;
+    }
+    .chat-input {
+      flex: 1;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: #fafafa;
+      font-size: 12px;
+      outline: none;
+    }
+    .chat-input:focus { border-color: #3b82f6; }
+    .chat-input::placeholder { color: #3f3f46; }
+    .chat-send {
+      width: 34px;
+      height: 34px;
+      background: #3b82f6;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .chat-send:hover { background: #2563eb; }
+    .chat-send:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Network pane ── */
+
+    .net-filters {
+      display: flex;
+      gap: 2px;
+      padding: 6px 10px;
+      border-bottom: 1px solid #18181b;
+      flex-shrink: 0;
+    }
+    .net-filter {
+      padding: 3px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: #525252;
+      cursor: pointer;
+    }
+    .net-filter:hover { color: #a1a1aa; }
+    .net-filter.active { background: #172554; color: #60a5fa; border-color: #1e3a5f; }
+
+    .net-log {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 4px 0;
+    }
+
+    /* ── Source pane ── */
+
+    .source-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 6px 10px;
+      border-bottom: 1px solid #18181b;
+      flex-shrink: 0;
+    }
+    .source-tab {
+      padding: 3px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: #525252;
+      cursor: pointer;
+    }
+    .source-tab:hover { color: #a1a1aa; }
+    .source-tab.active { background: #14532d; color: #4ade80; border-color: #166534; }
+
+    .source-refresh {
+      margin-left: auto;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 600;
+      background: none;
+      border: 1px solid #27272a;
+      border-radius: 4px;
+      color: #525252;
+      cursor: pointer;
+    }
+    .source-refresh:hover { color: #a1a1aa; border-color: #3f3f46; }
+
+    .source-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding: 10px;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      color: #a1a1aa;
+      white-space: pre-wrap;
+      word-break: break-all;
+      tab-size: 2;
+    }
+    .source-content.empty { color: #3f3f46; font-style: italic; font-family: inherit; }
 
     /* ── Reconnect dialog (overlay in browsing mode) ── */
     .reconnect-overlay {
@@ -410,10 +725,113 @@
   <!-- ── Dev Panel (right side) ── -->
   <div class="dev-panel" id="dev-panel">
     <div class="dev-panel-header">
-      <span class="title">Dev Mode</span>
-      <button class="clear-btn" id="dev-clear">Clear</button>
+      <button class="dev-tab active" data-pane="chat">Chat</button>
+      <button class="dev-tab" data-pane="actions">Actions</button>
+      <button class="dev-tab" data-pane="network">Network</button>
+      <button class="dev-tab" data-pane="source">Source</button>
+      <span class="dev-tab-spacer"></span>
+      <button class="dev-tab-btn" id="dev-clear" title="Clear">Clear</button>
     </div>
-    <div class="dev-log" id="dev-log"></div>
+
+    <!-- Chat pane -->
+    <div class="dev-pane active" id="pane-chat">
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-empty">Ask me to do something in the browser...</div>
+      </div>
+      <div class="chat-input-bar">
+        <input class="chat-input" id="chat-input" type="text" placeholder="e.g. Go to google and search for cats" spellcheck="false">
+        <button class="chat-send" id="chat-send">&#9654;</button>
+      </div>
+    </div>
+
+    <!-- Actions pane -->
+    <div class="dev-pane" id="pane-actions">
+      <div style="flex:1;overflow-y:auto;">
+
+        <div class="action-label">Page</div>
+        <div class="actions-grid">
+          <button class="action-btn" data-action="analyze"><span class="action-icon">&#9776;</span> Analyze</button>
+          <button class="action-btn" data-action="screenshot"><span class="action-icon">&#128247;</span> Screenshot</button>
+          <button class="action-btn" data-action="reload"><span class="action-icon">&#8635;</span> Reload</button>
+          <button class="action-btn" data-action="scroll-down"><span class="action-icon">&#8595;</span> Scroll Down</button>
+          <button class="action-btn" data-action="scroll-up"><span class="action-icon">&#8593;</span> Scroll Up</button>
+        </div>
+
+        <div class="action-label">Navigate</div>
+        <div class="action-input-row">
+          <input class="action-field" id="action-url" type="text" placeholder="URL" spellcheck="false">
+          <button class="action-btn action-btn-sm" data-action="navigate" data-from="action-url">Go</button>
+        </div>
+
+        <div class="action-label">Click Element</div>
+        <div class="action-input-row">
+          <input class="action-field" id="action-click-id" type="text" placeholder="Element #">
+          <button class="action-btn action-btn-sm" data-action="click" data-from="action-click-id">Click</button>
+        </div>
+
+        <div class="action-label">Type into Element</div>
+        <div class="action-input-row">
+          <input class="action-field action-field-sm" id="action-type-id" type="text" placeholder="#">
+          <input class="action-field" id="action-type-text" type="text" placeholder="Text to type">
+          <button class="action-btn action-btn-sm" data-action="type" data-from="action-type-id,action-type-text">Type</button>
+        </div>
+
+        <div class="action-label">Press Key</div>
+        <div class="action-input-row">
+          <input class="action-field" id="action-key" type="text" placeholder="Enter, Escape, Tab...">
+          <button class="action-btn action-btn-sm" data-action="press-key" data-from="action-key">Press</button>
+        </div>
+
+        <div class="action-label">Hover Element</div>
+        <div class="action-input-row">
+          <input class="action-field" id="action-hover-id" type="text" placeholder="Element #">
+          <button class="action-btn action-btn-sm" data-action="hover" data-from="action-hover-id">Hover</button>
+        </div>
+
+        <div class="action-label">Click Coordinates</div>
+        <div class="action-input-row">
+          <input class="action-field action-field-sm" id="action-cx" type="text" placeholder="X">
+          <input class="action-field action-field-sm" id="action-cy" type="text" placeholder="Y">
+          <button class="action-btn action-btn-sm" data-action="click-coords" data-from="action-cx,action-cy">Click</button>
+        </div>
+
+        <div class="action-label">Wait for Selector</div>
+        <div class="action-input-row">
+          <input class="action-field" id="action-wait-sel" type="text" placeholder="CSS selector">
+          <button class="action-btn action-btn-sm" data-action="wait" data-from="action-wait-sel">Wait</button>
+        </div>
+
+        <div class="action-label">Tabs</div>
+        <div class="actions-grid">
+          <button class="action-btn" data-action="list-tabs"><span class="action-icon">&#9776;</span> List Tabs</button>
+          <button class="action-btn" data-action="new-tab"><span class="action-icon">+</span> New Tab</button>
+        </div>
+
+      </div>
+      <div class="action-result" id="action-result"></div>
+    </div>
+
+    <!-- Network pane -->
+    <div class="dev-pane" id="pane-network">
+      <div class="net-filters">
+        <button class="net-filter active" data-filter="all">All</button>
+        <button class="net-filter" data-filter="in">&#9660; In</button>
+        <button class="net-filter" data-filter="out">&#9650; Out</button>
+        <button class="net-filter" data-filter="cmd">Commands</button>
+        <button class="net-filter" data-filter="result">Results</button>
+      </div>
+      <div class="net-log" id="net-log"></div>
+    </div>
+
+    <!-- Source pane -->
+    <div class="dev-pane" id="pane-source">
+      <div class="source-tabs">
+        <button class="source-tab active" data-source="markdown">Markdown</button>
+        <button class="source-tab" data-source="html">HTML</button>
+        <button class="source-refresh" id="source-refresh">&#8635; Refresh</button>
+      </div>
+      <div class="source-content empty" id="source-content">Click refresh to load page source</div>
+    </div>
   </div>
 
   <!-- ── Reconnect overlay (shown when clicking pill in browsing mode) ── -->
@@ -598,8 +1016,32 @@
 
     const devBtn = document.getElementById('btn-dev');
     const devPanel = document.getElementById('dev-panel');
-    const devLog = document.getElementById('dev-log');
+    const netLog = document.getElementById('net-log');
     let devOpen = false;
+    let activeDevPane = 'chat';
+    let chatHistory = [];
+    let chatSending = false;
+    let netFilter = 'all';
+    let sourceMode = 'markdown';
+    let cachedSource = { html: '', markdown: '' };
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // ── Tab switching ──
+
+    document.querySelectorAll('.dev-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const pane = tab.dataset.pane;
+        if (!pane) return;
+        activeDevPane = pane;
+        document.querySelectorAll('.dev-tab').forEach(t => t.classList.toggle('active', t.dataset.pane === pane));
+        document.querySelectorAll('.dev-pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + pane));
+      });
+    });
 
     devBtn.addEventListener('click', () => {
       oyaBrowser.toggleDevPanel();
@@ -612,40 +1054,298 @@
     });
 
     document.getElementById('dev-clear').addEventListener('click', () => {
-      devLog.innerHTML = '';
+      if (activeDevPane === 'chat') {
+        chatHistory = [];
+        const el = document.getElementById('chat-messages');
+        el.innerHTML = '<div class="chat-empty">Ask me to do something in the browser...</div>';
+      }
+      else if (activeDevPane === 'network') netLog.innerHTML = '';
+      else if (activeDevPane === 'source') {
+        cachedSource = { html: '', markdown: '' };
+        const el = document.getElementById('source-content');
+        el.textContent = 'Click refresh to load page source';
+        el.classList.add('empty');
+      }
+      else if (activeDevPane === 'actions') {
+        const r = document.getElementById('action-result');
+        r.textContent = '';
+        r.classList.remove('visible', 'error');
+      }
     });
 
-    oyaBrowser.onDevLog(entry => {
+    // ── Log entry helper ──
+
+    function fmtTime(ts) {
+      const d = new Date(ts);
+      return [d.getHours(), d.getMinutes(), d.getSeconds()]
+        .map(n => String(n).padStart(2, '0')).join(':') + '.' + String(d.getMilliseconds()).padStart(3, '0');
+    }
+
+    function createLogEntry(entry) {
       const div = document.createElement('div');
       div.className = 'dev-entry';
-
-      const ts = new Date(entry.ts);
-      const timeStr = [ts.getHours(), ts.getMinutes(), ts.getSeconds()]
-        .map(n => String(n).padStart(2, '0')).join(':') + '.' + String(ts.getMilliseconds()).padStart(3, '0');
+      div.dataset.dir = entry.dir;
+      div.dataset.type = entry.type;
 
       div.innerHTML = `<div class="head">
-        <span class="ts">${timeStr}</span>
+        <span class="ts">${fmtTime(entry.ts)}</span>
         <span class="dir ${entry.dir}">${entry.dir === 'in' ? '\u25BC IN' : '\u25B2 OUT'}</span>
         <span class="msg-type">${esc(entry.type)}</span>
       </div>
       <div class="body">${esc(entry.data || '')}</div>`;
 
       div.addEventListener('click', () => div.classList.toggle('expanded'));
-      devLog.appendChild(div);
+      return div;
+    }
 
-      // Auto-scroll if near bottom
-      if (devLog.scrollHeight - devLog.scrollTop - devLog.clientHeight < 60) {
-        devLog.scrollTop = devLog.scrollHeight;
+    // ── Dev log events ──
+
+    oyaBrowser.onDevLog(entry => {
+      // Add to network pane (with filtering)
+      const netEntry = createLogEntry(entry);
+      netEntry.style.display = shouldShowNetEntry(entry) ? '' : 'none';
+      netLog.appendChild(netEntry);
+      if (netLog.scrollHeight - netLog.scrollTop - netLog.clientHeight < 60) {
+        netLog.scrollTop = netLog.scrollHeight;
       }
-
-      // Cap at 500 entries
-      while (devLog.children.length > 500) devLog.removeChild(devLog.firstChild);
+      while (netLog.children.length > 500) netLog.removeChild(netLog.firstChild);
     });
 
-    function esc(s) {
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
+    // ── Network filters ──
+
+    function shouldShowNetEntry(entry) {
+      if (netFilter === 'all') return true;
+      if (netFilter === 'in') return entry.dir === 'in';
+      if (netFilter === 'out') return entry.dir === 'out';
+      if (netFilter === 'cmd') return entry.type.startsWith('cmd:') || entry.type === 'auth';
+      if (netFilter === 'result') return entry.type.startsWith('result:');
+      return true;
+    }
+
+    document.querySelectorAll('.net-filter').forEach(btn => {
+      btn.addEventListener('click', () => {
+        netFilter = btn.dataset.filter;
+        document.querySelectorAll('.net-filter').forEach(b => b.classList.toggle('active', b.dataset.filter === netFilter));
+        // Re-filter existing entries
+        netLog.querySelectorAll('.dev-entry').forEach(entry => {
+          const dir = entry.dataset.dir;
+          const type = entry.dataset.type;
+          const show = netFilter === 'all'
+            || (netFilter === 'in' && dir === 'in')
+            || (netFilter === 'out' && dir === 'out')
+            || (netFilter === 'cmd' && (type.startsWith('cmd:') || type === 'auth'))
+            || (netFilter === 'result' && type.startsWith('result:'));
+          entry.style.display = show ? '' : 'none';
+        });
+      });
+    });
+
+    // ── Actions ──
+
+    function getActionParams(btn) {
+      const from = btn.dataset.from;
+      if (!from) return {};
+      const ids = from.split(',');
+      const action = btn.dataset.action;
+      // Map param inputs to action params
+      if (action === 'navigate') return { url: document.getElementById(ids[0]).value.trim() };
+      if (action === 'click') return { element_id: document.getElementById(ids[0]).value.trim() };
+      if (action === 'type') return { element_id: document.getElementById(ids[0]).value.trim(), text: document.getElementById(ids[1]).value };
+      if (action === 'press-key') return { key: document.getElementById(ids[0]).value.trim() };
+      if (action === 'hover') return { element_id: document.getElementById(ids[0]).value.trim() };
+      if (action === 'click-coords') return { x: Number(document.getElementById(ids[0]).value), y: Number(document.getElementById(ids[1]).value) };
+      if (action === 'wait') return { selector: document.getElementById(ids[0]).value.trim() };
+      if (action === 'select') return { element_id: document.getElementById(ids[0]).value.trim(), value: document.getElementById(ids[1]).value };
+      return {};
+    }
+
+    document.querySelectorAll('.action-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.action;
+        if (!action || btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        const resultEl = document.getElementById('action-result');
+
+        try {
+          const params = getActionParams(btn);
+          const result = await oyaBrowser.devAction(action, params);
+          resultEl.classList.remove('error');
+          resultEl.classList.add('visible');
+
+          if (action === 'screenshot' && result?.ok && result.data?.screenshot) {
+            resultEl.innerHTML = '<img style="width:100%;border-radius:4px;" src="' + esc(result.data.screenshot) + '">';
+          } else if (action === 'analyze' && result?.ok && result.data?.markdown) {
+            resultEl.textContent = result.data.markdown.slice(0, 5000);
+          } else if (result?.ok) {
+            resultEl.textContent = JSON.stringify(result.data || result, null, 2).slice(0, 3000);
+          } else {
+            resultEl.textContent = result?.error || 'Unknown error';
+            resultEl.classList.add('error');
+          }
+        } catch (e) {
+          resultEl.textContent = e.message;
+          resultEl.classList.add('error', 'visible');
+        }
+        btn.classList.remove('running');
+      });
+    });
+
+    // ── Chat ──
+
+    const chatMessagesEl = document.getElementById('chat-messages');
+    const chatInputEl = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send');
+
+    function mdToHtml(text) {
+      let s = esc(text);
+      // Code blocks: ```...```
+      s = s.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+      // Inline code: `...`
+      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Bold: **...**
+      s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      // Italic: *...*
+      s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+      // Headings: ### ... (at line start)
+      s = s.replace(/^#{3,}\s+(.+)$/gm, '<strong style="color:#fafafa">$1</strong>');
+      s = s.replace(/^##\s+(.+)$/gm, '<strong style="color:#fafafa;font-size:13px">$1</strong>');
+      s = s.replace(/^#\s+(.+)$/gm, '<strong style="color:#fafafa;font-size:14px">$1</strong>');
+      // Bullet lists: - ... or * ...
+      s = s.replace(/^[\-\*]\s+(.+)$/gm, '\u2022 $1');
+      // Numbered lists: 1. ...
+      s = s.replace(/^\d+\.\s+(.+)$/gm, function(m, p1) { return '\u2022 ' + p1; });
+      // Line breaks
+      s = s.replace(/\n/g, '<br>');
+      return s;
+    }
+
+    function addChatMessage(role, content, toolCalls) {
+      // Remove empty state
+      const empty = chatMessagesEl.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      // Remove thinking indicator
+      const thinking = chatMessagesEl.querySelector('.chat-thinking');
+      if (thinking) thinking.remove();
+
+      const div = document.createElement('div');
+      div.className = 'chat-msg ' + role;
+      if (role === 'assistant' && content.startsWith('Error:')) div.classList.add('error');
+
+      let html = role === 'user' ? esc(content) : mdToHtml(content);
+      if (toolCalls && toolCalls.length > 0) {
+        html += '<div class="chat-tools">';
+        toolCalls.forEach(t => {
+          html += '<span class="chat-tool-badge">' + esc(t.name) + '</span>';
+        });
+        html += '</div>';
+      }
+      div.innerHTML = html;
+      if (role === 'assistant' && !content.startsWith('Error:')) {
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'chat-copy';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(content).then(() => {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+          });
+        });
+        div.appendChild(copyBtn);
+      }
+      chatMessagesEl.appendChild(div);
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+
+    function showThinking() {
+      const empty = chatMessagesEl.querySelector('.chat-empty');
+      if (empty) empty.remove();
+      const div = document.createElement('div');
+      div.className = 'chat-thinking';
+      div.innerHTML = '<div class="chat-dots"><span></span><span></span><span></span></div> Thinking...';
+      chatMessagesEl.appendChild(div);
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+
+    async function sendChat() {
+      const text = chatInputEl.value.trim();
+      if (!text || chatSending) return;
+
+      chatSending = true;
+      chatSendBtn.disabled = true;
+      chatInputEl.value = '';
+
+      const userMsg = { role: 'user', content: text };
+      chatHistory.push(userMsg);
+      addChatMessage('user', text);
+      showThinking();
+
+      try {
+        const messages = chatHistory.map(m => ({ role: m.role, content: m.content }));
+        const data = await oyaBrowser.sendChat(messages);
+
+        if (data.error) {
+          const errMsg = { role: 'assistant', content: 'Error: ' + data.error };
+          chatHistory.push(errMsg);
+          addChatMessage('assistant', errMsg.content);
+        } else {
+          const assistantMsg = { role: 'assistant', content: data.text || '(no response)', toolCalls: data.toolCalls || [] };
+          chatHistory.push(assistantMsg);
+          addChatMessage('assistant', assistantMsg.content, assistantMsg.toolCalls);
+        }
+      } catch (e) {
+        const errMsg = { role: 'assistant', content: 'Error: ' + e.message };
+        chatHistory.push(errMsg);
+        addChatMessage('assistant', errMsg.content);
+      }
+
+      chatSending = false;
+      chatSendBtn.disabled = false;
+      chatInputEl.focus();
+    }
+
+    chatSendBtn.addEventListener('click', sendChat);
+    chatInputEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    // ── Source ──
+
+    document.querySelectorAll('.source-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        sourceMode = tab.dataset.source;
+        document.querySelectorAll('.source-tab').forEach(t => t.classList.toggle('active', t.dataset.source === sourceMode));
+        renderSource();
+      });
+    });
+
+    document.getElementById('source-refresh').addEventListener('click', async () => {
+      const btn = document.getElementById('source-refresh');
+      btn.textContent = '⟳ Loading...';
+      try {
+        cachedSource = await oyaBrowser.getPageSource();
+        renderSource();
+      } catch (e) {
+        const el = document.getElementById('source-content');
+        el.textContent = 'Error: ' + e.message;
+        el.classList.remove('empty');
+      }
+      btn.textContent = '⟳ Refresh';
+    });
+
+    function renderSource() {
+      const el = document.getElementById('source-content');
+      const content = sourceMode === 'html' ? cachedSource.html : cachedSource.markdown;
+      if (!content) {
+        el.textContent = 'Click refresh to load page source';
+        el.classList.add('empty');
+      } else {
+        el.textContent = content;
+        el.classList.remove('empty');
+      }
     }
 
     // ── Tabs ──

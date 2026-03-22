@@ -50,18 +50,19 @@ function applyTelemetryFlags(app) {
 
 /**
  * Block known telemetry domains via webRequest.
- * Call after session is created.
+ * Safe to call multiple times — clears previous handler first.
  */
 function applyDomainBlocking(ses) {
-  ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+  ses.webRequest.onBeforeRequest(null);
+  ses.webRequest.onBeforeRequest((details, callback) => {
     try {
       const url = new URL(details.url);
-      const blocked = BLOCKED_DOMAINS.some(d =>
-        url.hostname === d || url.hostname.endsWith('.' + d) || url.href.includes(d)
-      );
-      if (blocked) {
-        callback({ cancel: true });
-        return;
+      if (url.protocol === 'file:' || url.protocol === 'devtools:') {
+        callback({}); return;
+      }
+      const hostname = url.hostname;
+      if (BLOCKED_DOMAINS.some(d => hostname === d || hostname.endsWith('.' + d))) {
+        callback({ cancel: true }); return;
       }
     } catch {}
     callback({});

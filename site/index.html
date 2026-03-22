@@ -170,6 +170,7 @@
     <div class="logo"><img src="icon.png" alt="">Oya Browser</div>
     <div class="nav-links">
       <a href="#how">How</a>
+      <a href="#anonymity">Anonymity</a>
       <a href="#setup">Setup</a>
       <a href="#compare">Compare</a>
       <a href="https://github.com/OyadotAI/AgentChrome" class="nav-gh">GitHub</a>
@@ -317,12 +318,32 @@
     </div>
   </div>
 
-  <!-- Tabs & Live View -->
+  <!-- Features -->
   <div class="section">
     <div class="label">Features</div>
-    <h2>Multi-tab, live view, dev panel</h2>
+    <h2>Chat, actions, network, source</h2>
+    <p class="desc">The built-in dev panel gives you full control and visibility — talk to the browser in natural language, fire actions manually, watch traffic, and see the page as AI sees it.</p>
 
-    <div class="flow" style="margin-top: 24px;">
+    <div class="flow" style="grid-template-columns: repeat(4, 1fr); margin-top: 24px;">
+      <div class="flow-step">
+        <h3>Chat</h3>
+        <p>Natural language browser control. "Go to google and search for cats" — the AI navigates, types, clicks, and reports back. Formatted responses with tool badges.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Actions</h3>
+        <p>Quick-fire buttons for every command — analyze, screenshot, click by element #, type text, press keys, hover, scroll, navigate, tab management. No AI needed.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Network</h3>
+        <p>Live WebSocket traffic between browser and server. Timestamped IN/OUT entries, expandable payloads, filter by direction or type.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Source</h3>
+        <p>See the page as AI sees it — toggle between the structured markdown from <code>analyze_page</code> and raw HTML source. Refresh on demand.</p>
+      </div>
+    </div>
+
+    <div class="flow" style="grid-template-columns: repeat(3, 1fr); margin-top: 16px;">
       <div class="flow-step">
         <h3>Multi-tab browsing</h3>
         <p>Agents can <code>open_tab</code>, <code>switch_tab</code>, <code>list_tabs</code>, <code>close_tab</code>. Work across Gmail, Docs, and Jira simultaneously.</p>
@@ -332,9 +353,50 @@
         <p>Server streams JPEG frames from the browser via SSE. Watch what the agent is doing in real-time from the dashboard.</p>
       </div>
       <div class="flow-step">
-        <h3>Dev panel</h3>
-        <p>Built-in panel shows every command and response in real-time. Click to expand payloads. Debug agent behavior instantly.</p>
+        <h3>Human-like input</h3>
+        <p>All keyboard and mouse input via Chrome DevTools Protocol. B&eacute;zier curve mouse paths, 8-26ms typing delays, micro-hesitations. Indistinguishable from a real user.</p>
       </div>
+    </div>
+  </div>
+
+  <!-- Anonymity -->
+  <div class="section" id="anonymity">
+    <div class="label">Anonymity</div>
+    <h2>Every session a different identity</h2>
+    <p class="desc">Create profiles with unique fingerprints, proxy routing, and isolated cookie stores. Switch identities with a single MCP call.</p>
+
+    <div class="flow" style="grid-template-columns: repeat(4, 1fr); margin-top: 24px;">
+      <div class="flow-step">
+        <h3>Fingerprint rotation</h3>
+        <p>Unique canvas, WebGL, audio, and font fingerprints per profile — deterministic and internally coherent per platform.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Stealth mode</h3>
+        <p>Removes Electron markers, fixes <code>window.chrome</code>, <code>navigator.webdriver</code>, plugins, and permissions. Passes bot detection.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Proxy & DNS</h3>
+        <p>SOCKS5/HTTP proxy per profile with DNS leak prevention and WebRTC protection. Timezone and locale auto-match proxy geo.</p>
+      </div>
+      <div class="flow-step">
+        <h3>Telemetry blocked</h3>
+        <p>Chromium phone-home domains blocked, Safe Browsing disabled, no background networking. Zero data leaks to Google.</p>
+      </div>
+    </div>
+
+    <div class="term" style="margin-top: 28px;">
+      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <div class="term-body"><span class="c"># Create a Windows profile with a SOCKS5 proxy</span>
+<span class="g">create_profile</span>(<span class="b">platform</span>=<span class="y">"Win32"</span>, <span class="b">timezone</span>=<span class="y">"America/New_York"</span>, <span class="b">proxy_type</span>=<span class="y">"socks5"</span>, <span class="b">proxy_host</span>=<span class="y">"1.2.3.4"</span>, <span class="b">proxy_port</span>=<span class="p">1080</span>)
+<span class="c">→ Created profile-a1b2c3 (Win32, tz: America/New_York)</span>
+
+<span class="c"># Switch identity — all tabs reload with new fingerprint + proxy + cookies</span>
+<span class="g">set_profile</span>(<span class="b">profile_id</span>=<span class="y">"profile-a1b2c3"</span>)
+<span class="c">→ Switched to profile-a1b2c3. All tabs reloaded with new identity.</span>
+
+<span class="c"># See all profiles</span>
+<span class="g">list_profiles</span>()
+<span class="c">→ 3 profiles — profile-a1b2c3 (active), profile-d4e5f6, profile-g7h8i9</span></div>
     </div>
   </div>
 
@@ -357,6 +419,8 @@
         <tr><td>Tabs</td><td class="yes oya">Multi-tab with MCP tools</td><td class="no">Single</td><td class="no">Single</td></tr>
         <tr><td>Live view</td><td class="yes oya">SSE frame stream</td><td class="no">Cloud only (paid)</td><td class="no">No</td></tr>
         <tr><td>Agent loop</td><td class="oya">None — AI decides</td><td>600-line system prompt + 13 watchdogs</td><td>N/A</td></tr>
+        <tr><td>Chat control</td><td class="yes oya">Built-in natural language</td><td class="no">Their SDK only</td><td class="no">No</td></tr>
+        <tr><td>Anonymity</td><td class="yes oya">Built-in fingerprint + proxy</td><td class="no">None — sells cloud</td><td class="no">None</td></tr>
         <tr><td>Lock-in</td><td class="yes oya">None — any MCP client</td><td class="no">Their SDK + model</td><td class="no">Per-library API</td></tr>
       </tbody>
     </table>
@@ -422,7 +486,10 @@
       <div class="tool"><div class="tool-name">list_tabs</div><div class="tool-desc">List all open tabs</div></div>
       <div class="tool"><div class="tool-name">close_tab</div><div class="tool-desc">Close a tab</div></div>
       <div class="tool"><div class="tool-name">wait</div><div class="tool-desc">Wait for element to appear</div></div>
-      <div class="tool"><div class="tool-name">read_elements</div><div class="tool-desc">Lightweight element list</div></div>
+      <div class="tool"><div class="tool-name">press_key</div><div class="tool-desc">Send keyboard shortcuts</div></div>
+      <div class="tool"><div class="tool-name">list_profiles</div><div class="tool-desc">List anonymity profiles</div></div>
+      <div class="tool"><div class="tool-name">create_profile</div><div class="tool-desc">Create randomized fingerprint profile</div></div>
+      <div class="tool"><div class="tool-name">set_profile</div><div class="tool-desc">Switch fingerprint, proxy, cookies</div></div>
     </div>
   </div>
 

@@ -43,10 +43,14 @@ async function executeTool(browserId, name, args) {
           }).join('\n') + '\n';
         }
         if (offscreen.length) {
-          index += '\n### Off-screen\n' + offscreen.map((e) => `  [#${e.id}] ${e.type}: ${e.text || ''}`).join('\n') + '\n';
+          index += '\n### Off-screen\n' + offscreen.slice(0, 30).map((e) => `  [#${e.id}] ${e.type}: ${e.text || ''}`).join('\n') + '\n';
+          if (offscreen.length > 30) index += `  ... and ${offscreen.length - 30} more off-screen elements\n`;
         }
         if (truncated) index += '\n⚠ Page content was truncated.\n';
-        return markdown + index;
+        // Cap total output to avoid blowing context window
+        const result = markdown + index;
+        if (result.length > 30000) return result.slice(0, 30000) + '\n\n⚠ Output truncated to fit context window.';
+        return result;
       }
       case 'navigate': {
         const r = await sendCommand(browserId, 'navigate', { url: args.url }, 90000);
@@ -133,6 +137,25 @@ export async function runChat(browserId, messages, { onToolCall, onText } = {}) 
 
   while (iterations < maxIterations) {
     iterations++;
+
+    // Trim old tool results if context is getting too large (~4 chars per token)
+    let totalChars = allMessages.reduce((sum, m) => sum + (m.content?.length || 0) + JSON.stringify(m.tool_calls || '').length, 0);
+    while (totalChars > 400000 && allMessages.length > 3) {
+      // Find the oldest tool result and truncate it
+      const toolIdx = allMessages.findIndex((m, i) => i > 0 && m.role === 'tool');
+      if (toolIdx === -1) break;
+      // Also remove the assistant message with tool_calls right before it
+      const prevIdx = toolIdx - 1;
+      if (prevIdx > 0 && allMessages[prevIdx].role === 'assistant' && allMessages[prevIdx].tool_calls) {
+        // Count how many tool results follow this assistant message
+        let endIdx = toolIdx;
+        while (endIdx < allMessages.length && allMessages[endIdx].role === 'tool') endIdx++;
+        allMessages.splice(prevIdx, endIdx - prevIdx);
+      } else {
+        allMessages.splice(toolIdx, 1);
+      }
+      totalChars = allMessages.reduce((sum, m) => sum + (m.content?.length || 0) + JSON.stringify(m.tool_calls || '').length, 0);
+    }
 
     const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
       method: 'POST',

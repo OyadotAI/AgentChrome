@@ -38,6 +38,7 @@ The AI never sees HTML. Never writes CSS selectors. Never parses screenshots. It
 | **Protocol** | MCP (standard) — works with Claude Desktop, Cursor, Windsurf, any MCP client | Custom Python API — tied to their SDK | Custom API per library | WebDriver protocol |
 | **Memory** | 15KB extension, server is ~30MB | "Chrome can consume a lot of memory" (their FAQ) — full Playwright + Chromium | ~400MB Chromium binary | ~50MB driver + browser |
 | **Multiple browsers** | Yes — each gets its own MCP endpoint | One at a time | One per script | One per session |
+| **Anonymity** | Built-in — fingerprint rotation, proxy routing, WebRTC leak prevention, telemetry blocking per profile | None — recommends paid cloud with stealth browsers | None | None |
 | **CAPTCHAs** | You solve them yourself in your real browser — the agent continues after | Blocks the agent — they sell a cloud service to handle it | Blocks the agent | Blocks the agent |
 
 ## Deep dive: why this architecture is fundamentally better
@@ -179,6 +180,32 @@ Or configure manually:
 }
 ```
 
+## Anonymity
+
+Every session can be a different identity. Create profiles with unique browser fingerprints, proxy routing, and isolated cookie stores.
+
+### What's included
+
+- **Fingerprint rotation** — Canvas, WebGL, AudioContext, font enumeration, and ClientRects noise. Each profile gets a coherent fingerprint (e.g., Win32 platform → Windows GPU strings, Windows fonts, matching screen resolution). Deterministic per profile so repeated visits look consistent.
+- **Anti-detection stealth** — `navigator.webdriver` removed, Electron markers stripped, `window.chrome` fixed to match real Chrome, `navigator.plugins` populated, permissions API patched. Passes bot.sannysoft.com checks.
+- **Proxy support** — SOCKS5 and HTTP/HTTPS per profile. Proxy authentication, DNS leak prevention, and automatic timezone/locale matching via CDP Emulation.
+- **WebRTC leak prevention** — ICE candidates stripped to prevent local IP exposure through STUN requests.
+- **Telemetry blocked** — Google Safe Browsing, analytics, autofill, component updates blocked at the Chromium flag level.
+- **Profile isolation** — Each profile gets its own Electron session partition — separate cookies, localStorage, cache. Switch identities without cross-contamination.
+
+### MCP tools for profiles
+
+```
+create_profile(platform="Win32", timezone="America/New_York", proxy_host="1.2.3.4", proxy_port=1080, proxy_type="socks5")
+→ Created profile profile-a1b2c3 (Win32, tz: America/New_York)
+
+set_profile(profile_id="profile-a1b2c3")
+→ Switched to profile profile-a1b2c3. All tabs reloaded with new identity.
+
+list_profiles()
+→ 3 profiles — profile-a1b2c3 (active), profile-d4e5f6, profile-g7h8i9
+```
+
 ## MCP Tools
 
 | Tool | Description |
@@ -187,10 +214,59 @@ Or configure manually:
 | `navigate` | Navigate to a URL |
 | `click` | Click element by number (from analyze) |
 | `type` | Type text into input by number — clears first, types character-by-character with realistic events |
+| `press_key` | Press keyboard keys and shortcuts |
 | `screenshot` | Capture visible tab as PNG |
 | `scroll` | Scroll up/down by pixel amount |
+| `open_tab` | Open a new browser tab |
+| `switch_tab` | Switch between open tabs |
+| `list_tabs` | List all open tabs |
+| `close_tab` | Close a tab |
 | `wait` | Wait for a CSS selector to appear |
-| `read_elements` | Lightweight element list without full page markdown |
+| `list_profiles` | List available anonymity profiles with platform, timezone, proxy status |
+| `create_profile` | Create a new profile with randomized fingerprint, optional proxy and timezone |
+| `set_profile` | Switch to a profile — reloads all tabs with new fingerprint, proxy, and cookie store |
+
+## Dev Panel
+
+The built-in dev panel (`{}` button in the toolbar) has four tabs:
+
+### Chat
+Natural language browser control. Type "go to google and search for cats" and the AI navigates, types, clicks, and reports back. Uses the same agentic loop as the web dashboard — analyze → reason → act → repeat.
+
+- Message bubbles with formatted markdown (bold, code, lists, headings)
+- Tool call badges showing which MCP tools the AI used
+- Copy button on hover for any response
+- Conversation history preserved across messages
+- Automatic context trimming when conversations get long
+
+Requires an OpenAI API key configured on the server (`OPENAI_API_KEY` env var or dashboard settings).
+
+### Actions
+Quick-fire buttons and input fields for every browser command — no AI needed:
+
+- **Page**: Analyze, Screenshot, Reload, Scroll Down/Up
+- **Navigate**: URL input → Go
+- **Click/Type/Hover**: Element # from analyze → execute
+- **Press Key**: Enter, Escape, Tab, ArrowDown, etc.
+- **Click Coordinates**: X, Y pixel input
+- **Wait**: CSS selector → wait up to 10s
+- **Tabs**: List Tabs, New Tab
+
+Results display inline with screenshots rendered as images.
+
+### Network
+Live view of all WebSocket traffic between the browser and server:
+
+- Timestamped entries with IN/OUT direction badges
+- Click to expand full JSON payload
+- Filter by: All, In, Out, Commands, Results
+
+### Source
+View the page as the AI sees it:
+
+- **Markdown** tab — the `analyzePage()` output (structured markdown with numbered elements)
+- **HTML** tab — raw `document.documentElement.outerHTML`
+- Refresh button to fetch on demand
 
 ## What analyze_page returns
 
@@ -241,9 +317,9 @@ The AI gets structured content it can reason about, numbered elements it can act
 └─────────────────┘         └──────────────────┘         └──────────────┘
 ```
 
-- **Extension** (~15KB): MV3 service worker + content scripts. Reads DOM, clicks elements, types text, captures screenshots. Connects to server via WebSocket
+- **Extension / Desktop App**: Reads DOM, clicks elements, types text, captures screenshots. Connects to server via WebSocket. Desktop app includes built-in anonymity engine (fingerprint spoofing, proxy routing, profile management)
 - **Server**: Express + ws + MCP SDK. Manages browser connections, translates MCP tool calls into WebSocket commands. Each browser gets a dedicated MCP endpoint at `/mcp/:browserId`
-- **Dashboard**: Built-in web UI at `/` for testing commands and copying MCP config snippets
+- **Dashboard**: Built-in web UI at `/` for testing commands, copying MCP config snippets, and managing anonymity profiles
 
 ## License
 

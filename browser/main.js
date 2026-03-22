@@ -387,8 +387,9 @@ let missedPongs = 0;
 function setupBrowserSession() {
   const ses = getBrowserSession();
 
-  // ── Block telemetry domains ──
-  applyDomainBlocking(ses);
+  // Telemetry blocking is handled by Chromium flags (applyTelemetryFlags).
+  // Domain-level blocking via onBeforeRequest was removed — it interfered
+  // with normal page loads and handler stacking on session reuse.
 
   // ── User-Agent: strip Electron/oya-browser tokens ──
   const defaultUA = ses.getUserAgent();
@@ -397,17 +398,16 @@ function setupBrowserSession() {
     .replace(/\s*oya-browser\/[\d.]+/i, '');
   ses.setUserAgent(cleanUA);
 
-  // Extract Chrome version for building correct Sec-CH-UA brand lists
   const chromeFullVer = defaultUA.match(/Chrome\/([\d.]+)/)?.[1] || '134.0.0.0';
   const chromeMajor = chromeFullVer.split('.')[0];
 
-  // ── Determine platform hint from active profile or real OS ──
   const platformHint = activeProfile?.navigator?.platform === 'Win32' ? 'Windows'
     : activeProfile?.navigator?.platform === 'Linux x86_64' ? 'Linux'
     : process.platform === 'darwin' ? 'macOS'
     : process.platform === 'win32' ? 'Windows' : 'Linux';
 
   // ── Sec-CH-UA: rewrite client-hint headers to hide Electron ──
+  // Calling onBeforeSendHeaders replaces the previous handler (Electron behavior).
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
     const headers = { ...details.requestHeaders };
 
@@ -762,6 +762,168 @@ ipcMain.handle('get-active-profile', () => {
     timezone: activeProfile.timezone,
     hasProxy: !!activeProfile.proxy?.host,
   };
+});
+
+// ─── Dev Panel: Chat, Source & Quick Actions ───
+
+ipcMain.handle('send-chat', async (e, messages) => {
+  if (!wsReady || !browserId) return { error: 'Not connected to server' };
+  // Derive HTTP base URL from WebSocket URL
+  const wsUrl = config.serverUrl || '';
+  let httpBase = wsUrl.replace(/^wss/, 'https').replace(/^ws/, 'http').replace(/\/ws\/?$/, '');
+  try {
+    const res = await fetch(`${httpBase}/api/browsers/${browserId}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({ messages }),
+    });
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: `Server returned ${res.status}: ${text.slice(0, 200)}` };
+    }
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('get-page-source', async () => {
+  const view = getActiveView();
+  if (!view) return { html: '', markdown: '', url: '' };
+  try {
+    const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML', true);
+    let markdown = '';
+    try {
+      const result = await view.webContents.executeJavaScript(
+        '(typeof analyzePage === "function") ? analyzePage({}) : null', true
+      );
+      if (result?.ok) markdown = result.data.markdown || '';
+    } catch {}
+    return { html, markdown, url: view.webContents.getURL() };
+  } catch (e) {
+    return { html: '', markdown: '', url: '', error: e.message };
+  }
+});
+
+ipcMain.handle('dev-action', async (e, action, params) => {
+  const view = getActiveView();
+  if (!view && action !== 'list-tabs') return { ok: false, error: 'No active tab' };
+  try {
+    switch (action) {
+      case 'analyze': {
+        await injectScripts(view);
+        return await view.webContents.executeJavaScript(
+          '(typeof analyzePage === "function") ? analyzePage({}) : { ok: false, error: "Analyzer not loaded" }', true
+        );
+      }
+      case 'screenshot': {
+        const r = await cdp(view, 'Page.captureScreenshot', { format: 'png' });
+        return { ok: true, data: { screenshot: 'data:image/png;base64,' + r.data } };
+      }
+      case 'scroll-down': {
+        const vp = await cdpEval(view, '({ w: window.innerWidth, h: window.innerHeight })');
+        await cdpScroll(view, (vp?.w || 800) / 2, (vp?.h || 600) / 2, 0, params?.amount || 400);
+        return { ok: true };
+      }
+      case 'scroll-up': {
+        const vp2 = await cdpEval(view, '({ w: window.innerWidth, h: window.innerHeight })');
+        await cdpScroll(view, (vp2?.w || 800) / 2, (vp2?.h || 600) / 2, 0, -(params?.amount || 400));
+        return { ok: true };
+      }
+      case 'reload': {
+        view.webContents.reload();
+        return { ok: true };
+      }
+      case 'navigate': {
+        if (!params?.url) return { ok: false, error: 'URL required' };
+        let url = params.url;
+        if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+        await view.webContents.loadURL(url);
+        await injectScripts(view);
+        return { ok: true, data: { url: view.webContents.getURL(), title: view.webContents.getTitle() } };
+      }
+      case 'click': {
+        if (!params?.element_id) return { ok: false, error: 'element_id required' };
+        await injectScripts(view);
+        const selector = `[data-ac-id="${params.element_id}"]`;
+        const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(selector), true);
+        if (!info?.ok) return { ok: false, error: info?.error || 'Element not found' };
+        await cdpClick(view, info.data.x, info.data.y);
+        await sleep(300);
+        return { ok: true, data: { clicked: true, url: view.webContents.getURL() } };
+      }
+      case 'type': {
+        if (!params?.element_id || !params?.text) return { ok: false, error: 'element_id and text required' };
+        await injectScripts(view);
+        const sel = `[data-ac-id="${params.element_id}"]`;
+        const inf = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(sel), true);
+        if (!inf?.ok) return { ok: false, error: inf?.error || 'Element not found' };
+        await cdpClick(view, inf.data.x, inf.data.y);
+        await sleep(20);
+        await cdpClearField(view);
+        await cdpTypeText(view, params.text);
+        return { ok: true, data: { typed: true } };
+      }
+      case 'press-key': {
+        if (!params?.key) return { ok: false, error: 'key required' };
+        await cdpPressKey(view, params.key);
+        return { ok: true, data: { key: params.key } };
+      }
+      case 'hover': {
+        if (!params?.element_id) return { ok: false, error: 'element_id required' };
+        await injectScripts(view);
+        const hSel = `[data-ac-id="${params.element_id}"]`;
+        const hInfo = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(hSel), true);
+        if (!hInfo?.ok) return { ok: false, error: hInfo?.error || 'Element not found' };
+        await cdpMouseMove(view, Math.round(hInfo.data.x), Math.round(hInfo.data.y));
+        return { ok: true, data: { hovered: true } };
+      }
+      case 'click-coords': {
+        if (params?.x == null || params?.y == null) return { ok: false, error: 'x and y required' };
+        await cdpClick(view, params.x, params.y);
+        return { ok: true, data: { clicked: true, x: params.x, y: params.y } };
+      }
+      case 'wait': {
+        if (!params?.selector) return { ok: false, error: 'selector required' };
+        await injectScripts(view);
+        const wResult = await view.webContents.executeJavaScript(
+          `(async () => { const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (document.querySelector(${JSON.stringify(params.selector)})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`, true
+        );
+        return wResult;
+      }
+      case 'list-tabs': {
+        return { ok: true, data: { tabs: tabs.map(t => ({ id: t.id, title: t.title, url: t.url, active: t.id === activeTabId })) } };
+      }
+      case 'new-tab': {
+        const tabId = createTab(params?.url || 'about:blank', true);
+        return { ok: true, data: { tab_id: tabId } };
+      }
+      case 'close-tab': {
+        closeTab(params?.tab_id || activeTabId);
+        return { ok: true, data: { closed: true } };
+      }
+      case 'select': {
+        if (!params?.element_id || !params?.value) return { ok: false, error: 'element_id and value required' };
+        await injectScripts(view);
+        const sResult = await view.webContents.executeJavaScript(`(() => {
+          const el = document.querySelector('[data-ac-id="${params.element_id}"]');
+          if (!el || el.tagName !== 'SELECT') return { ok: false, error: 'Select element not found' };
+          el.value = ${JSON.stringify(params.value)};
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          return { ok: true, data: { selected: el.value } };
+        })()`, true);
+        return sResult;
+      }
+      default:
+        return { ok: false, error: 'Unknown action: ' + action };
+    }
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 function sendToRenderer(channel, data) {
