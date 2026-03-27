@@ -23,8 +23,11 @@ contextBridge.exposeInMainWorld('oyaBrowser', {
   onModeChanged: (cb) => ipcRenderer.on('mode-changed', (e, mode) => cb(mode)),
   onDevLog: (cb) => ipcRenderer.on('dev-log', (e, entry) => cb(entry)),
   onDevPanelState: (cb) => ipcRenderer.on('dev-panel-state', (e, open) => cb(open)),
+  onInspectResult: (cb) => ipcRenderer.on('inspect-result', (e, result) => cb(result)),
+  onViewSource: (cb) => ipcRenderer.on('view-source', (e, data) => cb(data)),
   onTabsUpdated: (cb) => ipcRenderer.on('tabs-updated', (e, tabs) => cb(tabs)),
   // Dev panel
+  resizeDevPanel: (width) => ipcRenderer.invoke('resize-dev-panel', width),
   getPageSource: () => ipcRenderer.invoke('get-page-source'),
   devAction: (action, params) => ipcRenderer.invoke('dev-action', action, params),
   sendChat: (messages) => ipcRenderer.invoke('send-chat', messages),

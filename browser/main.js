@@ -7,7 +7,7 @@
  * Protocol for full native control. Human-like timing and mouse paths.
  */
 
-const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage, Menu, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const WebSocket = require('ws');
@@ -16,6 +16,9 @@ const { buildStealthScript } = require('./anonymity/stealth');
 const { generateProfile, buildFingerprintInjectScript } = require('./anonymity/fingerprint');
 const { configureProxy, applyDNSLeakPrevention } = require('./anonymity/proxy');
 const { ProfileStore } = require('./anonymity/profile-store');
+
+// Default to light mode
+nativeTheme.themeSource = 'light';
 
 // Apply telemetry + DNS leak prevention flags before app is ready
 applyTelemetryFlags(app);
@@ -265,7 +268,7 @@ async function cdpEval(view, expression) {
 let mainWindow = null;
 let browsingMode = false;
 let devPanelOpen = false;
-const DEV_PANEL_WIDTH = 380;
+let devPanelWidth = 380;
 const TOOLBAR_HEIGHT = 82; // 52px toolbar + 30px tab bar
 
 /** @type {{ id: number, view: BrowserView, title: string, url: string }[]} */
@@ -351,13 +354,19 @@ async function applyCookieUpdate(change) {
       });
     }
   } catch {}
-  applyingCookieSync = false;
+  // Delay resetting the flag so any async 'changed' events fired by the
+  // cookie set/remove above are still suppressed.
+  setTimeout(() => { applyingCookieSync = false; }, 150);
 }
 
 /** Start listening for local cookie changes and forward to server. */
 function startCookieChangeListener() {
   getBrowserSession().cookies.on('changed', (event, cookie, cause, removed) => {
     if (applyingCookieSync) return;
+    // Only forward explicit changes — ignore overwrite (intermediate removal
+    // when a cookie is replaced), expired, and evicted events to prevent
+    // feedback loops between browsers in the pool.
+    if (cause !== 'explicit') return;
     if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) return;
     try {
       ws.send(JSON.stringify({
@@ -463,7 +472,7 @@ function createWindow() {
     icon: path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
-    backgroundColor: '#09090b',
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false,
@@ -491,7 +500,20 @@ function createTab(url, activate = true) {
   // Attach CDP debugger and auto-inject scripts into every new document
   setupTabCDP(view);
 
-  view.webContents.on('did-finish-load', () => injectScripts(view));
+  view.webContents.on('did-finish-load', () => {
+    injectScripts(view);
+    // Make view-source pages readable (force light theme)
+    const currentUrl = view.webContents.getURL();
+    if (currentUrl.startsWith('view-source:')) {
+      view.webContents.executeJavaScript(`
+        document.documentElement.style.cssText = 'background:#fff!important;color:#000!important;color-scheme:light!important';
+        document.body.style.cssText = 'background:#fff!important;color:#000!important';
+        const s = document.createElement('style');
+        s.textContent = '*, *::before, *::after { color-scheme: light !important; } body, html, .line-content, .line-number, td, tr, table { background-color: #fff !important; color: #000 !important; } a { color: #00e !important; }';
+        document.head.appendChild(s);
+      `, true).catch(() => {});
+    }
+  });
 
   const updateUrl = (e, u) => {
     tab.url = u;
@@ -509,13 +531,17 @@ function createTab(url, activate = true) {
   // target="_blank" / window.open → new tab
   // But allow OAuth popups (Google, GitHub, etc.) to work natively
   view.webContents.setWindowOpenHandler(({ url, features }) => {
-    const isOAuthPopup = url.includes('accounts.google.com') ||
+    const isAuthPopup = url.includes('accounts.google.com') ||
       url.includes('github.com/login/oauth') ||
       url.includes('login.microsoftonline.com') ||
       url.includes('appleid.apple.com') ||
+      url.includes('x.com') ||
+      url.includes('twitter.com') ||
+      url.includes('api.twitter.com') ||
+      url.includes('arkoselabs.com') ||
       (features && features.includes('popup'));
 
-    if (isOAuthPopup) {
+    if (isAuthPopup) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -527,6 +553,95 @@ function createTab(url, activate = true) {
 
     createTab(url, true);
     return { action: 'deny' };
+  });
+
+  // Configure child windows created by allowed popups (OAuth, 2FA, etc.)
+  view.webContents.on('did-create-window', (childWindow) => {
+    childWindow.webContents.on('did-finish-load', () => {
+      // Inject stealth scripts into child windows so auth flows work
+      const parts = [];
+      if (activeProfile) parts.push(buildFingerprintInjectScript(activeProfile));
+      parts.push(buildStealthScript());
+      if (parts.length) childWindow.webContents.executeJavaScript(parts.join('\n;\n'), true).catch(() => {});
+    });
+  });
+
+  // Right-click context menu with DevTools, View Source, Inspect
+  view.webContents.on('context-menu', (e, params) => {
+    const menu = Menu.buildFromTemplate([
+      ...(params.linkURL ? [
+        { label: 'Open Link in New Tab', click: () => createTab(params.linkURL, true) },
+        { type: 'separator' },
+      ] : []),
+      { label: 'Back', enabled: view.webContents.navigationHistory.canGoBack(), click: () => view.webContents.goBack() },
+      { label: 'Forward', enabled: view.webContents.navigationHistory.canGoForward(), click: () => view.webContents.goForward() },
+      { label: 'Reload', click: () => view.webContents.reload() },
+      { type: 'separator' },
+      { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
+      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+      { label: 'Select All', role: 'selectAll' },
+      { type: 'separator' },
+      { label: 'View Page Source', click: async () => {
+        try {
+          await injectScripts(view);
+          const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML', true);
+          let markdown = '';
+          try {
+            const result = await view.webContents.executeJavaScript(
+              '(typeof analyzePage === "function") ? analyzePage({}) : null', true
+            );
+            if (result?.ok) markdown = result.data.markdown || '';
+          } catch {}
+          if (!devPanelOpen) {
+            devPanelOpen = true;
+            layoutActiveTab();
+            sendToRenderer('dev-panel-state', devPanelOpen);
+          }
+          sendToRenderer('view-source', { html, markdown, url: view.webContents.getURL() });
+        } catch (e) {
+          sendToRenderer('view-source', { html: '', markdown: '', error: e.message });
+        }
+      }},
+      { label: 'Inspect Element', click: async () => {
+        try {
+          await injectScripts(view);
+          const result = await view.webContents.executeJavaScript(`
+            (function() {
+              const el = document.elementFromPoint(${params.x}, ${params.y});
+              if (!el) return { ok: false, error: 'No element at coordinates' };
+              // Walk up to find nearest element with data-ac-id, or use the element itself
+              let target = el;
+              while (target && !target.getAttribute('data-ac-id') && target !== document.body) {
+                target = target.parentElement;
+              }
+              // Run analyzePage scoped to this element's parent section
+              if (typeof analyzePage === 'function') {
+                // Find a reasonable scope — the element's closest section/article/main or its parent
+                let scope = el.closest('section, article, main, [role="main"], [role="dialog"], form, nav, aside') || el.parentElement || el;
+                // Generate a unique temporary selector
+                const tmpId = '__oya_inspect_' + Date.now();
+                scope.setAttribute('data-oya-inspect', tmpId);
+                const result = analyzePage({ selector: '[data-oya-inspect="' + tmpId + '"]', highlight: true });
+                scope.removeAttribute('data-oya-inspect');
+                return result;
+              }
+              return { ok: false, error: 'Analyzer not loaded' };
+            })()
+          `, true);
+          // Open dev panel and show result in source pane
+          if (!devPanelOpen) {
+            devPanelOpen = true;
+            layoutActiveTab();
+            sendToRenderer('dev-panel-state', devPanelOpen);
+          }
+          sendToRenderer('inspect-result', result);
+        } catch (e) {
+          sendToRenderer('inspect-result', { ok: false, error: e.message });
+        }
+      }},
+      { label: 'Open DevTools', click: () => view.webContents.openDevTools({ mode: 'detach' }) },
+    ]);
+    menu.popup({ window: mainWindow });
   });
 
   if (url) view.webContents.loadURL(url);
@@ -626,7 +741,7 @@ function layoutActiveTab() {
   const view = getActiveView();
   if (!mainWindow || !view || !browsingMode) return;
   const bounds = mainWindow.getContentBounds();
-  const panelW = devPanelOpen ? DEV_PANEL_WIDTH : 0;
+  const panelW = devPanelOpen ? devPanelWidth : 0;
   view.setBounds({
     x: 0, y: TOOLBAR_HEIGHT,
     width: bounds.width - panelW,
@@ -699,6 +814,12 @@ ipcMain.handle('toggle-dev-panel', () => {
   layoutActiveTab();
   sendToRenderer('dev-panel-state', devPanelOpen);
   return devPanelOpen;
+});
+
+ipcMain.handle('resize-dev-panel', (e, width) => {
+  devPanelWidth = Math.max(250, Math.min(width, 1200));
+  layoutActiveTab();
+  return devPanelWidth;
 });
 
 // ─── Profile Management IPC ───

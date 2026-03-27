@@ -8,8 +8,8 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
-      background: #09090b;
-      color: #fafafa;
+      background: #ffffff;
+      color: #09090b;
       overflow: hidden;
       -webkit-app-region: drag;
       user-select: none;
@@ -29,12 +29,12 @@
     body.mode-browsing .setup-screen { display: none; }
 
     .setup-card {
-      background: #111113;
-      border: 1px solid #27272a;
+      background: #ffffff;
+      border: 1px solid #d4d4d8;
       border-radius: 16px;
       padding: 36px;
       width: 420px;
-      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.1);
       -webkit-app-region: no-drag;
     }
 
@@ -46,7 +46,7 @@
     }
     .setup-card .sub {
       font-size: 13px;
-      color: #71717a;
+      color: #52525b;
       margin-bottom: 28px;
     }
 
@@ -55,24 +55,24 @@
       display: block;
       font-size: 11px;
       font-weight: 500;
-      color: #a1a1aa;
+      color: #52525b;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-bottom: 6px;
     }
     .field input {
       width: 100%;
-      background: #09090b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 8px;
       padding: 10px 12px;
-      color: #fafafa;
+      color: #09090b;
       font-size: 13px;
       outline: none;
     }
     .field input:focus { border-color: #3b82f6; }
-    .field input::placeholder { color: #3f3f46; }
-    .field .hint { font-size: 11px; color: #52525b; margin-top: 4px; }
+    .field input::placeholder { color: #a1a1aa; }
+    .field .hint { font-size: 11px; color: #71717a; margin-top: 4px; }
 
     .setup-error {
       font-size: 12px;
@@ -94,8 +94,8 @@
     .setup-btns button:disabled { opacity: 0.5; cursor: wait; }
     .btn-connect { background: #3b82f6; color: #fff; }
     .btn-connect:hover:not(:disabled) { background: #2563eb; }
-    .btn-skip { background: #27272a; color: #a1a1aa; }
-    .btn-skip:hover { background: #3f3f46; color: #fafafa; }
+    .btn-skip { background: #e4e4e7; color: #52525b; }
+    .btn-skip:hover { background: #d4d4d8; color: #09090b; }
 
     /* ── Browsing mode — toolbar + tab bar ── */
 
@@ -118,8 +118,8 @@
       padding: 0 8px;
       gap: 2px;
       align-items: flex-end;
-      background: #0a0a0a;
-      border-bottom: 1px solid #27272a;
+      background: #f4f4f5;
+      border-bottom: 1px solid #d4d4d8;
       overflow-x: auto;
       overflow-y: hidden;
       -webkit-app-region: no-drag;
@@ -133,19 +133,19 @@
       gap: 6px;
       height: 26px;
       padding: 0 10px;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #e4e4e7;
+      border: 1px solid #d4d4d8;
       border-bottom: none;
       border-radius: 6px 6px 0 0;
       font-size: 11px;
-      color: #71717a;
+      color: #52525b;
       cursor: pointer;
       white-space: nowrap;
       max-width: 180px;
       flex-shrink: 0;
     }
-    .tab-item:hover { background: #1f1f23; color: #a1a1aa; }
-    .tab-item.active { background: #27272a; color: #fafafa; }
+    .tab-item:hover { background: #d4d4d8; color: #3f3f46; }
+    .tab-item.active { background: #ffffff; color: #09090b; }
 
     .tab-item .tab-title {
       overflow: hidden;
@@ -156,7 +156,7 @@
 
     .tab-close {
       font-size: 13px;
-      color: #525252;
+      color: #a1a1aa;
       cursor: pointer;
       line-height: 1;
       flex-shrink: 0;
@@ -168,7 +168,7 @@
       height: 24px;
       background: none;
       border: none;
-      color: #525252;
+      color: #a1a1aa;
       font-size: 16px;
       cursor: pointer;
       border-radius: 4px;
@@ -178,14 +178,14 @@
       flex-shrink: 0;
       margin-left: 2px;
     }
-    .tab-new:hover { background: #27272a; color: #a1a1aa; }
+    .tab-new:hover { background: #e4e4e7; color: #52525b; }
 
     .nav-btn {
       width: 30px;
       height: 30px;
       background: none;
       border: none;
-      color: #a1a1aa;
+      color: #52525b;
       font-size: 16px;
       cursor: pointer;
       border-radius: 6px;
@@ -194,15 +194,15 @@
       justify-content: center;
       -webkit-app-region: no-drag;
     }
-    .nav-btn:hover { background: #27272a; color: #fafafa; }
+    .nav-btn:hover { background: #e4e4e7; color: #09090b; }
 
     .url-bar {
       flex: 1;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 8px;
       padding: 6px 12px;
-      color: #fafafa;
+      color: #09090b;
       font-size: 13px;
       outline: none;
       -webkit-app-region: no-drag;
@@ -213,18 +213,18 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 8px;
       padding: 5px 10px;
       font-size: 11px;
       font-weight: 500;
-      color: #a1a1aa;
+      color: #52525b;
       cursor: pointer;
       white-space: nowrap;
       -webkit-app-region: no-drag;
     }
-    .conn-pill:hover { border-color: #3f3f46; color: #fafafa; }
+    .conn-pill:hover { border-color: #a1a1aa; color: #09090b; }
     .conn-pill .dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: #ef4444;
@@ -239,7 +239,7 @@
       height: 30px;
       background: none;
       border: 1px solid transparent;
-      color: #525252;
+      color: #a1a1aa;
       font-size: 14px;
       cursor: pointer;
       border-radius: 6px;
@@ -250,8 +250,8 @@
       font-family: ui-monospace, monospace;
       font-weight: 700;
     }
-    .dev-btn:hover { background: #27272a; color: #a1a1aa; }
-    .dev-btn.active { color: #3b82f6; border-color: #3b82f6; background: #172554; }
+    .dev-btn:hover { background: #e4e4e7; color: #52525b; }
+    .dev-btn.active { color: #3b82f6; border-color: #3b82f6; background: #dbeafe; }
 
     /* ── Dev Panel ── */
 
@@ -261,8 +261,8 @@
       right: 0;
       bottom: 0;
       width: 380px;
-      background: #0a0a0a;
-      border-left: 1px solid #27272a;
+      background: #fafafa;
+      border-left: 1px solid #d4d4d8;
       display: none;
       flex-direction: column;
       z-index: 50;
@@ -270,11 +270,23 @@
     }
     .dev-panel.open { display: flex; }
 
+    .dev-panel-resize {
+      position: absolute;
+      top: 0;
+      left: -3px;
+      width: 6px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 51;
+    }
+    .dev-panel-resize:hover,
+    .dev-panel-resize.dragging { background: #3b82f6; opacity: 0.4; }
+
     .dev-panel-header {
       display: flex;
       align-items: center;
       padding: 0;
-      border-bottom: 1px solid #27272a;
+      border-bottom: 1px solid #d4d4d8;
       flex-shrink: 0;
     }
 
@@ -282,25 +294,25 @@
       padding: 8px 14px;
       font-size: 11px;
       font-weight: 600;
-      color: #525252;
+      color: #a1a1aa;
       cursor: pointer;
       border: none;
       background: none;
       border-bottom: 2px solid transparent;
       transition: color 0.15s;
     }
-    .dev-tab:hover { color: #a1a1aa; }
-    .dev-tab.active { color: #fafafa; border-bottom-color: #3b82f6; }
+    .dev-tab:hover { color: #52525b; }
+    .dev-tab.active { color: #09090b; border-bottom-color: #3b82f6; }
     .dev-tab-spacer { flex: 1; }
     .dev-tab-btn {
       background: none;
       border: none;
-      color: #525252;
+      color: #a1a1aa;
       font-size: 11px;
       cursor: pointer;
       padding: 8px 10px;
     }
-    .dev-tab-btn:hover { color: #a1a1aa; }
+    .dev-tab-btn:hover { color: #52525b; }
 
     .dev-pane {
       flex: 1;
@@ -313,39 +325,39 @@
 
     .dev-entry {
       padding: 6px 12px;
-      border-bottom: 1px solid #18181b;
+      border-bottom: 1px solid #e4e4e7;
       font-family: ui-monospace, 'SF Mono', monospace;
       font-size: 11px;
       line-height: 1.5;
       cursor: pointer;
       user-select: text;
     }
-    .dev-entry:hover { background: #111; }
+    .dev-entry:hover { background: #f4f4f5; }
 
     .dev-entry .head {
       display: flex;
       align-items: center;
       gap: 6px;
     }
-    .dev-entry .ts { color: #3f3f46; font-size: 10px; }
+    .dev-entry .ts { color: #a1a1aa; font-size: 10px; }
     .dev-entry .dir {
       font-size: 10px;
       font-weight: 600;
       padding: 1px 5px;
       border-radius: 3px;
     }
-    .dev-entry .dir.in { background: #172554; color: #60a5fa; }
-    .dev-entry .dir.out { background: #14532d; color: #4ade80; }
-    .dev-entry .msg-type { color: #e4e4e7; font-weight: 500; }
+    .dev-entry .dir.in { background: #dbeafe; color: #2563eb; }
+    .dev-entry .dir.out { background: #dcfce7; color: #16a34a; }
+    .dev-entry .msg-type { color: #27272a; font-weight: 500; }
     .dev-entry .body {
       display: none;
       margin-top: 6px;
       padding: 6px 8px;
-      background: #18181b;
+      background: #f4f4f5;
       border-radius: 6px;
       white-space: pre-wrap;
       word-break: break-all;
-      color: #a1a1aa;
+      color: #52525b;
       font-size: 10px;
       max-height: 300px;
       overflow-y: auto;
@@ -365,31 +377,31 @@
       align-items: center;
       gap: 6px;
       padding: 8px 10px;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 8px;
-      color: #a1a1aa;
+      color: #52525b;
       font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.15s;
       font-family: inherit;
     }
-    .action-btn:hover { background: #27272a; color: #fafafa; border-color: #3f3f46; }
+    .action-btn:hover { background: #e4e4e7; color: #09090b; border-color: #a1a1aa; }
     .action-btn:active { transform: scale(0.97); }
     .action-btn.running { opacity: 0.5; cursor: wait; }
     .action-btn .action-icon { font-size: 13px; width: 18px; text-align: center; }
 
-    .action-label { font-size: 12px; font-weight: 600; color: #525252; padding: 10px 10px 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .action-label { font-size: 12px; font-weight: 600; color: #a1a1aa; padding: 10px 10px 2px; text-transform: uppercase; letter-spacing: 0.5px; }
 
     .action-result {
       margin: 6px 10px;
       padding: 8px;
-      background: #18181b;
+      background: #f4f4f5;
       border-radius: 6px;
       font-family: ui-monospace, 'SF Mono', monospace;
       font-size: 10px;
-      color: #a1a1aa;
+      color: #52525b;
       white-space: pre-wrap;
       word-break: break-all;
       max-height: 200px;
@@ -407,18 +419,18 @@
     }
     .action-field {
       flex: 1;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 6px;
       padding: 6px 8px;
-      color: #fafafa;
+      color: #09090b;
       font-size: 11px;
       outline: none;
       font-family: ui-monospace, 'SF Mono', monospace;
       min-width: 0;
     }
     .action-field:focus { border-color: #3b82f6; }
-    .action-field::placeholder { color: #3f3f46; }
+    .action-field::placeholder { color: #a1a1aa; }
     .action-field-sm { max-width: 50px; }
     .action-btn-sm { flex-shrink: 0; padding: 6px 10px; }
 
@@ -433,7 +445,7 @@
       gap: 8px;
     }
     .chat-empty {
-      color: #3f3f46;
+      color: #a1a1aa;
       font-size: 12px;
       text-align: center;
       padding: 40px 10px;
@@ -457,25 +469,25 @@
     }
     .chat-msg.assistant {
       align-self: flex-start;
-      background: #18181b;
-      border: 1px solid #27272a;
-      color: #e4e4e7;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
+      color: #27272a;
       border-bottom-left-radius: 3px;
     }
     .chat-msg.error {
       color: #ef4444;
-      background: #1a0a0a;
-      border-color: #3b1111;
+      background: #fef2f2;
+      border-color: #fecaca;
     }
     .chat-msg code {
       font-family: ui-monospace, 'SF Mono', monospace;
       font-size: 11px;
-      background: rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.06);
       padding: 1px 5px;
       border-radius: 3px;
     }
     .chat-msg pre {
-      background: #111;
+      background: #f4f4f5;
       border-radius: 6px;
       padding: 8px 10px;
       margin: 6px 0;
@@ -487,23 +499,23 @@
       background: none;
       padding: 0;
     }
-    .chat-msg strong { color: #fafafa; }
+    .chat-msg strong { color: #09090b; }
     .chat-msg em { font-style: italic; }
     .chat-copy {
       display: none;
       position: absolute;
       top: 4px;
       right: 4px;
-      background: #27272a;
-      border: 1px solid #3f3f46;
+      background: #e4e4e7;
+      border: 1px solid #d4d4d8;
       border-radius: 4px;
-      color: #a1a1aa;
+      color: #52525b;
       font-size: 10px;
       padding: 2px 6px;
       cursor: pointer;
       z-index: 1;
     }
-    .chat-copy:hover { color: #fafafa; background: #3f3f46; }
+    .chat-copy:hover { color: #09090b; background: #d4d4d8; }
     .chat-msg { position: relative; }
     .chat-msg:hover .chat-copy { display: block; }
     .chat-tools {
@@ -517,26 +529,26 @@
       font-weight: 600;
       padding: 2px 6px;
       border-radius: 999px;
-      background: #172554;
-      color: #60a5fa;
+      background: #dbeafe;
+      color: #2563eb;
       font-family: ui-monospace, monospace;
     }
     .chat-thinking {
       align-self: flex-start;
       padding: 8px 12px;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 10px;
       border-bottom-left-radius: 3px;
       font-size: 12px;
-      color: #525252;
+      color: #a1a1aa;
       display: flex;
       align-items: center;
       gap: 6px;
     }
     .chat-dots { display: inline-flex; gap: 3px; }
     .chat-dots span {
-      width: 5px; height: 5px; background: #525252; border-radius: 50%;
+      width: 5px; height: 5px; background: #a1a1aa; border-radius: 50%;
       animation: dotPulse 1.2s infinite;
     }
     .chat-dots span:nth-child(2) { animation-delay: 0.2s; }
@@ -547,21 +559,21 @@
       display: flex;
       gap: 4px;
       padding: 8px 10px;
-      border-top: 1px solid #27272a;
+      border-top: 1px solid #d4d4d8;
       flex-shrink: 0;
     }
     .chat-input {
       flex: 1;
-      background: #18181b;
-      border: 1px solid #27272a;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 8px;
       padding: 8px 10px;
-      color: #fafafa;
+      color: #09090b;
       font-size: 12px;
       outline: none;
     }
     .chat-input:focus { border-color: #3b82f6; }
-    .chat-input::placeholder { color: #3f3f46; }
+    .chat-input::placeholder { color: #a1a1aa; }
     .chat-send {
       width: 34px;
       height: 34px;
@@ -585,7 +597,7 @@
       display: flex;
       gap: 2px;
       padding: 6px 10px;
-      border-bottom: 1px solid #18181b;
+      border-bottom: 1px solid #e4e4e7;
       flex-shrink: 0;
     }
     .net-filter {
@@ -595,11 +607,11 @@
       background: none;
       border: 1px solid transparent;
       border-radius: 4px;
-      color: #525252;
+      color: #a1a1aa;
       cursor: pointer;
     }
-    .net-filter:hover { color: #a1a1aa; }
-    .net-filter.active { background: #172554; color: #60a5fa; border-color: #1e3a5f; }
+    .net-filter:hover { color: #52525b; }
+    .net-filter.active { background: #dbeafe; color: #2563eb; border-color: #93c5fd; }
 
     .net-log {
       flex: 1;
@@ -612,37 +624,44 @@
 
     .source-tabs {
       display: flex;
-      gap: 2px;
+      align-items: center;
       padding: 6px 10px;
-      border-bottom: 1px solid #18181b;
+      border-bottom: 1px solid #e4e4e7;
       flex-shrink: 0;
     }
-    .source-tab {
-      padding: 3px 10px;
+    .source-panel-label {
+      flex: 1;
       font-size: 10px;
       font-weight: 600;
-      background: none;
-      border: 1px solid transparent;
-      border-radius: 4px;
-      color: #525252;
-      cursor: pointer;
+      color: #52525b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
     }
-    .source-tab:hover { color: #a1a1aa; }
-    .source-tab.active { background: #14532d; color: #4ade80; border-color: #166534; }
 
     .source-refresh {
-      margin-left: auto;
       padding: 3px 8px;
       font-size: 10px;
       font-weight: 600;
       background: none;
-      border: 1px solid #27272a;
+      border: 1px solid #d4d4d8;
       border-radius: 4px;
-      color: #525252;
+      color: #a1a1aa;
       cursor: pointer;
+      flex-shrink: 0;
     }
-    .source-refresh:hover { color: #a1a1aa; border-color: #3f3f46; }
+    .source-refresh:hover { color: #52525b; border-color: #a1a1aa; }
 
+    .source-split {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    .source-divider {
+      width: 1px;
+      background: #e4e4e7;
+      flex-shrink: 0;
+    }
     .source-content {
       flex: 1;
       overflow-y: auto;
@@ -651,18 +670,19 @@
       font-family: ui-monospace, 'SF Mono', monospace;
       font-size: 11px;
       line-height: 1.6;
-      color: #a1a1aa;
+      color: #52525b;
       white-space: pre-wrap;
       word-break: break-all;
       tab-size: 2;
+      min-width: 0;
     }
-    .source-content.empty { color: #3f3f46; font-style: italic; font-family: inherit; }
+    .source-content.empty { color: #a1a1aa; font-style: italic; font-family: inherit; }
 
     /* ── Reconnect dialog (overlay in browsing mode) ── */
     .reconnect-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,.7);
+      background: rgba(0,0,0,.4);
       z-index: 200;
       display: none;
       align-items: center;
@@ -724,6 +744,7 @@
 
   <!-- ── Dev Panel (right side) ── -->
   <div class="dev-panel" id="dev-panel">
+    <div class="dev-panel-resize" id="dev-panel-resize"></div>
     <div class="dev-panel-header">
       <button class="dev-tab active" data-pane="chat">Chat</button>
       <button class="dev-tab" data-pane="actions">Actions</button>
@@ -826,11 +847,15 @@
     <!-- Source pane -->
     <div class="dev-pane" id="pane-source">
       <div class="source-tabs">
-        <button class="source-tab active" data-source="markdown">Markdown</button>
-        <button class="source-tab" data-source="html">HTML</button>
+        <span class="source-panel-label">Markdown</span>
+        <span class="source-panel-label">HTML</span>
         <button class="source-refresh" id="source-refresh">&#8635; Refresh</button>
       </div>
-      <div class="source-content empty" id="source-content">Click refresh to load page source</div>
+      <div class="source-split">
+        <div class="source-content empty" id="source-markdown">Right-click → View Page Source or click Refresh</div>
+        <div class="source-divider"></div>
+        <div class="source-content empty" id="source-html">Right-click → View Page Source or click Refresh</div>
+      </div>
     </div>
   </div>
 
@@ -1022,7 +1047,6 @@
     let chatHistory = [];
     let chatSending = false;
     let netFilter = 'all';
-    let sourceMode = 'markdown';
     let cachedSource = { html: '', markdown: '' };
 
     function esc(s) {
@@ -1030,6 +1054,37 @@
       d.textContent = s;
       return d.innerHTML;
     }
+
+    // ── Dev panel resize ──
+
+    (function() {
+      const handle = document.getElementById('dev-panel-resize');
+      let dragging = false;
+
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        handle.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const newWidth = window.innerWidth - e.clientX;
+        const clamped = Math.max(250, Math.min(newWidth, window.innerWidth * 0.8));
+        devPanel.style.width = clamped + 'px';
+        oyaBrowser.resizeDevPanel(Math.round(clamped));
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      });
+    })();
 
     // ── Tab switching ──
 
@@ -1062,9 +1117,10 @@
       else if (activeDevPane === 'network') netLog.innerHTML = '';
       else if (activeDevPane === 'source') {
         cachedSource = { html: '', markdown: '' };
-        const el = document.getElementById('source-content');
-        el.textContent = 'Click refresh to load page source';
-        el.classList.add('empty');
+        document.getElementById('source-markdown').textContent = 'Right-click → View Page Source or click Refresh';
+        document.getElementById('source-markdown').classList.add('empty');
+        document.getElementById('source-html').textContent = 'Right-click → View Page Source or click Refresh';
+        document.getElementById('source-html').classList.add('empty');
       }
       else if (activeDevPane === 'actions') {
         const r = document.getElementById('action-result');
@@ -1207,9 +1263,9 @@
       // Italic: *...*
       s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
       // Headings: ### ... (at line start)
-      s = s.replace(/^#{3,}\s+(.+)$/gm, '<strong style="color:#fafafa">$1</strong>');
-      s = s.replace(/^##\s+(.+)$/gm, '<strong style="color:#fafafa;font-size:13px">$1</strong>');
-      s = s.replace(/^#\s+(.+)$/gm, '<strong style="color:#fafafa;font-size:14px">$1</strong>');
+      s = s.replace(/^#{3,}\s+(.+)$/gm, '<strong style="color:#09090b">$1</strong>');
+      s = s.replace(/^##\s+(.+)$/gm, '<strong style="color:#09090b;font-size:13px">$1</strong>');
+      s = s.replace(/^#\s+(.+)$/gm, '<strong style="color:#09090b;font-size:14px">$1</strong>');
       // Bullet lists: - ... or * ...
       s = s.replace(/^[\-\*]\s+(.+)$/gm, '\u2022 $1');
       // Numbered lists: 1. ...
@@ -1314,13 +1370,8 @@
 
     // ── Source ──
 
-    document.querySelectorAll('.source-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        sourceMode = tab.dataset.source;
-        document.querySelectorAll('.source-tab').forEach(t => t.classList.toggle('active', t.dataset.source === sourceMode));
-        renderSource();
-      });
-    });
+    const srcMarkdownEl = document.getElementById('source-markdown');
+    const srcHtmlEl = document.getElementById('source-html');
 
     document.getElementById('source-refresh').addEventListener('click', async () => {
       const btn = document.getElementById('source-refresh');
@@ -1329,24 +1380,58 @@
         cachedSource = await oyaBrowser.getPageSource();
         renderSource();
       } catch (e) {
-        const el = document.getElementById('source-content');
-        el.textContent = 'Error: ' + e.message;
-        el.classList.remove('empty');
+        srcMarkdownEl.textContent = 'Error: ' + e.message;
+        srcMarkdownEl.classList.remove('empty');
       }
       btn.textContent = '⟳ Refresh';
     });
 
     function renderSource() {
-      const el = document.getElementById('source-content');
-      const content = sourceMode === 'html' ? cachedSource.html : cachedSource.markdown;
-      if (!content) {
-        el.textContent = 'Click refresh to load page source';
-        el.classList.add('empty');
+      if (cachedSource.markdown) {
+        srcMarkdownEl.textContent = cachedSource.markdown;
+        srcMarkdownEl.classList.remove('empty');
       } else {
-        el.textContent = content;
-        el.classList.remove('empty');
+        srcMarkdownEl.textContent = 'No markdown available';
+        srcMarkdownEl.classList.add('empty');
+      }
+      if (cachedSource.html) {
+        srcHtmlEl.textContent = cachedSource.html;
+        srcHtmlEl.classList.remove('empty');
+      } else {
+        srcHtmlEl.textContent = 'No HTML available';
+        srcHtmlEl.classList.add('empty');
       }
     }
+
+    function switchToSourcePane() {
+      document.querySelectorAll('.dev-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.dev-pane').forEach(p => p.classList.remove('active'));
+      const sourceTab = document.querySelector('.dev-tab[data-pane="source"]');
+      const sourcePane = document.getElementById('pane-source');
+      if (sourceTab) sourceTab.classList.add('active');
+      if (sourcePane) sourcePane.classList.add('active');
+      activeDevPane = 'source';
+    }
+
+    // ── View Page Source ──
+
+    oyaBrowser.onViewSource((data) => {
+      switchToSourcePane();
+      cachedSource = { html: data.html || '', markdown: data.markdown || '' };
+      renderSource();
+    });
+
+    // ── Inspect Element Result ──
+
+    oyaBrowser.onInspectResult((result) => {
+      switchToSourcePane();
+      if (result?.ok && result.data?.markdown) {
+        cachedSource = { html: cachedSource?.html || '', markdown: result.data.markdown };
+      } else {
+        cachedSource = { html: cachedSource?.html || '', markdown: 'Error: ' + (result?.error || 'Unknown error') };
+      }
+      renderSource();
+    });
 
     // ── Tabs ──
 
