@@ -29,7 +29,8 @@
       "main.js",
       "preload.js",
       "renderer/**/*",
-      "scripts/**/*"
+      "scripts/**/*",
+      "anonymity/**/*"
     ],
     "mac": {
       "icon": "build/icon.icns",
