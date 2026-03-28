@@ -4,6 +4,15 @@
  */
 
 import 'dotenv/config';
+
+// Prevent crashes from unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('[oya] Uncaught exception:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[oya] Unhandled rejection:', reason?.message || reason);
+});
+
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';

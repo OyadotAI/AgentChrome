@@ -46,6 +46,10 @@ function loadFromFile() {
 loadFromDb().then((ok) => {
   if (!ok) loadFromFile();
   loaded = true;
+}).catch((e) => {
+  console.error('[config] Failed to load from DB:', e.message);
+  loadFromFile();
+  loaded = true;
 });
 
 // ── Persistence ──
@@ -76,7 +80,7 @@ function saveToFile() {
 
 function save() {
   if (db) {
-    saveToDb();
+    saveToDb().catch((e) => console.error('[config] save error:', e.message));
   } else {
     saveToFile();
   }

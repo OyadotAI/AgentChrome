@@ -39,7 +39,7 @@ function scheduleFlush() {
   if (flushTimer) return;
   flushTimer = setTimeout(() => {
     flushTimer = null;
-    flush();
+    flush().catch((e) => console.error('[cookies] flush error:', e.message));
   }, FLUSH_DELAY);
 }
 
@@ -132,6 +132,9 @@ function loadFromFile() {
 
 loadFromDb().then((ok) => {
   if (!ok) loadFromFile();
+}).catch((e) => {
+  console.error('[cookies] Failed to load from DB:', e.message);
+  loadFromFile();
 });
 
 // ── Public API (unchanged signatures) ──
@@ -183,6 +186,8 @@ export function clear() {
   if (db) {
     db.from('cookies').delete().neq('id', '').then(({ error }) => {
       if (error) console.error('[cookies] Failed to clear in Supabase:', error.message);
+    }).catch((e) => {
+      console.error('[cookies] Failed to clear in Supabase:', e.message);
     });
   } else {
     scheduleFlush();

@@ -124,11 +124,14 @@ export async function deleteApiKey(key, userId) {
 
 export async function touchApiKey(key) {
   if (supabase) {
-    await supabase
-      .from('api_keys')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('key', key)
-      .then(() => {});
+    try {
+      await supabase
+        .from('api_keys')
+        .update({ last_used_at: new Date().toISOString() })
+        .eq('key', key);
+    } catch (e) {
+      console.error('[auth] touchApiKey failed:', e.message);
+    }
   }
 }
 

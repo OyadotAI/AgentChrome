@@ -20,6 +20,14 @@ const { ProfileStore } = require('./anonymity/profile-store');
 // Default to light mode
 nativeTheme.themeSource = 'light';
 
+// Prevent crashes from unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('[oya] Uncaught exception:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[oya] Unhandled rejection:', reason?.message || reason);
+});
+
 // Apply telemetry + DNS leak prevention flags before app is ready
 applyTelemetryFlags(app);
 applyDNSLeakPrevention(app);
@@ -75,6 +83,7 @@ const agentScript = fs.readFileSync(path.join(__dirname, 'scripts', 'agent.js'),
 const CDP_VERSION = '1.3';
 
 function cdpAttach(view) {
+  if (!view || view.webContents.isDestroyed()) return null;
   const dbg = view.webContents.debugger;
   if (!dbg.isAttached()) {
     try { dbg.attach(CDP_VERSION); } catch {}
@@ -84,6 +93,7 @@ function cdpAttach(view) {
 
 async function cdp(view, method, params = {}) {
   const dbg = cdpAttach(view);
+  if (!dbg) throw new Error('View is destroyed');
   return dbg.sendCommand(method, params);
 }
 
@@ -1242,10 +1252,16 @@ async function handleCommand(msg) {
       return;
     }
 
+    // All remaining actions need an active tab
+    const view = getActiveView();
+    if (!view || view.webContents.isDestroyed()) {
+      sendResult(id, false, null, 'No active tab');
+      return;
+    }
+
     // ── Navigate ──
 
     if (action === 'navigate' && params?.url) {
-      const view = getActiveView();
       const maxRetries = 2;
       let lastErr = null;
       for (let attempt = 0; attempt <= maxRetries; attempt++) {

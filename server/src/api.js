@@ -201,7 +201,7 @@ router.get('/live/:browserId', (req, res, next) => {
   // Send latest frame immediately if available
   const browser = registry.get(browserId);
   if (browser?.lastFrame) {
-    res.write(`data: ${browser.lastFrame}\n\n`);
+    try { res.write(`data: ${browser.lastFrame}\n\n`); } catch {}
   }
 
   registry.addViewer(browserId, res);
