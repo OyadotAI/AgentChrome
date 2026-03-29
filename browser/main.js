@@ -10,6 +10,7 @@
 const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage, Menu, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const WebSocket = require('ws');
 const { applyTelemetryFlags, applyDomainBlocking } = require('./anonymity/telemetry');
 const { buildStealthScript } = require('./anonymity/stealth');
@@ -279,7 +280,7 @@ let mainWindow = null;
 let browsingMode = false;
 let devPanelOpen = false;
 let devPanelWidth = 380;
-const TOOLBAR_HEIGHT = 82; // 52px toolbar + 30px tab bar
+const TOOLBAR_HEIGHT = 102; // 52px toolbar + 30px tab bar + 20px fingerprint bar
 
 /** @type {{ id: number, view: BrowserView, title: string, url: string }[]} */
 const tabs = [];
@@ -403,6 +404,61 @@ let reconnectTimer = null;
 let reconnectAttempts = 0;
 let pingInterval = null;
 let missedPongs = 0;
+
+// ─── API Key Fingerprint ───
+
+/**
+ * Generate and apply a deterministic fingerprint profile from the API key.
+ * All browser instances sharing the same API key will get identical fingerprints.
+ * The profile is seeded from the API key, so the same key always produces
+ * the same navigator, screen, WebGL, canvas, audio, timezone values.
+ */
+function applyApiKeyFingerprint() {
+  if (!config.apiKey) return;
+
+  const fpId = 'apikey-' + crypto.createHash('sha256').update(config.apiKey).digest('hex').slice(0, 12);
+
+  // If we already have this exact API-key-derived profile active, skip
+  if (activeProfile?.id === fpId) return;
+
+  const profile = generateProfile({ id: fpId, seed: config.apiKey });
+
+  // Persist it so it survives restarts
+  if (profileStore) {
+    profileStore.save(profile);
+    profileStore.setActiveId(fpId);
+  }
+
+  activeProfile = profile;
+  config.activeProfileId = fpId;
+  saveConfig();
+
+  // Re-setup session with the new fingerprint (user-agent, proxy, headers)
+  setupBrowserSession();
+
+  // Re-inject into all open tabs so they pick up the new fingerprint
+  for (const tab of tabs) {
+    if (!tab.view.webContents.isDestroyed()) {
+      setupTabCDP(tab.view);
+    }
+  }
+
+  // Notify renderer so the fingerprint debug bar updates
+  sendToRenderer('fingerprint-changed', {
+    id: profile.id,
+    platform: profile.navigator.platform,
+    hardwareConcurrency: profile.navigator.hardwareConcurrency,
+    deviceMemory: profile.navigator.deviceMemory,
+    screen: `${profile.screen.width}x${profile.screen.height}`,
+    dpr: profile.screen.devicePixelRatio,
+    gpu: profile.webgl.unmaskedRenderer,
+    timezone: profile.timezone,
+    locale: profile.locale,
+    fonts: profile.fonts.available.length,
+    canvasNoise: profile.canvas.noiseSeed.toFixed(6),
+    audioNoise: profile.audio.noiseSeed.toFixed(6),
+  });
+}
 
 // ─── Session Setup ───
 
@@ -900,6 +956,24 @@ ipcMain.handle('get-active-profile', () => {
   };
 });
 
+ipcMain.handle('get-fingerprint', () => {
+  if (!activeProfile) return null;
+  return {
+    id: activeProfile.id,
+    platform: activeProfile.navigator.platform,
+    hardwareConcurrency: activeProfile.navigator.hardwareConcurrency,
+    deviceMemory: activeProfile.navigator.deviceMemory,
+    screen: `${activeProfile.screen.width}x${activeProfile.screen.height}`,
+    dpr: activeProfile.screen.devicePixelRatio,
+    gpu: activeProfile.webgl.unmaskedRenderer,
+    timezone: activeProfile.timezone,
+    locale: activeProfile.locale,
+    fonts: activeProfile.fonts.available.length,
+    canvasNoise: activeProfile.canvas.noiseSeed.toFixed(6),
+    audioNoise: activeProfile.audio.noiseSeed.toFixed(6),
+  };
+});
+
 // ─── Dev Panel: Chat, Source & Quick Actions ───
 
 ipcMain.handle('send-chat', async (e, messages) => {
@@ -1152,6 +1226,9 @@ function handleServerMessage(msg) {
       wsReady = true; reconnectAttempts = 0;
       if (msg.browser_id) browserId = msg.browser_id;
       startPingLoop(); sendStatus();
+      // Apply deterministic fingerprint from API key so all browsers
+      // under the same key share an identical fingerprint profile.
+      applyApiKeyFingerprint();
       if (!browsingMode) enterBrowsingMode('https://google.com');
       // Send our cookies to the server for pool sync
       dumpCookies();
@@ -1650,7 +1727,6 @@ async function handleCommand(msg) {
 
     // ── All other actions via injected scripts ──
 
-    const view = getActiveView();
     await injectScripts(view);
     const result = await view.webContents.executeJavaScript(buildActionJS(action, params), true);
     sendResult(id, result?.ok ?? true, result?.data, result?.error);

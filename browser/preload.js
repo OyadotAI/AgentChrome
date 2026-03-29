@@ -38,4 +38,6 @@ contextBridge.exposeInMainWorld('oyaBrowser', {
   deactivateProfile: () => ipcRenderer.invoke('deactivate-profile'),
   deleteProfile: (id) => ipcRenderer.invoke('delete-profile', id),
   getActiveProfile: () => ipcRenderer.invoke('get-active-profile'),
+  getFingerprint: () => ipcRenderer.invoke('get-fingerprint'),
+  onFingerprintChanged: (cb) => ipcRenderer.on('fingerprint-changed', (e, fp) => cb(fp)),
 });

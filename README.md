@@ -38,7 +38,8 @@ The AI never sees HTML. Never writes CSS selectors. Never parses screenshots. It
 | **Protocol** | MCP (standard) — works with Claude Desktop, Cursor, Windsurf, any MCP client | Custom Python API — tied to their SDK | Custom API per library | WebDriver protocol |
 | **Memory** | 15KB extension, server is ~30MB | "Chrome can consume a lot of memory" (their FAQ) — full Playwright + Chromium | ~400MB Chromium binary | ~50MB driver + browser |
 | **Multiple browsers** | Yes — each gets its own MCP endpoint | One at a time | One per script | One per session |
-| **Anonymity** | Built-in — fingerprint rotation, proxy routing, WebRTC leak prevention, telemetry blocking per profile | None — recommends paid cloud with stealth browsers | None | None |
+| **Anonymity** | Built-in — fingerprint sync, proxy routing, WebRTC leak prevention, telemetry blocking | None — recommends paid cloud with stealth browsers | None | None |
+| **Fleet fingerprint** | Same API key = identical fingerprint across all instances | Each instance has unique fingerprint | Each instance has unique fingerprint | Each instance has unique fingerprint |
 | **CAPTCHAs** | You solve them yourself in your real browser — the agent continues after | Blocks the agent — they sell a cloud service to handle it | Blocks the agent | Blocks the agent |
 
 ## Deep dive: why this architecture is fundamentally better
@@ -182,11 +183,29 @@ Or configure manually:
 
 ## Anonymity
 
-Every session can be a different identity. Create profiles with unique browser fingerprints, proxy routing, and isolated cookie stores.
+### Fleet-wide fingerprint sync
+
+Every browser instance under the same API key automatically shares an identical fingerprint. No configuration needed. The API key deterministically generates every fingerprint value:
+
+- **Canvas** — `toDataURL()` and `toBlob()` produce identical noise patterns
+- **WebGL** — Same vendor, renderer, unmasked vendor/renderer strings
+- **AudioContext** — Identical processing noise in `OfflineAudioContext`
+- **Screen** — Same resolution, devicePixelRatio, availWidth/Height
+- **Navigator** — Same platform, hardwareConcurrency, deviceMemory, languages
+- **Fonts** — Same detected font set (platform-coherent)
+- **ClientRects** — Same `getBoundingClientRect()` noise
+- **Timezone & locale** — Matching timezone, locale, Sec-CH-UA headers
+
+10 browsers on 10 machines with the same API key = one identity. Sites like LinkedIn and Cloudflare that fingerprint visitors see a single consistent user across your entire fleet.
+
+Different API key = different fingerprint. Rotate identities by switching keys.
+
+Anti-detect browsers like Multilogin, GoLogin, and AdsPower charge $99+/month for profile-based fingerprint management. Oya does it automatically from your API key — zero configuration, zero extra cost.
 
 ### What's included
 
-- **Fingerprint rotation** — Canvas, WebGL, AudioContext, font enumeration, and ClientRects noise. Each profile gets a coherent fingerprint (e.g., Win32 platform → Windows GPU strings, Windows fonts, matching screen resolution). Deterministic per profile so repeated visits look consistent.
+- **Fingerprint sync** — All browsers under the same API key share byte-identical fingerprints. Canvas, WebGL, AudioContext, font enumeration, ClientRects, screen resolution, hardware specs — all deterministically generated from your API key. No manual profile creation needed.
+- **Fingerprint rotation** — Need a different identity? Different API key = different fingerprint. Or create custom profiles with `create_profile` for manual control. Each profile gets a coherent fingerprint (e.g., Win32 platform → Windows GPU strings, Windows fonts, matching screen resolution).
 - **Anti-detection stealth** — `navigator.webdriver` removed, Electron markers stripped, `window.chrome` fixed to match real Chrome, `navigator.plugins` populated, permissions API patched. Passes bot.sannysoft.com checks.
 - **Proxy support** — SOCKS5 and HTTP/HTTPS per profile. Proxy authentication, DNS leak prevention, and automatic timezone/locale matching via CDP Emulation.
 - **WebRTC leak prevention** — ICE candidates stripped to prevent local IP exposure through STUN requests.
@@ -196,6 +215,9 @@ Every session can be a different identity. Create profiles with unique browser f
 ### MCP tools for profiles
 
 ```
+# Fingerprint is automatic — just connect with your API key and all browsers
+# in the fleet share the same identity. But you can also create custom profiles:
+
 create_profile(platform="Win32", timezone="America/New_York", proxy_host="1.2.3.4", proxy_port=1080, proxy_type="socks5")
 → Created profile profile-a1b2c3 (Win32, tz: America/New_York)
 

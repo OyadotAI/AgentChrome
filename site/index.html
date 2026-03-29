@@ -153,8 +153,9 @@
     .cmp .no { color: #ef4444; }
 
     /* ── Key Features ── */
-    .key-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 60px; }
-    @media (max-width: 700px) { .key-features { grid-template-columns: 1fr; } }
+    .key-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 60px; }
+    @media (max-width: 900px) { .key-features { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .key-features { grid-template-columns: 1fr; } }
     .key-feature {
       border-radius: 16px; padding: 28px; position: relative; overflow: hidden;
     }
@@ -164,6 +165,8 @@
     .key-feature-sandbox:hover { border-color: rgba(59,130,246,0.45); box-shadow: 0 0 48px -12px rgba(59,130,246,0.3); }
     .key-feature-live { background: linear-gradient(to bottom, rgba(168,85,247,0.08), transparent); border: 1px solid rgba(168,85,247,0.25); }
     .key-feature-live:hover { border-color: rgba(168,85,247,0.45); box-shadow: 0 0 48px -12px rgba(168,85,247,0.3); }
+    .key-feature-fp { background: linear-gradient(to bottom, rgba(245,158,11,0.08), transparent); border: 1px solid rgba(245,158,11,0.25); }
+    .key-feature-fp:hover { border-color: rgba(245,158,11,0.45); box-shadow: 0 0 48px -12px rgba(245,158,11,0.3); }
     .key-feature { transition: border-color 0.2s, box-shadow 0.3s; }
     .key-feature-icon {
       width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; font-size: 20px;
@@ -171,6 +174,7 @@
     .key-feature-icon-cookie { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.25); }
     .key-feature-icon-sandbox { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.25); }
     .key-feature-icon-live { background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.25); }
+    .key-feature-icon-fp { background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.25); }
     .key-feature h3 { font-size: 17px; margin-bottom: 8px; }
     .key-feature p { font-size: 14px; color: var(--muted); line-height: 1.6; }
 
@@ -203,9 +207,9 @@
 <div class="container">
 
   <div class="hero">
-    <div class="hero-badge">Cookie Sync &middot; Sandboxed &middot; Native Live View &middot; MCP</div>
+    <div class="hero-badge">Cookie Sync &middot; Fingerprint Sync &middot; Sandboxed &middot; Native Live View &middot; MCP</div>
     <h1>Login once. Every remote browser<br>is <span class="g">already authenticated</span></h1>
-    <p class="sub">Your cookies sync across every browser in the fleet. No re-login, no token juggling, no credential management. Just real Chrome sessions with native live view — no VNC needed.</p>
+    <p class="sub">Your cookies and fingerprint sync across every browser in the fleet. Same API key = same identity everywhere. No re-login, no bot detection, no fingerprint mismatches. Just real Chrome sessions with native live view — no VNC needed.</p>
     <div class="hero-buttons">
       <a href="#setup" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/OyadotAI/AgentChrome" class="btn btn-outline">GitHub</a>
@@ -229,6 +233,11 @@
       <div class="key-feature-icon key-feature-icon-sandbox">&#x1F512;</div>
       <h3>Sandboxed execution</h3>
       <p>Each browser runs in its own isolated environment. Agents can't escape the sandbox, can't touch your filesystem, can't interfere with each other. Full browser power with zero risk to your machine.</p>
+    </div>
+    <div class="key-feature key-feature-fp">
+      <div class="key-feature-icon key-feature-icon-fp">&#x1F9EC;</div>
+      <h3>Fingerprint sync</h3>
+      <p>Every browser under the same API key shares an identical fingerprint — canvas, WebGL, audio, screen, fonts, timezone. Not random. Deterministic from your key. 10 browsers on 10 machines, one identity. Anti-detect browser grade, built in.</p>
     </div>
     <div class="key-feature key-feature-live">
       <div class="key-feature-icon key-feature-icon-live">&#x1F441;</div>
@@ -403,13 +412,32 @@
   <!-- Anonymity -->
   <div class="section" id="anonymity">
     <div class="label">Anonymity</div>
-    <h2>Every session a different identity</h2>
-    <p class="desc">Create profiles with unique fingerprints, proxy routing, and isolated cookie stores. Switch identities with a single MCP call.</p>
+    <h2>Same API key = same fingerprint. Everywhere.</h2>
+    <p class="desc">Every browser instance under the same API key automatically shares an identical fingerprint. No configuration. No manual profile syncing. Anti-detect browser grade — built in, not bolted on.</p>
 
-    <div class="flow" style="grid-template-columns: repeat(4, 1fr); margin-top: 24px;">
+    <div class="flow" style="grid-template-columns: repeat(2, 1fr); margin-top: 24px;">
+      <div class="flow-step" style="border-color: rgba(245,158,11,0.3); background: linear-gradient(to bottom, rgba(245,158,11,0.04), var(--surface));">
+        <h3 style="color: #f59e0b;">Fleet-wide fingerprint sync</h3>
+        <p>Your API key deterministically generates every fingerprint value — canvas noise, WebGL renderer, AudioContext, screen resolution, fonts, hardware concurrency, device memory, timezone, locale. Same key on 10 machines produces byte-identical fingerprints. Sites see one consistent user across your entire fleet. Zero config.</p>
+        <p style="margin-top: 8px; font-size: 12px; color: #71717a;">Anti-detect browsers like Multilogin charge $99/mo for this. We do it automatically.</p>
+      </div>
+      <div class="flow-step">
+        <h3>What gets synchronized</h3>
+        <p style="line-height: 1.9;"><code>navigator.platform</code> <code>hardwareConcurrency</code> <code>deviceMemory</code><br>
+        <code>screen.width/height</code> <code>devicePixelRatio</code><br>
+        <code>canvas.toDataURL()</code> noise pattern<br>
+        <code>WebGL</code> vendor + renderer strings<br>
+        <code>AudioContext</code> processing noise<br>
+        <code>getBoundingClientRect()</code> noise<br>
+        Font enumeration set<br>
+        Timezone, locale, Sec-CH-UA headers</p>
+      </div>
+    </div>
+
+    <div class="flow" style="grid-template-columns: repeat(4, 1fr); margin-top: 16px;">
       <div class="flow-step">
         <h3>Fingerprint rotation</h3>
-        <p>Unique canvas, WebGL, audio, and font fingerprints per profile — deterministic and internally coherent per platform.</p>
+        <p>Need a different identity? Different API key = different fingerprint. Coherent per platform — Win32 gets Windows GPUs, Windows fonts, matching screen sizes.</p>
       </div>
       <div class="flow-step">
         <h3>Stealth mode</h3>
@@ -427,17 +455,14 @@
 
     <div class="term" style="margin-top: 28px;">
       <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
-      <div class="term-body"><span class="c"># Create a Windows profile with a SOCKS5 proxy</span>
-<span class="g">create_profile</span>(<span class="b">platform</span>=<span class="y">"Win32"</span>, <span class="b">timezone</span>=<span class="y">"America/New_York"</span>, <span class="b">proxy_type</span>=<span class="y">"socks5"</span>, <span class="b">proxy_host</span>=<span class="y">"1.2.3.4"</span>, <span class="b">proxy_port</span>=<span class="p">1080</span>)
-<span class="c">→ Created profile-a1b2c3 (Win32, tz: America/New_York)</span>
+      <div class="term-body"><span class="c"># All browsers with the same API key get this fingerprint automatically:</span>
+<span class="g">platform:</span> <span class="y">MacIntel</span>    <span class="g">screen:</span> <span class="p">1680x1050 @2x</span>    <span class="g">gpu:</span> <span class="y">Apple M2 Pro</span>
+<span class="g">cores:</span> <span class="p">8</span>    <span class="g">memory:</span> <span class="p">16GB</span>    <span class="g">canvas:</span> <span class="p">0.004821</span>    <span class="g">audio:</span> <span class="p">0.007233</span>
+<span class="g">fonts:</span> <span class="y">14 (macOS set)</span>    <span class="g">timezone:</span> <span class="y">America/New_York</span>
 
-<span class="c"># Switch identity — all tabs reload with new fingerprint + proxy + cookies</span>
-<span class="g">set_profile</span>(<span class="b">profile_id</span>=<span class="y">"profile-a1b2c3"</span>)
-<span class="c">→ Switched to profile-a1b2c3. All tabs reloaded with new identity.</span>
-
-<span class="c"># See all profiles</span>
-<span class="g">list_profiles</span>()
-<span class="c">→ 3 profiles — profile-a1b2c3 (active), profile-d4e5f6, profile-g7h8i9</span></div>
+<span class="c"># Or create custom profiles with proxy for different identities:</span>
+<span class="g">create_profile</span>(<span class="b">platform</span>=<span class="y">"Win32"</span>, <span class="b">timezone</span>=<span class="y">"Europe/Berlin"</span>, <span class="b">proxy_type</span>=<span class="y">"socks5"</span>, <span class="b">proxy_host</span>=<span class="y">"1.2.3.4"</span>)
+<span class="c">→ Created profile-a1b2c3 (Win32, tz: Europe/Berlin)</span></div>
     </div>
   </div>
 
@@ -461,7 +486,8 @@
         <tr><td>Live view</td><td class="yes oya">SSE frame stream</td><td class="no">Cloud only (paid)</td><td class="no">No</td></tr>
         <tr><td>Agent loop</td><td class="oya">None — AI decides</td><td>600-line system prompt + 13 watchdogs</td><td>N/A</td></tr>
         <tr><td>Chat control</td><td class="yes oya">Built-in natural language</td><td class="no">Their SDK only</td><td class="no">No</td></tr>
-        <tr><td>Anonymity</td><td class="yes oya">Built-in fingerprint + proxy</td><td class="no">None — sells cloud</td><td class="no">None</td></tr>
+        <tr><td>Anonymity</td><td class="yes oya">Built-in fingerprint sync + proxy</td><td class="no">None — sells cloud</td><td class="no">None</td></tr>
+        <tr><td>Fleet fingerprint</td><td class="yes oya">Same key = same fingerprint</td><td class="no">Each instance unique</td><td class="no">Each instance unique</td></tr>
         <tr><td>Lock-in</td><td class="yes oya">None — any MCP client</td><td class="no">Their SDK + model</td><td class="no">Per-library API</td></tr>
       </tbody>
     </table>

@@ -97,9 +97,31 @@
     .btn-skip { background: #e4e4e7; color: #52525b; }
     .btn-skip:hover { background: #d4d4d8; color: #09090b; }
 
-    /* ── Browsing mode — toolbar + tab bar ── */
+    /* ── Fingerprint debug bar ── */
 
-    body.mode-browsing { height: 82px; } /* 52 toolbar + 30 tab bar */
+    .fp-bar {
+      display: none;
+      height: 20px;
+      padding: 0 12px 0 80px;
+      background: #18181b;
+      color: #71717a;
+      font-family: ui-monospace, 'SF Mono', monospace;
+      font-size: 10px;
+      align-items: center;
+      gap: 12px;
+      overflow: hidden;
+      white-space: nowrap;
+      border-bottom: 1px solid #27272a;
+    }
+    body.mode-browsing .fp-bar { display: flex; }
+    .fp-bar .fp-label { color: #a78bfa; font-weight: 600; }
+    .fp-bar .fp-val { color: #a1a1aa; }
+    .fp-bar .fp-sep { color: #3f3f46; }
+    .fp-bar .fp-none { color: #52525b; font-style: italic; }
+
+    /* ── Browsing mode — toolbar + tab bar + fp bar ── */
+
+    body.mode-browsing { height: 102px; } /* 52 toolbar + 30 tab bar + 20 fp bar */
 
     .toolbar {
       display: none;
@@ -742,6 +764,11 @@
     <button class="tab-new" id="btn-new-tab" title="New Tab">+</button>
   </div>
 
+  <!-- ── Fingerprint Debug Bar ── -->
+  <div class="fp-bar" id="fp-bar">
+    <span class="fp-none" id="fp-content">No fingerprint profile active</span>
+  </div>
+
   <!-- ── Dev Panel (right side) ── -->
   <div class="dev-panel" id="dev-panel">
     <div class="dev-panel-resize" id="dev-panel-resize"></div>
@@ -1017,6 +1044,39 @@
     oyaBrowser.onModeChanged(mode => {
       body.className = mode === 'browsing' ? 'mode-browsing' : 'mode-setup';
     });
+
+    // ── Fingerprint debug bar ──
+
+    const fpContent = document.getElementById('fp-content');
+
+    function renderFingerprint(fp) {
+      if (!fp) {
+        fpContent.className = 'fp-none';
+        fpContent.textContent = 'No fingerprint profile active';
+        return;
+      }
+      fpContent.className = '';
+      fpContent.innerHTML =
+        '<span class="fp-label">FP</span> ' +
+        '<span class="fp-val">' + fp.id + '</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">' + fp.platform + '</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">' + fp.screen + ' @' + fp.dpr + 'x</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">' + fp.gpu + '</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">cores:' + fp.hardwareConcurrency + ' mem:' + fp.deviceMemory + 'GB</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">' + fp.timezone + '</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">canvas:' + fp.canvasNoise + ' audio:' + fp.audioNoise + '</span>' +
+        ' <span class="fp-sep">|</span> ' +
+        '<span class="fp-val">' + fp.fonts + ' fonts</span>';
+    }
+
+    oyaBrowser.getFingerprint().then(renderFingerprint);
+    oyaBrowser.onFingerprintChanged(renderFingerprint);
 
     // ── Init ──
 

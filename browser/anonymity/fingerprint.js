@@ -87,7 +87,10 @@ function pick(arr, rng) {
 
 function generateProfile(options = {}) {
   const id = options.id || 'profile-' + crypto.randomBytes(6).toString('hex');
-  const rng = createPRNG(seedFromString(id));
+  // If a seed is provided (e.g. API key), use it for deterministic fingerprints
+  // so all browsers with the same API key produce identical profiles.
+  const seedStr = options.seed || id;
+  const rng = createPRNG(seedFromString(seedStr));
 
   const platform = options.platform || pick(['Win32', 'MacIntel', 'Linux x86_64'], rng);
   const gpus = GPU_DB[platform] || GPU_DB.Win32;
