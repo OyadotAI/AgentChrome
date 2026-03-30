@@ -416,9 +416,6 @@ let missedPongs = 0;
 function applyServerFingerprint(profile) {
   if (!profile?.id) return;
 
-  // If we already have this exact profile active, skip
-  if (activeProfile?.id === profile.id) return;
-
   // Persist it so it survives restarts (and loads before reconnect)
   if (profileStore) {
     profileStore.save(profile);
