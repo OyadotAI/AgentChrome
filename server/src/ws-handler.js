@@ -8,6 +8,7 @@ import { registry } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
 import { mergeDump, applyChange, getAll as getAllCookies } from './cookie-store.js';
 import { broadcastToPool } from './pool.js';
+import { getFingerprintForKey } from './fingerprint.js';
 
 const PING_INTERVAL = 20000;
 const PONG_TIMEOUT = PING_INTERVAL * 4;
@@ -71,9 +72,13 @@ export function handleConnection(ws) {
 
       registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser' });
 
+      // Generate deterministic fingerprint from API key — same key = same profile everywhere
+      const fingerprint = getFingerprintForKey(msg.api_key);
+
       ws.send(JSON.stringify({
         type: 'auth_ok',
         browser_id: browserId,
+        fingerprint,
       }));
 
       // Send current shared cookie jar so this browser syncs immediately

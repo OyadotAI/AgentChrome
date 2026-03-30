@@ -405,32 +405,28 @@ let reconnectAttempts = 0;
 let pingInterval = null;
 let missedPongs = 0;
 
-// ─── API Key Fingerprint ───
+// ─── Server Fingerprint ───
 
 /**
- * Generate and apply a deterministic fingerprint profile from the API key.
- * All browser instances sharing the same API key will get identical fingerprints.
- * The profile is seeded from the API key, so the same key always produces
- * the same navigator, screen, WebGL, canvas, audio, timezone values.
+ * Apply a fingerprint profile received from the server.
+ * The server generates the profile from the API key and sends it on auth_ok.
+ * This guarantees every browser with the same API key gets the exact same
+ * fingerprint — the server is the single source of truth.
  */
-function applyApiKeyFingerprint() {
-  if (!config.apiKey) return;
+function applyServerFingerprint(profile) {
+  if (!profile?.id) return;
 
-  const fpId = 'apikey-' + crypto.createHash('sha256').update(config.apiKey).digest('hex').slice(0, 12);
+  // If we already have this exact profile active, skip
+  if (activeProfile?.id === profile.id) return;
 
-  // If we already have this exact API-key-derived profile active, skip
-  if (activeProfile?.id === fpId) return;
-
-  const profile = generateProfile({ id: fpId, seed: config.apiKey });
-
-  // Persist it so it survives restarts
+  // Persist it so it survives restarts (and loads before reconnect)
   if (profileStore) {
     profileStore.save(profile);
-    profileStore.setActiveId(fpId);
+    profileStore.setActiveId(profile.id);
   }
 
   activeProfile = profile;
-  config.activeProfileId = fpId;
+  config.activeProfileId = profile.id;
   saveConfig();
 
   // Re-setup session with the new fingerprint (user-agent, proxy, headers)
@@ -470,18 +466,32 @@ function setupBrowserSession() {
   // Domain-level blocking via onBeforeRequest was removed — it interfered
   // with normal page loads and handler stacking on session reuse.
 
-  // ── User-Agent: strip Electron/oya-browser tokens ──
+  // ── User-Agent: strip Electron/oya-browser tokens, match profile platform ──
   const defaultUA = ses.getUserAgent();
-  const cleanUA = defaultUA
+  let cleanUA = defaultUA
     .replace(/\s*Electron\/[\d.]+/, '')
     .replace(/\s*oya-browser\/[\d.]+/i, '');
-  ses.setUserAgent(cleanUA);
 
   const chromeFullVer = defaultUA.match(/Chrome\/([\d.]+)/)?.[1] || '134.0.0.0';
   const chromeMajor = chromeFullVer.split('.')[0];
 
+  // Rewrite the OS portion of the UA to match the fingerprint profile's platform
+  // so the UA and navigator.platform don't contradict each other.
+  if (activeProfile?.navigator?.platform) {
+    const plat = activeProfile.navigator.platform;
+    if (plat === 'Win32') {
+      cleanUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeFullVer} Safari/537.36`;
+    } else if (plat === 'MacIntel') {
+      cleanUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeFullVer} Safari/537.36`;
+    } else if (plat === 'Linux x86_64') {
+      cleanUA = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeFullVer} Safari/537.36`;
+    }
+  }
+  ses.setUserAgent(cleanUA);
+
   const platformHint = activeProfile?.navigator?.platform === 'Win32' ? 'Windows'
     : activeProfile?.navigator?.platform === 'Linux x86_64' ? 'Linux'
+    : activeProfile?.navigator?.platform === 'MacIntel' ? 'macOS'
     : process.platform === 'darwin' ? 'macOS'
     : process.platform === 'win32' ? 'Windows' : 'Linux';
 
@@ -1226,9 +1236,9 @@ function handleServerMessage(msg) {
       wsReady = true; reconnectAttempts = 0;
       if (msg.browser_id) browserId = msg.browser_id;
       startPingLoop(); sendStatus();
-      // Apply deterministic fingerprint from API key so all browsers
-      // under the same key share an identical fingerprint profile.
-      applyApiKeyFingerprint();
+      // Apply fingerprint from the server — the server is the single source of truth.
+      // Same API key = same fingerprint on every browser, guaranteed.
+      if (msg.fingerprint) applyServerFingerprint(msg.fingerprint);
       if (!browsingMode) enterBrowsingMode('https://google.com');
       // Send our cookies to the server for pool sync
       dumpCookies();

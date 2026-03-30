@@ -61,6 +61,18 @@ const FONT_SETS = {
 const HARDWARE_CONCURRENCY = [4, 6, 8, 12, 16];
 const DEVICE_MEMORY = [4, 8, 16];
 
+const TIMEZONES = {
+  Win32: ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'America/Detroit', 'America/Indianapolis'],
+  MacIntel: ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix', 'Pacific/Honolulu'],
+  'Linux x86_64': ['America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London', 'Europe/Berlin', 'Asia/Tokyo', 'UTC'],
+};
+
+const LOCALES = {
+  Win32: ['en-US', 'en-US', 'en-US', 'en-GB'],
+  MacIntel: ['en-US', 'en-US', 'en-US', 'en-GB'],
+  'Linux x86_64': ['en-US', 'en-US', 'en-GB', 'de-DE', 'ja-JP'],
+};
+
 // ── Simple seeded PRNG (LCG) ──
 
 function createPRNG(seed) {
@@ -98,16 +110,24 @@ function generateProfile(options = {}) {
   const screens = SCREEN_RESOLUTIONS[platform] || SCREEN_RESOLUTIONS.Win32;
   const screen = pick(screens, rng);
   const fonts = FONT_SETS[platform] || FONT_SETS.Win32;
+  const hardwareConcurrency = pick(HARDWARE_CONCURRENCY, rng);
+  const deviceMemory = pick(DEVICE_MEMORY, rng);
+  const canvasNoise = rng() * 0.01;
+  const audioNoise = rng() * 0.01;
+  const rectsNoise = rng() * 0.001;
+  const timezone = options.timezone || pick(TIMEZONES[platform] || TIMEZONES.Win32, rng);
+  const locale = options.locale || pick(LOCALES[platform] || LOCALES.Win32, rng);
+  const lang = locale.split('-')[0];
 
   return {
     id,
     createdAt: new Date().toISOString(),
     navigator: {
       platform,
-      hardwareConcurrency: pick(HARDWARE_CONCURRENCY, rng),
-      deviceMemory: pick(DEVICE_MEMORY, rng),
+      hardwareConcurrency,
+      deviceMemory,
       maxTouchPoints: 0,
-      languages: ['en-US', 'en'],
+      languages: [locale, lang],
       vendor: 'Google Inc.',
     },
     screen: {
@@ -119,13 +139,13 @@ function generateProfile(options = {}) {
       pixelDepth: 24,
       devicePixelRatio: screen.dpr,
     },
-    canvas: { noiseSeed: rng() * 0.01 },
+    canvas: { noiseSeed: canvasNoise },
     webgl: gpu,
-    audio: { noiseSeed: rng() * 0.01 },
-    rects: { noiseSeed: rng() * 0.001 },
+    audio: { noiseSeed: audioNoise },
+    rects: { noiseSeed: rectsNoise },
     fonts: { available: fonts },
-    timezone: options.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-    locale: options.locale || 'en-US',
+    timezone,
+    locale,
     proxy: options.proxy || null,
   };
 }
@@ -222,8 +242,10 @@ function buildFingerprintInjectScript(profile) {
   function patchWebGL(proto) {
     const origGetParam = proto.getParameter;
     proto.getParameter = function(pname) {
-      if (pname === 0x1F00) return __fp.webgl.vendor;     // VENDOR
-      if (pname === 0x1F01) return __fp.webgl.renderer;   // RENDERER
+      if (pname === 0x9245) return __fp.webgl.unmaskedVendor;   // UNMASKED_VENDOR_WEBGL
+      if (pname === 0x9246) return __fp.webgl.unmaskedRenderer; // UNMASKED_RENDERER_WEBGL
+      if (pname === 0x1F00) return __fp.webgl.vendor;           // VENDOR
+      if (pname === 0x1F01) return __fp.webgl.renderer;         // RENDERER
       return origGetParam.call(this, pname);
     };
 
@@ -240,16 +262,6 @@ function buildFingerprintInjectScript(profile) {
         });
       }
       return ext;
-    };
-
-    // Override getParameter for unmasked values
-    const origGetParam2 = proto.getParameter;
-    proto.getParameter = function(pname) {
-      if (pname === 0x9245) return __fp.webgl.unmaskedVendor;
-      if (pname === 0x9246) return __fp.webgl.unmaskedRenderer;
-      if (pname === 0x1F00) return __fp.webgl.vendor;
-      if (pname === 0x1F01) return __fp.webgl.renderer;
-      return origGetParam2.call(this, pname);
     };
   }
 
