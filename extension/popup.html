@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --bg-card: #141414;
+      --bg-input: #1a1a1a;
+      --border: #262626;
+      --border-focus: #404040;
+      --text: #fafafa;
+      --text-muted: #a1a1aa;
+      --text-dim: #52525b;
+      --accent: #c8ff00;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 380px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .glow {
+      position: fixed; top: -200px; left: 50%; transform: translateX(-50%);
+      width: 500px; height: 400px;
+      background: radial-gradient(ellipse, rgba(200,255,0,0.05) 0%, transparent 70%);
+      pointer-events: none; z-index: 0;
+    }
+    .content { position: relative; z-index: 1; }
+
+    /* Brand */
+    .brand { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+    .brand-dot { position: relative; width: 10px; height: 10px; }
+    .brand-dot::before {
+      content: ''; position: absolute; inset: 0; border-radius: 50%;
+      background: var(--accent); animation: ping 2s cubic-bezier(0,0,0.2,1) infinite; opacity: 0.4;
+    }
+    .brand-dot::after { content: ''; position: absolute; inset: 1px; border-radius: 50%; background: var(--accent); }
+    @keyframes ping { 75%, 100% { transform: scale(2.5); opacity: 0; } }
+    .brand-name { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+    .brand-tag {
+      margin-left: auto; font-size: 10px; font-weight: 600;
+      padding: 2px 7px; border-radius: 6px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .brand-tag.on { background: rgba(34,197,94,0.12); color: var(--green); }
+    .brand-tag.off { background: rgba(239,68,68,0.12); color: var(--red); }
+
+    /* Status */
+    .status-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-radius: 10px; margin-bottom: 16px;
+      font-size: 12px; font-weight: 500;
+    }
+    .status-bar.ok { background: rgba(34,197,94,0.06); color: var(--green); border: 1px solid rgba(34,197,94,0.12); }
+    .status-bar.wait { background: rgba(245,158,11,0.06); color: var(--amber); border: 1px solid rgba(245,158,11,0.12); }
+    .status-bar.off { background: rgba(239,68,68,0.06); color: var(--red); border: 1px solid rgba(239,68,68,0.12); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .status-bar.ok .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-bar.wait .dot { background: var(--amber); animation: blink 1.5s ease-in-out infinite; }
+    .status-bar.off .dot { background: var(--red); }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    /* Section */
+    .section {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 16px; margin-bottom: 12px;
+      position: relative; overflow: hidden;
+    }
+    .section::before {
+      content: ''; position: absolute; inset: 0 0 auto 0; height: 1px;
+      background: linear-gradient(to right, transparent, rgba(200,255,0,0.15), transparent);
+    }
+    .section-title {
+      font-size: 11px; font-weight: 600; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+    }
+
+    /* MCP Config Block */
+    .config-block {
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; position: relative;
+      font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px;
+      color: var(--text-muted); line-height: 1.6;
+      white-space: pre; overflow-x: auto; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .config-block:hover { border-color: var(--border-focus); }
+    .config-block .key { color: #7dd3fc; }
+    .config-block .val { color: #fde68a; }
+    .config-block .str { color: #a5f3fc; }
+    .copy-badge {
+      position: absolute; top: 8px; right: 8px;
+      font-size: 10px; font-weight: 600; color: var(--text-dim);
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 2px 8px; border-radius: 4px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      transition: all 0.15s; pointer-events: none;
+    }
+    .config-block:hover .copy-badge { color: var(--accent); border-color: rgba(200,255,0,0.3); }
+    .config-block.copied .copy-badge { color: var(--green); border-color: rgba(34,197,94,0.3); }
+
+    /* Tabs */
+    .tab-row { display: flex; gap: 2px; margin-bottom: 10px; }
+    .tab-btn {
+      flex: 1; padding: 6px 0; border: none; border-radius: 6px;
+      background: transparent; color: var(--text-dim); font-size: 11px;
+      font-weight: 600; cursor: pointer; font-family: inherit;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { color: var(--text-muted); }
+    .tab-btn.active { background: var(--bg-input); color: var(--text); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Panel toggle */
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; cursor: pointer;
+    }
+    .toggle-row:hover .toggle-label { color: var(--text); }
+    .toggle-label { font-size: 13px; color: var(--text-muted); transition: color 0.15s; }
+    .toggle-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .toggle-switch {
+      width: 36px; height: 20px; border-radius: 10px;
+      background: var(--border); position: relative;
+      transition: background 0.2s; flex-shrink: 0;
+    }
+    .toggle-switch::after {
+      content: ''; position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--text-dim); transition: all 0.2s;
+    }
+    .toggle-switch.on { background: var(--accent); }
+    .toggle-switch.on::after { left: 18px; background: #000; }
+
+    /* Port input */
+    .port-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .port-row label { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+    .port-input {
+      width: 72px; padding: 5px 8px; background: var(--bg-input);
+      border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 12px; font-family: ui-monospace, monospace;
+      outline: none; text-align: center;
+    }
+    .port-input:focus { border-color: var(--border-focus); }
+
+    /* How it works */
+    .steps { font-size: 12px; color: var(--text-muted); line-height: 1.7; }
+    .steps code {
+      background: var(--bg-input); padding: 1px 6px; border-radius: 4px;
+      font-size: 11px; font-family: ui-monospace, monospace; color: var(--accent);
+    }
+    .steps ol { padding-left: 18px; }
+    .steps li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="content">
+
+    <!-- Brand -->
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div class="brand-name">Oya Browser</div>
+      <div class="brand-tag off" id="brand-tag">offline</div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-bar wait" id="status-bar">
+      <div class="dot"></div>
+      <span id="status-text">Waiting for bridge...</span>
+    </div>
+
+    <!-- MCP Config -->
+    <div class="section">
+      <div class="section-title">MCP Configuration</div>
+
+      <div class="tab-row">
+        <button class="tab-btn active" data-tab="cursor">Cursor</button>
+        <button class="tab-btn" data-tab="claude-code">Claude Code</button>
+        <button class="tab-btn" data-tab="claude-desktop">Desktop</button>
+      </div>
+
+      <div class="tab-content active" id="tab-cursor">
+        <div class="config-block" data-copy="cursor">
+          <span class="copy-badge">click to copy</span>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"oya-browser"</span>: {
+      <span class="key">"url"</span>: <span class="val">"<span id="mcp-url-cursor">http://localhost:9333/mcp</span>"</span>
+    }
+  }
+}</div>
+      </div>
+
+      <div class="tab-content" id="tab-claude-code">
+        <div class="config-block" data-copy="claude-code">
+          <span class="copy-badge">click to copy</span>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"oya-browser"</span>: {
+      <span class="key">"url"</span>: <span class="val">"<span id="mcp-url-cc">http://localhost:9333/mcp</span>"</span>,
+      <span class="key">"transport"</span>: <span class="str">"streamable-http"</span>
+    }
+  }
+}</div>
+      </div>
+
+      <div class="tab-content" id="tab-claude-desktop">
+        <div class="config-block" data-copy="claude-desktop">
+          <span class="copy-badge">click to copy</span>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"oya-browser"</span>: {
+      <span class="key">"url"</span>: <span class="val">"<span id="mcp-url-desktop">http://localhost:9333/mcp</span>"</span>,
+      <span class="key">"transport"</span>: <span class="str">"streamable-http"</span>
+    }
+  }
+}</div>
+      </div>
+    </div>
+
+    <!-- Setup -->
+    <div class="section">
+      <div class="section-title">Quick Start</div>
+      <div class="steps">
+        <ol>
+          <li>Start the bridge: <code>npx oya-browser-mcp</code></li>
+          <li>Copy the config above into your AI tool</li>
+          <li>Done — AI can now control this browser</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="section" style="padding-bottom: 4px;">
+      <div class="toggle-row" id="panel-toggle">
+        <div>
+          <div class="toggle-label">Side Panel</div>
+          <div class="toggle-desc">Show analyze results and actions</div>
+        </div>
+        <div class="toggle-switch" id="panel-switch"></div>
+      </div>
+      <div class="port-row">
+        <label>Port</label>
+        <input type="number" class="port-input" id="port-input" value="9333" min="1024" max="65535">
+      </div>
+    </div>
+
+  <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--text-muted);">
+    Built by <a href="https://oya.ai" target="_blank" style="color:var(--accent);text-decoration:none;font-weight:600;">Oya.ai</a> · Need help? <a href="mailto:mk@oya.ai" style="color:var(--accent);text-decoration:none;font-weight:600;">mk@oya.ai</a>
+  </div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

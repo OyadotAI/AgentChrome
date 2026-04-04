@@ -1,0 +1,46 @@
+{
+  "name": "oya-browser-mcp",
+  "version": "1.0.41",
+  "description": "Turn your Chrome browser into an MCP server. AI agents (Cursor, Claude Code, Claude Desktop) see the page as numbered markdown and control it by element ID.",
+  "type": "module",
+  "main": "server.js",
+  "bin": "server.js",
+  "keywords": [
+    "mcp",
+    "browser",
+    "chrome",
+    "extension",
+    "ai",
+    "agent",
+    "cursor",
+    "claude",
+    "automation",
+    "web",
+    "scraping",
+    "model-context-protocol",
+    "oya"
+  ],
+  "homepage": "https://github.com/OyadotAI/AgentChrome",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OyadotAI/AgentChrome.git",
+    "directory": "extension/bridge"
+  },
+  "bugs": {
+    "url": "https://github.com/OyadotAI/AgentChrome/issues"
+  },
+  "author": "Oya <mk@oya.ai> (https://oya.ai)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "server.js",
+    "README.md"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "ws": "^8.18.1",
+    "zod": "^3.24.4"
+  }
+}
