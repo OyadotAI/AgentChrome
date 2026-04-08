@@ -1,26 +1,26 @@
 import type { Metadata } from 'next';
-import { Outfit, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
+import { DM_Sans, Archivo_Black, JetBrains_Mono } from 'next/font/google';
 import { AuthProvider } from '@/components/auth-provider';
 import './globals.css';
 
-const outfit = Outfit({
+const dmSans = DM_Sans({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-outfit',
-  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-dm-sans',
+  weight: ['400', '500', '600', '700'],
 });
 
-const jakarta = Plus_Jakarta_Sans({
+const archivo = Archivo_Black({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-jakarta',
-  weight: ['400', '500', '600', '700'],
+  variable: '--font-archivo',
+  weight: '400',
 });
 
 const jetbrains = JetBrains_Mono({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-jetbrains',
+  variable: '--font-mono',
   weight: ['400', '500'],
 });
 
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${outfit.variable} ${jakarta.variable} ${jetbrains.variable}`}>
+    <html lang="en" className={`${dmSans.variable} ${archivo.variable} ${jetbrains.variable}`}>
       <body className="antialiased">
         <AuthProvider>{children}</AuthProvider>
       </body>

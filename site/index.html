@@ -5,57 +5,77 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Oya Browser — The browser built for AI agents</title>
   <meta name="description" content="A real browser that AI agents control via MCP. Analyzes pages, numbers every element, lets agents act by number. Your cookies, your logins, no bot detection.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --bg: #09090b;
-      --surface: #111113;
-      --border: #1e1e21;
-      --text: #fafafa;
-      --muted: #a1a1aa;
-      --dim: #52525b;
-      --green: #22c55e;
-      --blue: #3b82f6;
+      --bg: #0c0c0a;
+      --surface: #1c1c18;
+      --surface-elevated: #242420;
+      --surface-sunken: #141410;
+      --border: rgba(255,255,255,0.12);
+      --text: rgba(255,255,255,0.88);
+      --muted: rgba(255,255,255,0.42);
+      --dim: rgba(255,255,255,0.22);
+      --green: #39ed35;
+      --green-surface: rgba(57,237,53,0.1);
+      --green-border: rgba(57,237,53,0.22);
+      --blue: #6cb4ff;
     }
 
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
       font-size: 16px;
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0.032;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 200px;
+    }
+
+    h1, h2 { font-family: 'Archivo Black', Impact, 'Arial Black', sans-serif; font-weight: 400; }
 
     .container { max-width: 880px; margin: 0 auto; padding: 0 24px; }
 
     a { color: var(--green); text-decoration: none; }
     a:hover { text-decoration: underline; }
     code {
-      font-family: ui-monospace, 'SF Mono', monospace;
+      font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
       font-size: 0.9em;
-      background: #1a1a1d;
+      background: var(--surface);
       padding: 2px 6px;
-      border-radius: 4px;
+      border-radius: 3px;
     }
 
     /* ── Nav ── */
-    nav { padding: 20px 0; border-bottom: 1px solid var(--border); }
+    nav { padding: 20px 0; border-bottom: 1px solid var(--border); background: rgba(12,12,10,0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 50; }
     nav .container { display: flex; align-items: center; justify-content: space-between; }
     .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 10px; color: var(--text); }
     .logo img { width: 28px; height: 28px; border-radius: 6px; }
     .nav-links { display: flex; gap: 20px; align-items: center; }
     .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; text-decoration: none; }
     .nav-links a:hover { color: var(--text); }
-    .nav-gh { display: flex; align-items: center; gap: 6px; background: #1a1a1d; border: 1px solid var(--border); padding: 6px 14px; border-radius: 8px; font-size: 13px; }
-    .nav-gh:hover { border-color: #333; }
+    .nav-gh { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); padding: 6px 14px; border-radius: 8px; font-size: 13px; }
+    .nav-gh:hover { border-color: rgba(255,255,255,0.22); }
 
     /* ── Hero ── */
     .hero { padding: 80px 0 20px; text-align: center; }
     .hero-badge {
       display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 14px;
-      border-radius: 999px; background: #14532d; color: #4ade80;
+      border-radius: 999px; background: var(--green-surface); color: var(--green); border: 1px solid var(--green-border);
       margin-bottom: 20px; letter-spacing: 0.3px;
     }
     .hero h1 { font-size: 52px; font-weight: 700; letter-spacing: -2px; line-height: 1.05; margin-bottom: 20px; }
@@ -68,10 +88,10 @@
     }
     .btn:hover { opacity: 0.9; text-decoration: none; }
     .btn-primary { background: var(--green); color: #000; }
-    .btn-outline { background: transparent; color: var(--text); border: 1px solid #333; }
+    .btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }
 
     /* ── Screenshot ── */
-    .shot { margin: 50px auto 0; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+    .shot { margin: 50px auto 0; border-radius: 10px; border: 1px solid var(--border); overflow: hidden; }
     .shot img, .shot video { width: 100%; display: block; }
 
     /* ── Pitch ── */
@@ -91,7 +111,7 @@
     }
     @media (max-width: 700px) { .flow { grid-template-columns: 1fr; } }
     .flow-step {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px;
     }
     .flow-num {
       width: 28px; height: 28px; background: var(--green); color: #000; border-radius: 7px;
@@ -102,45 +122,45 @@
 
     /* ── Terminal ── */
     .term {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-top: 40px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 40px;
     }
     .term-bar {
       display: flex; gap: 6px; padding: 12px 16px; border-bottom: 1px solid var(--border);
     }
     .term-dot { width: 10px; height: 10px; border-radius: 50%; }
     .term-body {
-      padding: 20px 24px; font-family: ui-monospace, 'SF Mono', monospace; font-size: 13px;
-      line-height: 1.8; overflow-x: auto; color: #d4d4d8;
+      padding: 20px 24px; font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace; font-size: 13px;
+      line-height: 1.8; overflow-x: auto; color: rgba(255,255,255,0.72);
       white-space: pre; word-break: break-all;
     }
-    .c { color: #525252; }
+    .c { color: rgba(255,255,255,0.22); }
     .g { color: var(--green); }
     .b { color: var(--blue); }
-    .y { color: #f59e0b; }
+    .y { color: #f5a623; }
     .p { color: #a855f7; }
 
     /* ── Grid cards ── */
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
     @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
     .card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px;
     }
     .card h3 { font-size: 16px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
     .card p { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
     .card pre {
       background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-      padding: 12px 16px; font-family: ui-monospace, monospace; font-size: 12px;
-      line-height: 1.7; overflow-x: auto; color: #d4d4d8;
+      padding: 12px 16px; font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace; font-size: 12px;
+      line-height: 1.7; overflow-x: auto; color: rgba(255,255,255,0.72);
     }
     .tag {
       font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 999px; text-transform: uppercase;
     }
-    .tag-app { background: #14532d; color: #4ade80; }
+    .tag-app { background: #14532d; color: #39ed35; }
 
     /* ── Tools ── */
     .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 24px; }
     .tool { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-    .tool-name { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--green); }
+    .tool-name { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--green); }
     .tool-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
 
     /* ── Comparison ── */
@@ -150,7 +170,7 @@
     .cmp td:first-child { color: var(--muted); font-size: 13px; }
     .cmp .oya { font-weight: 600; color: var(--text); }
     .cmp .yes { color: var(--green); }
-    .cmp .no { color: #ef4444; }
+    .cmp .no { color: #ff6b6b; }
 
     /* ── Key Features ── */
     .key-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 60px; }
@@ -159,22 +179,22 @@
     .key-feature {
       border-radius: 16px; padding: 28px; position: relative; overflow: hidden;
     }
-    .key-feature-cookie { background: linear-gradient(to bottom, rgba(34,197,94,0.08), transparent); border: 1px solid rgba(34,197,94,0.25); }
-    .key-feature-cookie:hover { border-color: rgba(34,197,94,0.45); box-shadow: 0 0 48px -12px rgba(34,197,94,0.3); }
-    .key-feature-sandbox { background: linear-gradient(to bottom, rgba(59,130,246,0.08), transparent); border: 1px solid rgba(59,130,246,0.25); }
-    .key-feature-sandbox:hover { border-color: rgba(59,130,246,0.45); box-shadow: 0 0 48px -12px rgba(59,130,246,0.3); }
+    .key-feature-cookie { background: linear-gradient(to bottom, rgba(57,237,53,0.08), transparent); border: 1px solid rgba(57,237,53,0.25); }
+    .key-feature-cookie:hover { border-color: rgba(57,237,53,0.45); box-shadow: 0 0 48px -12px rgba(57,237,53,0.3); }
+    .key-feature-sandbox { background: linear-gradient(to bottom, rgba(108,180,255,0.08), transparent); border: 1px solid rgba(108,180,255,0.25); }
+    .key-feature-sandbox:hover { border-color: rgba(108,180,255,0.45); box-shadow: 0 0 48px -12px rgba(108,180,255,0.3); }
     .key-feature-live { background: linear-gradient(to bottom, rgba(168,85,247,0.08), transparent); border: 1px solid rgba(168,85,247,0.25); }
     .key-feature-live:hover { border-color: rgba(168,85,247,0.45); box-shadow: 0 0 48px -12px rgba(168,85,247,0.3); }
-    .key-feature-fp { background: linear-gradient(to bottom, rgba(245,158,11,0.08), transparent); border: 1px solid rgba(245,158,11,0.25); }
-    .key-feature-fp:hover { border-color: rgba(245,158,11,0.45); box-shadow: 0 0 48px -12px rgba(245,158,11,0.3); }
+    .key-feature-fp { background: linear-gradient(to bottom, rgba(245,166,35,0.08), transparent); border: 1px solid rgba(245,166,35,0.25); }
+    .key-feature-fp:hover { border-color: rgba(245,166,35,0.45); box-shadow: 0 0 48px -12px rgba(245,166,35,0.3); }
     .key-feature { transition: border-color 0.2s, box-shadow 0.3s; }
     .key-feature-icon {
       width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; font-size: 20px;
     }
-    .key-feature-icon-cookie { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.25); }
-    .key-feature-icon-sandbox { background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.25); }
+    .key-feature-icon-cookie { background: rgba(57,237,53,0.15); border: 1px solid rgba(57,237,53,0.25); }
+    .key-feature-icon-sandbox { background: rgba(108,180,255,0.15); border: 1px solid rgba(108,180,255,0.25); }
     .key-feature-icon-live { background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.25); }
-    .key-feature-icon-fp { background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.25); }
+    .key-feature-icon-fp { background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.25); }
     .key-feature h3 { font-size: 17px; margin-bottom: 8px; }
     .key-feature p { font-size: 14px; color: var(--muted); line-height: 1.6; }
 
@@ -289,9 +309,9 @@
 
     <div class="term">
       <div class="term-bar">
-        <div class="term-dot" style="background:#ef4444"></div>
-        <div class="term-dot" style="background:#f59e0b"></div>
-        <div class="term-dot" style="background:#22c55e"></div>
+        <div class="term-dot" style="background:#ff6b6b"></div>
+        <div class="term-dot" style="background:#f5a623"></div>
+        <div class="term-dot" style="background:#39ed35"></div>
       </div>
       <div class="term-body"><span class="c">---</span>
 <span class="g">url:</span> <span class="y">https://google.com</span>
@@ -416,10 +436,10 @@
     <p class="desc">Every browser instance under the same API key automatically shares an identical fingerprint. No configuration. No manual profile syncing. Anti-detect browser grade — built in, not bolted on.</p>
 
     <div class="flow" style="grid-template-columns: repeat(2, 1fr); margin-top: 24px;">
-      <div class="flow-step" style="border-color: rgba(245,158,11,0.3); background: linear-gradient(to bottom, rgba(245,158,11,0.04), var(--surface));">
-        <h3 style="color: #f59e0b;">Fleet-wide fingerprint sync</h3>
+      <div class="flow-step" style="border-color: rgba(245,166,35,0.3); background: linear-gradient(to bottom, rgba(245,166,35,0.04), var(--surface));">
+        <h3 style="color: #f5a623;">Fleet-wide fingerprint sync</h3>
         <p>Your API key deterministically generates every fingerprint value — canvas noise, WebGL renderer, AudioContext, screen resolution, fonts, hardware concurrency, device memory, timezone, locale. Same key on 10 machines produces byte-identical fingerprints. Sites see one consistent user across your entire fleet. Zero config.</p>
-        <p style="margin-top: 8px; font-size: 12px; color: #71717a;">Anti-detect browsers like Multilogin charge $99/mo for this. We do it automatically.</p>
+        <p style="margin-top: 8px; font-size: 12px; color: rgba(255,255,255,0.32);">Anti-detect browsers like Multilogin charge $99/mo for this. We do it automatically.</p>
       </div>
       <div class="flow-step">
         <h3>What gets synchronized</h3>
@@ -454,7 +474,7 @@
     </div>
 
     <div class="term" style="margin-top: 28px;">
-      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <div class="term-bar"><div class="term-dot" style="background:#ff6b6b"></div><div class="term-dot" style="background:#f5a623"></div><div class="term-dot" style="background:#39ed35"></div></div>
       <div class="term-body"><span class="c"># All browsers with the same API key get this fingerprint automatically:</span>
 <span class="g">platform:</span> <span class="y">MacIntel</span>    <span class="g">screen:</span> <span class="p">1680x1050 @2x</span>    <span class="g">gpu:</span> <span class="y">Apple M2 Pro</span>
 <span class="g">cores:</span> <span class="p">8</span>    <span class="g">memory:</span> <span class="p">16GB</span>    <span class="g">canvas:</span> <span class="p">0.004821</span>    <span class="g">audio:</span> <span class="p">0.007233</span>
@@ -500,7 +520,7 @@
 
     <h3 style="margin: 30px 0 16px; font-size: 18px;">1. Deploy the server</h3>
     <div class="term">
-      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <div class="term-bar"><div class="term-dot" style="background:#ff6b6b"></div><div class="term-dot" style="background:#f5a623"></div><div class="term-dot" style="background:#39ed35"></div></div>
       <div class="term-body"><span class="c"># Docker</span>
 <span class="g">docker run</span> -d -p 3100:3100 -e API_KEYS=your-key ghcr.io/oyadotai/oya-browser-server
 
@@ -522,7 +542,7 @@
     <h3 style="margin: 30px 0 16px; font-size: 18px;">3. Connect your AI tool</h3>
     <p style="color: var(--muted); margin-bottom: 16px;">Open <code>http://your-server:3100</code> to see connected browsers and copy the MCP config.</p>
     <div class="term">
-      <div class="term-bar"><div class="term-dot" style="background:#ef4444"></div><div class="term-dot" style="background:#f59e0b"></div><div class="term-dot" style="background:#22c55e"></div></div>
+      <div class="term-bar"><div class="term-dot" style="background:#ff6b6b"></div><div class="term-dot" style="background:#f5a623"></div><div class="term-dot" style="background:#39ed35"></div></div>
       <div class="term-body"><span class="c">// Cursor, Claude Desktop, Windsurf, or any MCP client</span>
 {
   <span class="g">"mcpServers"</span>: {

@@ -108,7 +108,7 @@ function CodeBlock({
       {/* Title bar */}
       <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border bg-bg-elevated/50">
         <div className="flex items-center gap-1.5">
-          <span className="w-[9px] h-[9px] rounded-full bg-red-400/90" />
+          <span className="w-[9px] h-[9px] rounded-full bg-red/90" />
           <span className="w-[9px] h-[9px] rounded-full bg-accent" />
           <span className="w-[9px] h-[9px] rounded-full bg-indigo" />
         </div>
@@ -154,7 +154,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6 h-[3.75rem] flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
             <div className="relative w-9 h-9 rounded-lg bg-bg-card border border-border flex items-center justify-center shadow-[var(--shadow-card)] group-hover:border-accent/35 transition-colors">
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent shadow-[0_0_12px_rgba(228,168,46,0.65)]" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent shadow-[0_0_12px_rgba(57,237,53,0.55)]" />
               <Globe className="w-4 h-4 text-indigo" />
             </div>
             <span className="font-display text-[17px] font-bold tracking-tight">
@@ -174,7 +174,7 @@ export default function Home() {
             </Link>
             <Link
               href={user ? '/dashboard' : '/login'}
-              className="ml-2 px-4 py-2 text-[13px] font-semibold rounded-lg bg-accent text-zinc-950 hover:bg-accent-hover shadow-[0_0_24px_-4px_rgba(228,168,46,0.45)]"
+              className="ml-2 px-4 py-2 text-[13px] font-semibold rounded-lg bg-accent text-[#0c0c0a] hover:bg-accent-hover shadow-[0_0_24px_-4px_rgba(57,237,53,0.35)]"
             >
               {loading ? '' : 'Dashboard'}
             </Link>
@@ -218,7 +218,7 @@ export default function Home() {
                 <h1 className="font-display text-[2.5rem] sm:text-[3.25rem] lg:text-[3.5rem] font-bold tracking-tight leading-[1.05] mb-5">
                   <span className="text-text">Login once. Every remote browser</span>
                   <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent via-amber-200 to-indigo">
+                  <span className="text-accent">
                     is already authenticated.
                   </span>
                 </h1>
@@ -228,7 +228,7 @@ export default function Home() {
                 <div className="flex flex-wrap gap-3">
                   <a
                     href="#download"
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent text-zinc-950 text-[15px] font-semibold hover:bg-accent-hover shadow-[0_0_28px_-6px_rgba(228,168,46,0.55)]"
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent text-[#0c0c0a] text-[15px] font-semibold hover:bg-accent-hover shadow-[0_0_28px_-6px_rgba(57,237,53,0.4)]"
                   >
                     Download
                     <ArrowRight className="w-4 h-4" />
@@ -253,8 +253,8 @@ export default function Home() {
                   <p className="font-mono text-[11px] leading-relaxed text-text-muted">
                     <span className="text-indigo">url:</span> https://example.com<br />
                     <span className="text-indigo">elements:</span> <span className="text-accent">22</span><br /><br />
-                    <span className="text-sky-300">[#1 link &quot;Sign in&quot;]</span>{' '}
-                    <span className="text-sky-300">[#2 button &quot;Start&quot;]</span>
+                    <span className="text-indigo">[#1 link &quot;Sign in&quot;]</span>{' '}
+                    <span className="text-indigo">[#2 button &quot;Start&quot;]</span>
                   </p>
                 </div>
               </div>
@@ -284,8 +284,8 @@ export default function Home() {
           </h2>
           <div className="grid sm:grid-cols-3 gap-4">
             {/* Cookie Sync */}
-            <div className="relative group rounded-2xl border border-accent/25 bg-gradient-to-b from-accent/[0.06] to-transparent p-6 hover:border-accent/40 hover:shadow-[0_0_48px_-12px_rgba(228,168,46,0.3)] transition-all duration-300">
-              <div className="w-10 h-10 rounded-xl bg-accent/15 border border-accent/25 flex items-center justify-center mb-4">
+            <div className="relative group rounded-2xl border border-green-border bg-gradient-to-b from-green-surface to-transparent p-6 hover:border-accent/40 hover:shadow-[0_0_48px_-12px_rgba(57,237,53,0.3)] transition-all duration-300">
+              <div className="w-10 h-10 rounded-xl bg-green-surface border border-green-border flex items-center justify-center mb-4">
                 <Cookie className="w-5 h-5 text-accent" />
               </div>
               <h3 className="text-[16px] font-bold text-text mb-2">Cookie sync</h3>
@@ -294,7 +294,7 @@ export default function Home() {
               </p>
             </div>
             {/* Sandboxing */}
-            <div className="relative group rounded-2xl border border-indigo/25 bg-gradient-to-b from-indigo/[0.06] to-transparent p-6 hover:border-indigo/40 hover:shadow-[0_0_48px_-12px_rgba(99,102,241,0.3)] transition-all duration-300">
+            <div className="relative group rounded-2xl border border-indigo/25 bg-gradient-to-b from-indigo/[0.06] to-transparent p-6 hover:border-indigo/40 hover:shadow-[0_0_48px_-12px_rgba(108,180,255,0.3)] transition-all duration-300">
               <div className="w-10 h-10 rounded-xl bg-indigo/15 border border-indigo/25 flex items-center justify-center mb-4">
                 <Lock className="w-5 h-5 text-indigo" />
               </div>
@@ -304,9 +304,9 @@ export default function Home() {
               </p>
             </div>
             {/* Native Live View */}
-            <div className="relative group rounded-2xl border border-sky-400/25 bg-gradient-to-b from-sky-400/[0.06] to-transparent p-6 hover:border-sky-400/40 hover:shadow-[0_0_48px_-12px_rgba(56,189,248,0.3)] transition-all duration-300">
-              <div className="w-10 h-10 rounded-xl bg-sky-400/15 border border-sky-400/25 flex items-center justify-center mb-4">
-                <Eye className="w-5 h-5 text-sky-400" />
+            <div className="relative group rounded-2xl border border-yellow/25 bg-gradient-to-b from-yellow/[0.06] to-transparent p-6 hover:border-yellow/40 hover:shadow-[0_0_48px_-12px_rgba(245,166,35,0.3)] transition-all duration-300">
+              <div className="w-10 h-10 rounded-xl bg-yellow/15 border border-yellow/25 flex items-center justify-center mb-4">
+                <Eye className="w-5 h-5 text-yellow" />
               </div>
               <h3 className="text-[16px] font-bold text-text mb-2">Native live view</h3>
               <p className="text-[13px] text-text-muted leading-relaxed">
@@ -355,20 +355,20 @@ export default function Home() {
           </h2>
           <CodeBlock title="analyze_page output">
             <span className="text-text-dim">{'# analyze_page response'}</span>{'\n\n'}
-            <span className="text-indigo">url:</span> <span className="text-amber-200/90">https://google.com</span>{'\n'}
+            <span className="text-indigo">url:</span> <span className="text-yellow">https://google.com</span>{'\n'}
             <span className="text-indigo">title:</span> <span className="text-text-muted">Google</span>{'\n'}
-            <span className="text-indigo">elements:</span> <span className="text-sky-300">22</span>{'\n\n'}
+            <span className="text-indigo">elements:</span> <span className="text-indigo">22</span>{'\n\n'}
             <span className="text-text-dim">{'---'}</span>{'\n\n'}
-            <span className="text-sky-300">[#1 link &quot;About&quot;]</span> <span className="text-sky-300">[#2 link &quot;Store&quot;]</span>{'\n'}
-            <span className="text-sky-300">[#3 link &quot;Gmail&quot;]</span> <span className="text-sky-300">[#4 link &quot;Images&quot;]</span>{'\n\n'}
+            <span className="text-indigo">[#1 link &quot;About&quot;]</span> <span className="text-indigo">[#2 link &quot;Store&quot;]</span>{'\n'}
+            <span className="text-indigo">[#3 link &quot;Gmail&quot;]</span> <span className="text-indigo">[#4 link &quot;Images&quot;]</span>{'\n\n'}
             <span className="text-text-dim">{'<!-- main content -->'}</span>{'\n'}
             <span className="text-text-muted">Google</span>{'\n\n'}
-            <span className="text-sky-300">[#9 textarea &quot;Search&quot;]</span>{'\n'}
-            <span className="text-sky-300">[#13 button &quot;Google Search&quot;]</span>{'\n'}
-            <span className="text-sky-300">[#14 button &quot;I&apos;m Feeling Lucky&quot;]</span>{'\n\n'}
+            <span className="text-indigo">[#9 textarea &quot;Search&quot;]</span>{'\n'}
+            <span className="text-indigo">[#13 button &quot;Google Search&quot;]</span>{'\n'}
+            <span className="text-indigo">[#14 button &quot;I&apos;m Feeling Lucky&quot;]</span>{'\n\n'}
             <span className="text-text-dim">{'---'}</span>{'\n\n'}
-            <span className="text-accent">{'> '}</span><span className="text-text-muted">AI calls: </span><span className="text-amber-200/90">type(9, &quot;best MCP tools&quot;)</span>{'\n'}
-            <span className="text-accent">{'> '}</span><span className="text-text-muted">AI calls: </span><span className="text-amber-200/90">click(13)</span>
+            <span className="text-accent">{'> '}</span><span className="text-text-muted">AI calls: </span><span className="text-yellow">type(9, &quot;best MCP tools&quot;)</span>{'\n'}
+            <span className="text-accent">{'> '}</span><span className="text-text-muted">AI calls: </span><span className="text-yellow">click(13)</span>
           </CodeBlock>
         </section>
 
@@ -383,12 +383,12 @@ export default function Home() {
           <CodeBlock copyText={mcpConfig} title="mcp.json">
             <span className="text-text-dim">{'// Per-browser MCP endpoint'}</span>{'\n'}
             <span className="text-text-muted">{'{'}</span>{'\n'}
-            <span className="text-text-muted">{'  '}</span><span className="text-sky-400">&quot;mcpServers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'    '}</span><span className="text-sky-400">&quot;oya-browser&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-sky-400">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-amber-200/90">&quot;https://browser.oya.ai/mcp/YOUR_ID&quot;</span><span className="text-text-muted">,</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-sky-400">&quot;transport&quot;</span><span className="text-text-muted">: </span><span className="text-amber-200/90">&quot;streamable-http&quot;</span><span className="text-text-muted">,</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-sky-400">&quot;headers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'        '}</span><span className="text-sky-400">&quot;Authorization&quot;</span><span className="text-text-muted">: </span><span className="text-amber-200/90">&quot;Bearer YOUR_API_KEY&quot;</span>{'\n'}
+            <span className="text-text-muted">{'  '}</span><span className="text-indigo">&quot;mcpServers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
+            <span className="text-text-muted">{'    '}</span><span className="text-indigo">&quot;oya-browser&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;https://browser.oya.ai/mcp/YOUR_ID&quot;</span><span className="text-text-muted">,</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;transport&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;streamable-http&quot;</span><span className="text-text-muted">,</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;headers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
+            <span className="text-text-muted">{'        '}</span><span className="text-indigo">&quot;Authorization&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;Bearer YOUR_API_KEY&quot;</span>{'\n'}
             <span className="text-text-muted">{'      }'}</span>{'\n'}
             <span className="text-text-muted">{'    }'}</span>{'\n'}
             <span className="text-text-muted">{'  }'}</span>{'\n'}
@@ -407,12 +407,12 @@ export default function Home() {
           <CodeBlock copyText={poolConfig} title="pool mcp.json">
             <span className="text-text-dim">{'// One endpoint for all browsers'}</span>{'\n'}
             <span className="text-text-muted">{'{'}</span>{'\n'}
-            <span className="text-text-muted">{'  '}</span><span className="text-sky-400">&quot;mcpServers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'    '}</span><span className="text-sky-400">&quot;oya-pool&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-sky-400">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-amber-200/90">&quot;https://browser.oya.ai/mcp/pool&quot;</span><span className="text-text-muted">,</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-sky-400">&quot;transport&quot;</span><span className="text-text-muted">: </span><span className="text-amber-200/90">&quot;streamable-http&quot;</span><span className="text-text-muted">,</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-sky-400">&quot;headers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'        '}</span><span className="text-sky-400">&quot;Authorization&quot;</span><span className="text-text-muted">: </span><span className="text-amber-200/90">&quot;Bearer YOUR_FLEET_TOKEN&quot;</span>{'\n'}
+            <span className="text-text-muted">{'  '}</span><span className="text-indigo">&quot;mcpServers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
+            <span className="text-text-muted">{'    '}</span><span className="text-indigo">&quot;oya-pool&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;https://browser.oya.ai/mcp/pool&quot;</span><span className="text-text-muted">,</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;transport&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;streamable-http&quot;</span><span className="text-text-muted">,</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;headers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
+            <span className="text-text-muted">{'        '}</span><span className="text-indigo">&quot;Authorization&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;Bearer YOUR_FLEET_TOKEN&quot;</span>{'\n'}
             <span className="text-text-muted">{'      }'}</span>{'\n'}
             <span className="text-text-muted">{'    }'}</span>{'\n'}
             <span className="text-text-muted">{'  }'}</span>{'\n'}
@@ -437,7 +437,7 @@ export default function Home() {
             ].map((f) => (
               <div
                 key={f.title}
-                className="group rounded-xl border border-border bg-bg-card/80 p-4 hover:border-accent/30 hover:bg-bg-elevated/60 hover:shadow-[0_0_32px_-12px_rgba(228,168,46,0.35)] transition-all duration-300"
+                className="group rounded-xl border border-border bg-bg-card/80 p-4 hover:border-accent/30 hover:bg-bg-elevated/60 hover:shadow-[0_0_32px_-12px_rgba(57,237,53,0.25)] transition-all duration-300"
               >
                 <f.icon className="w-4 h-4 text-accent mb-2.5" />
                 <p className="text-[13px] font-semibold text-text mb-1.5">{f.title}</p>
@@ -456,7 +456,7 @@ export default function Home() {
             {tools.map((t) => (
               <div
                 key={t.name}
-                className="group rounded-xl border border-border bg-bg-card/80 p-3.5 hover:border-accent/30 hover:bg-bg-elevated/60 hover:shadow-[0_0_32px_-12px_rgba(228,168,46,0.35)] transition-all duration-300"
+                className="group rounded-xl border border-border bg-bg-card/80 p-3.5 hover:border-accent/30 hover:bg-bg-elevated/60 hover:shadow-[0_0_32px_-12px_rgba(57,237,53,0.25)] transition-all duration-300"
               >
                 <p className="font-mono text-[11px] font-semibold text-accent mb-1.5 tracking-tight">{t.name}</p>
                 <p className="text-[11px] text-text-muted leading-snug group-hover:text-text-muted/90">{t.desc}</p>
@@ -480,7 +480,7 @@ export default function Home() {
             >
               <h3 className="text-[15px] font-semibold mb-1 text-text">macOS</h3>
               <p className="text-[12px] text-text-muted mb-4 flex-1">Universal — Intel + Apple Silicon</p>
-              <span className="inline-block bg-accent text-zinc-950 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-center hover:bg-accent-hover">
+              <span className="inline-block bg-accent text-[#0c0c0a] px-5 py-2.5 rounded-lg text-[13px] font-semibold text-center hover:bg-accent-hover">
                 Download .dmg
               </span>
             </a>
@@ -490,7 +490,7 @@ export default function Home() {
             >
               <h3 className="text-[15px] font-semibold mb-1 text-text">Linux</h3>
               <p className="text-[12px] text-text-muted mb-4 flex-1">ARM64 AppImage</p>
-              <span className="inline-block bg-accent text-zinc-950 px-5 py-2.5 rounded-lg text-[13px] font-semibold text-center hover:bg-accent-hover">
+              <span className="inline-block bg-accent text-[#0c0c0a] px-5 py-2.5 rounded-lg text-[13px] font-semibold text-center hover:bg-accent-hover">
                 Download .AppImage
               </span>
             </a>

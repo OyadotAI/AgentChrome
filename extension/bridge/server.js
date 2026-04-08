@@ -114,6 +114,21 @@ Use element IDs with click/type tools. Includes page metadata, content as markdo
     }
   );
 
+  server.tool('save_screenshot', 'Capture a screenshot and save it as a PNG file to disk.',
+    { path: z.string().describe('Absolute file path to save the PNG') },
+    async ({ path }) => {
+      const r = await sendCommand('screenshot');
+      if (!r.ok) return { content: [{ type: 'text', text: `Error: ${r.error}` }], isError: true };
+      if (r.data?.screenshot) {
+        const base64 = r.data.screenshot.replace(/^data:image\/png;base64,/, '');
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(path, Buffer.from(base64, 'base64'));
+        return { content: [{ type: 'text', text: `Screenshot saved to ${path}` }] };
+      }
+      return { content: [{ type: 'text', text: 'No image data' }] };
+    }
+  );
+
   server.tool('press_key', 'Press a keyboard key.',
     { key: z.enum(['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Space', 'Home', 'End', 'PageUp', 'PageDown']).describe('Key to press') },
     async ({ key }) => {
