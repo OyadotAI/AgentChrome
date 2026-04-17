@@ -45,54 +45,6 @@
         }
       }
     },
-    "/register-key": {
-      "post": {
-        "summary": "Register a new API key",
-        "operationId": "registerKey",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["key"],
-                "properties": {
-                  "key": {
-                    "type": "string",
-                    "minLength": 32,
-                    "description": "API key (at least 32 characters)"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Key registered",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": { "type": "boolean", "example": true }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid key",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
-              }
-            }
-          }
-        }
-      }
-    },
     "/browsers": {
       "get": {
         "summary": "List connected browsers",
@@ -697,7 +649,7 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "API key passed as Bearer token. Create one via POST /register-key or from the dashboard."
+        "description": "API key passed as Bearer token. Create one from the dashboard after signing in."
       }
     },
     "parameters": {

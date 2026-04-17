@@ -15,7 +15,7 @@ import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
 import { runtimeConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
-import { getAll as getAllCookies, clear as clearCookies } from './cookie-store.js';
+import { getAll as getAllCookies, getAllByKey as getAllCookiesByKey, clear as clearCookies, clearAll as clearAllCookies } from './cookie-store.js';
 
 export const router = Router();
 
@@ -138,18 +138,6 @@ router.delete('/auth/keys/:key', userAuthMiddleware, async (req, res) => {
   }
 });
 
-// ─── Legacy key registration (still works for dashboard generate button) ─────
-
-// Register a new API key (public — anyone can create a key)
-router.post('/register-key', async (req, res) => {
-  const { key } = req.body;
-  if (!key || typeof key !== 'string' || key.length < 32) {
-    return res.status(400).json({ error: 'Key must be at least 32 characters' });
-  }
-  await registerApiKey(key);
-  res.json({ ok: true });
-});
-
 // Batch-provision API keys (admin only)
 router.post('/fleet/provision', authMiddleware, async (req, res) => {
   const key = getKey(req);
@@ -161,12 +149,19 @@ router.post('/fleet/provision', authMiddleware, async (req, res) => {
   res.json({ ok: true, count: keys.length, keys });
 });
 
-// Runtime config — get/set server configuration from the dashboard
+// Runtime config — server-wide settings (OpenAI key, model, base URL).
+// Admin only: anyone who can write this can hijack every tenant's chat requests.
 router.get('/config', authMiddleware, (req, res) => {
+  if (!isAdminKey(getKey(req))) {
+    return res.status(403).json({ error: 'Admin key required' });
+  }
   res.json(runtimeConfig.get());
 });
 
 router.post('/config', authMiddleware, (req, res) => {
+  if (!isAdminKey(getKey(req))) {
+    return res.status(403).json({ error: 'Admin key required' });
+  }
   runtimeConfig.set(req.body);
   res.json({ ok: true });
 });
@@ -297,13 +292,27 @@ router.post('/pool/command', authMiddleware, async (req, res) => {
   }
 });
 
-// Pool cookies — view the shared cookie jar
+// Pool cookies — view the shared cookie jar for the caller's API key.
+// Admin also gets a per-key breakdown.
 router.get('/pool/cookies', authMiddleware, (req, res) => {
-  res.json({ cookies: getAllCookies() });
+  const key = getKey(req);
+  if (isAdminKey(key)) {
+    const byKey = getAllCookiesByKey();
+    const flat = [];
+    for (const arr of Object.values(byKey)) flat.push(...arr);
+    res.json({ cookies: flat, cookies_by_key: byKey });
+    return;
+  }
+  res.json({ cookies: getAllCookies(key) });
 });
 
-// Pool cookies — clear the shared jar
+// Pool cookies — clear the caller's API-key jar only. Admin clears every jar.
 router.delete('/pool/cookies', authMiddleware, (req, res) => {
-  clearCookies();
+  const key = getKey(req);
+  if (isAdminKey(key)) {
+    clearAllCookies();
+  } else {
+    clearCookies(key);
+  }
   res.json({ ok: true });
 });

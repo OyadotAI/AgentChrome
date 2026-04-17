@@ -2,14 +2,14 @@
  * Shared cookie store — holds the canonical cookie jar for a browser pool.
  * When one browser's cookies change, the delta is broadcast to all others.
  *
- * Primary storage: Supabase (oya_browser.cookies)
- * Fallback: local file (data/cookies.json) when Supabase is not configured.
+ * Cookies are scoped per API key: browsers sharing an API key share cookies;
+ * browsers with different keys are fully isolated from each other.
  *
- * DB writes are incremental (single-row upsert/delete per change) and
- * debounced for bulk operations like mergeDump.
+ * Primary storage: Supabase (oya_browser.cookies) — currently disabled.
+ * Fallback: local file (data/cookies.json) keyed by apiKey.
  */
 
-import { readFileSync, mkdirSync } from 'fs';
+import { readFileSync, mkdirSync, renameSync, existsSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -20,18 +20,28 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const COOKIE_PATH = join(__dirname, '..', 'data', 'cookies.json');
 
 /**
- * Cookies keyed by "<domain>|<path>|<name>" for fast dedup/merge.
- * @type {Map<string, object>}
+ * Per-API-key jars. Outer key is the API key, inner key is "<domain>|<path>|<name>".
+ * @type {Map<string, Map<string, object>>}
  */
-const jar = new Map();
+const jars = new Map();
 
 function cookieKey(c) {
   return `${c.domain}|${c.path || '/'}|${c.name}`;
 }
 
+function getJar(apiKey) {
+  let jar = jars.get(apiKey);
+  if (!jar) {
+    jar = new Map();
+    jars.set(apiKey, jar);
+  }
+  return jar;
+}
+
 // ── Pending DB writes (batched) ──
-const pendingUpserts = new Map();   // id → data
-const pendingDeletes = new Set();   // ids to delete
+// Upsert payloads carry apiKey so the eventual DB schema can key by (apiKey, id).
+const pendingUpserts = new Map();   // `${apiKey}::${id}` → { apiKey, id, data }
+const pendingDeletes = new Map();   // `${apiKey}::${id}` → { apiKey, id }
 let flushTimer = null;
 const FLUSH_DELAY = 2000; // 2s debounce
 
@@ -52,27 +62,26 @@ async function flush() {
 }
 
 async function flushToDb() {
-  // Grab and clear pending work
-  const upserts = [...pendingUpserts.entries()];
-  const deletes = [...pendingDeletes];
+  const upserts = [...pendingUpserts.values()];
+  const deletes = [...pendingDeletes.values()];
   pendingUpserts.clear();
   pendingDeletes.clear();
 
   try {
     if (upserts.length > 0) {
-      // Batch in chunks of 500 to stay within Supabase limits
       for (let i = 0; i < upserts.length; i += 500) {
-        const chunk = upserts.slice(i, i + 500).map(([id, data]) => ({
-          id, data, updated_at: new Date().toISOString(),
+        const chunk = upserts.slice(i, i + 500).map(({ apiKey, id, data }) => ({
+          api_key: apiKey, id, data, updated_at: new Date().toISOString(),
         }));
-        const { error } = await db.from('cookies').upsert(chunk, { onConflict: 'id' });
+        const { error } = await db.from('cookies').upsert(chunk, { onConflict: 'api_key,id' });
         if (error) console.error('[cookies] upsert error:', error.message);
       }
     }
     if (deletes.length > 0) {
       for (let i = 0; i < deletes.length; i += 500) {
         const chunk = deletes.slice(i, i + 500);
-        const { error } = await db.from('cookies').delete().in('id', chunk);
+        const ids = chunk.map((e) => e.id);
+        const { error } = await db.from('cookies').delete().in('id', ids);
         if (error) console.error('[cookies] delete error:', error.message);
       }
     }
@@ -86,21 +95,27 @@ async function flushToFile() {
   pendingDeletes.clear();
   try {
     mkdirSync(dirname(COOKIE_PATH), { recursive: true });
-    await writeFile(COOKIE_PATH, JSON.stringify([...jar.values()], null, 2));
+    const out = {};
+    for (const [apiKey, jar] of jars) {
+      out[apiKey] = [...jar.values()];
+    }
+    await writeFile(COOKIE_PATH, JSON.stringify(out, null, 2));
   } catch {}
 }
 
 // ── Queue a single cookie change ──
 
-function queueUpsert(id, data) {
-  pendingDeletes.delete(id);
-  pendingUpserts.set(id, data);
+function queueUpsert(apiKey, id, data) {
+  const k = `${apiKey}::${id}`;
+  pendingDeletes.delete(k);
+  pendingUpserts.set(k, { apiKey, id, data });
   scheduleFlush();
 }
 
-function queueDelete(id) {
-  pendingUpserts.delete(id);
-  pendingDeletes.add(id);
+function queueDelete(apiKey, id) {
+  const k = `${apiKey}::${id}`;
+  pendingUpserts.delete(k);
+  pendingDeletes.set(k, { apiKey, id });
   scheduleFlush();
 }
 
@@ -109,9 +124,9 @@ function queueDelete(id) {
 async function loadFromDb() {
   if (!db) return false;
   try {
-    const { data, error } = await db.from('cookies').select('id, data');
+    const { data, error } = await db.from('cookies').select('api_key, id, data');
     if (error) throw error;
-    for (const row of data) jar.set(row.id, row.data);
+    for (const row of data) getJar(row.api_key).set(row.id, row.data);
     console.log(`[cookies] Loaded ${data.length} cookies from Supabase`);
     return true;
   } catch (e) {
@@ -121,12 +136,39 @@ async function loadFromDb() {
 }
 
 function loadFromFile() {
+  if (!existsSync(COOKIE_PATH)) return;
   try {
-    const data = JSON.parse(readFileSync(COOKIE_PATH, 'utf8'));
-    if (Array.isArray(data)) {
-      for (const c of data) jar.set(cookieKey(c), c);
+    const parsed = JSON.parse(readFileSync(COOKIE_PATH, 'utf8'));
+
+    if (Array.isArray(parsed)) {
+      // Legacy format: flat array with no API-key ownership. Cannot safely
+      // attribute to any key — sessions must be re-authenticated. Archive
+      // and start empty.
+      const legacyPath = `${COOKIE_PATH}.legacy-${Date.now()}`;
+      try {
+        renameSync(COOKIE_PATH, legacyPath);
+        console.warn(
+          `[cookies] Legacy (unscoped) cookie file detected — archived to ${legacyPath}. ` +
+          `Starting with empty jars. All existing sessions will require re-auth. ` +
+          `This is the correct response to the cross-account cookie leak; the archived ` +
+          `file contained unowned cookies and must not be reloaded.`
+        );
+      } catch (e) {
+        console.error('[cookies] Failed to archive legacy cookie file:', e.message);
+      }
+      return;
     }
-    console.log(`[cookies] Loaded ${jar.size} cookies from file`);
+
+    if (parsed && typeof parsed === 'object') {
+      let total = 0;
+      for (const [apiKey, cookies] of Object.entries(parsed)) {
+        if (!Array.isArray(cookies)) continue;
+        const jar = getJar(apiKey);
+        for (const c of cookies) jar.set(cookieKey(c), c);
+        total += cookies.length;
+      }
+      console.log(`[cookies] Loaded ${total} cookies across ${jars.size} API keys from file`);
+    }
   } catch {}
 }
 
@@ -137,54 +179,76 @@ loadFromDb().then((ok) => {
   loadFromFile();
 });
 
-// ── Public API (unchanged signatures) ──
+// ── Public API ──
 
 /**
- * Merge a full cookie dump (from a browser that just connected).
- * Returns the current full jar so the caller can sync it to other browsers.
+ * Merge a full cookie dump (from a browser that just connected) into the
+ * jar for the given API key. Returns that jar's current contents so the
+ * caller can sync it to other browsers in the same pool.
  */
-export function mergeDump(cookies) {
+export function mergeDump(apiKey, cookies) {
+  if (!apiKey) return [];
+  const jar = getJar(apiKey);
   for (const c of cookies) {
     const id = cookieKey(c);
     jar.set(id, c);
-    queueUpsert(id, c);
+    queueUpsert(apiKey, id, c);
   }
-  return getAll();
+  return [...jar.values()];
 }
 
 /**
- * Apply an incremental cookie change.
+ * Apply an incremental cookie change scoped to a single API key.
+ * @param {string} apiKey
  * @param {object} change - { cookie, removed }
- * @returns {object} the change to broadcast
+ * @returns {object} the change to broadcast (or null if apiKey missing)
  */
-export function applyChange(change) {
+export function applyChange(apiKey, change) {
+  if (!apiKey) return null;
+  const jar = getJar(apiKey);
   const id = cookieKey(change.cookie);
   if (change.removed) {
     jar.delete(id);
-    queueDelete(id);
+    queueDelete(apiKey, id);
   } else {
     jar.set(id, change.cookie);
-    queueUpsert(id, change.cookie);
+    queueUpsert(apiKey, id, change.cookie);
   }
   return change;
 }
 
 /**
- * Get all cookies.
+ * Get all cookies for a single API key.
  */
-export function getAll() {
-  return [...jar.values()];
+export function getAll(apiKey) {
+  if (!apiKey) return [];
+  const jar = jars.get(apiKey);
+  return jar ? [...jar.values()] : [];
 }
 
 /**
- * Clear all cookies.
+ * Get all cookies across every API key, as an object keyed by apiKey.
+ * Admin-only — do not expose to regular callers.
  */
-export function clear() {
-  jar.clear();
-  pendingUpserts.clear();
-  pendingDeletes.clear();
+export function getAllByKey() {
+  const out = {};
+  for (const [apiKey, jar] of jars) {
+    out[apiKey] = [...jar.values()];
+  }
+  return out;
+}
+
+/**
+ * Clear all cookies for a single API key.
+ */
+export function clear(apiKey) {
+  if (!apiKey) return;
+  const jar = jars.get(apiKey);
+  if (!jar) return;
+  for (const id of jar.keys()) queueDelete(apiKey, id);
+  jars.delete(apiKey);
   if (db) {
-    db.from('cookies').delete().neq('id', '').then(({ error }) => {
+    db.from('cookies').delete().eq('api_key', apiKey).then(({ error }) => {
       if (error) console.error('[cookies] Failed to clear in Supabase:', error.message);
     }).catch((e) => {
       console.error('[cookies] Failed to clear in Supabase:', e.message);
@@ -192,4 +256,11 @@ export function clear() {
   } else {
     scheduleFlush();
   }
+}
+
+/**
+ * Clear every jar for every API key. Admin-only.
+ */
+export function clearAll() {
+  for (const apiKey of [...jars.keys()]) clear(apiKey);
 }

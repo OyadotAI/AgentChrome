@@ -7,7 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
-import { isAdminKey, isFleetToken } from './auth.js';
+import { isAdminKey, isFleetToken, validateApiKey } from './auth.js';
 import { nextBrowser, poolStats } from './pool.js';
 
 /** Pool pinned browser state: apiKey → browserId */
@@ -507,15 +507,22 @@ Use element IDs with click/type tools. The output includes:
  */
 export async function handleMcpRequest(req, res) {
   const { browserId } = req.params;
-  const apiKey = req.headers.authorization?.slice(7) || '';
+  const header = req.headers.authorization;
+  const apiKey = header?.startsWith('Bearer ') ? header.slice(7) : '';
+
+  if (!apiKey || !validateApiKey(apiKey)) {
+    res.status(401).json({ error: 'Missing or invalid API key' });
+    return;
+  }
 
   if (!registry.isConnected(browserId)) {
     res.status(404).json({ error: `Browser ${browserId} not connected` });
     return;
   }
 
-  // Scope check — only the key that owns this browser (or admin) can access its MCP
-  if (apiKey && !isAdminKey(apiKey) && !registry.belongsTo(browserId, apiKey)) {
+  // Scope check — only the key that owns this browser (or admin) can access its MCP.
+  // Return 404 (not 403) so non-owners can't probe for browser existence.
+  if (!isAdminKey(apiKey) && !registry.belongsTo(browserId, apiKey)) {
     res.status(404).json({ error: `Browser ${browserId} not connected` });
     return;
   }
@@ -784,10 +791,11 @@ function createPoolMcpServer(apiKey) {
  * Express handler for pool MCP endpoint: POST/GET/DELETE /mcp/pool
  */
 export async function handlePoolMcpRequest(req, res) {
-  const apiKey = req.headers.authorization?.slice(7) || '';
+  const header = req.headers.authorization;
+  const apiKey = header?.startsWith('Bearer ') ? header.slice(7) : '';
 
-  if (!apiKey) {
-    res.status(401).json({ error: 'Missing API key' });
+  if (!apiKey || !validateApiKey(apiKey)) {
+    res.status(401).json({ error: 'Missing or invalid API key' });
     return;
   }
 

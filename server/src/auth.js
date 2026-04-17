@@ -84,7 +84,7 @@ export async function refreshSession(refreshToken) {
 // ── API key management ──
 
 export function validateApiKey(key) {
-  if (envKeys.size === 0 && keyCache.size === 0 && !fleetToken) return true;
+  if (!key) return false;
   return envKeys.has(key) || keyCache.has(key) || isFleetToken(key);
 }
 

@@ -21,6 +21,7 @@ const pendingCommands = new Map();
  */
 export function handleConnection(ws) {
   let browserId = null;
+  let apiKey = null;
   let authenticated = false;
   let pingTimer = null;
   let lastPong = Date.now();
@@ -52,12 +53,21 @@ export function handleConnection(ws) {
       }
 
       browserId = msg.browser_id || uuidv4();
+      apiKey = msg.api_key;
+
+      // If browser_id already connected, verify the incoming key owns it
+      // before kicking the existing connection. Without this check, any
+      // valid key could hijack another tenant's browser_id.
+      const existing = registry.get(browserId);
+      if (existing && existing.apiKey !== apiKey) {
+        ws.close(4003, 'browser_id registered to a different key');
+        return;
+      }
+
       authenticated = true;
 
-      // If browser_id already connected, close the old one
-      const existing = registry.get(browserId);
       if (existing) {
-        // Reject pending commands sent via the old connection
+        // Same owner reconnecting — replace the old socket.
         for (const [cmdId, pending] of pendingCommands) {
           if (pending.browserId === browserId) {
             clearTimeout(pending.timer);
@@ -81,8 +91,9 @@ export function handleConnection(ws) {
         fingerprint,
       }));
 
-      // Send current shared cookie jar so this browser syncs immediately
-      const cookies = getAllCookies();
+      // Send this API key's cookie jar so this browser syncs immediately.
+      // Cookies are scoped per API key to prevent cross-account leakage.
+      const cookies = getAllCookies(apiKey);
       if (cookies.length > 0) {
         try {
           ws.send(JSON.stringify({ type: 'cookie_sync', cookies }));
@@ -124,15 +135,12 @@ export function handleConnection(ws) {
     // ── Cookie dump (full jar from browser on connect) ──
     if (msg.type === 'cookie_dump') {
       if (Array.isArray(msg.cookies)) {
-        const merged = mergeDump(msg.cookies);
-        const browser = registry.get(browserId);
-        if (browser) {
-          // Sync the full merged jar to all OTHER pool browsers
-          broadcastToPool(browser.apiKey, browserId, {
-            type: 'cookie_sync',
-            cookies: merged,
-          });
-        }
+        const merged = mergeDump(apiKey, msg.cookies);
+        // Sync the merged jar to all OTHER browsers sharing this API key
+        broadcastToPool(apiKey, browserId, {
+          type: 'cookie_sync',
+          cookies: merged,
+        });
         console.log(`[ws] Cookie dump from ${browserId}: ${msg.cookies.length} cookies, jar now ${merged.length}`);
       }
       return;
@@ -141,10 +149,9 @@ export function handleConnection(ws) {
     // ── Cookie change (incremental update) ──
     if (msg.type === 'cookie_changed') {
       if (msg.change) {
-        const change = applyChange(msg.change);
-        const browser = registry.get(browserId);
-        if (browser) {
-          broadcastToPool(browser.apiKey, browserId, {
+        const change = applyChange(apiKey, msg.change);
+        if (change) {
+          broadcastToPool(apiKey, browserId, {
             type: 'cookie_update',
             change,
           });

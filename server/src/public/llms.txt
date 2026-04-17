@@ -139,10 +139,11 @@ Additional tool: pool_status — shows pool size and connected browsers.
 
 ### Cookie Sync
 
-All browsers in the pool share cookies automatically:
-- On connect: browser sends its cookies to the server, receives the shared jar
-- On change: cookie changes are broadcast to all other pool browsers in real-time
-- Login once in any browser → all browsers get the session
+Cookies are scoped to the API key. Browsers sharing a key share cookies;
+different API keys are fully isolated from each other.
+- On connect: browser sends its cookies, receives the jar for its API key
+- On change: cookie changes are broadcast to other browsers with the same key
+- Login once with key K → every browser using K gets the session; other keys are unaffected
 
 ### Pool REST API
 
@@ -168,11 +169,14 @@ All browsers in the pool share cookies automatically:
 
 ## REST API
 
-All endpoints require Authorization: Bearer API_KEY header (except /health and /register-key).
+All endpoints require Authorization: Bearer API_KEY header (except /health).
+API keys are created via the dashboard after sign-in (POST /auth/keys).
 Interactive API testing (Swagger UI): GET /swagger
 
     GET  /health                    Server status + browser count
-    POST /register-key              Register new API key (body: { "key": "..." })
+    POST /auth/signup               Create user account
+    POST /auth/login                Sign in → access_token
+    POST /auth/keys                 Create API key (user JWT required)
     GET  /browsers                  List connected browsers (scoped to your key)
     POST /browsers/:id/command      Send command (body: { "action": "...", "params": {} })
     POST /browsers/:id/chat         Chat with LLM (body: { "messages": [...] })
@@ -182,10 +186,10 @@ Interactive API testing (Swagger UI): GET /swagger
     POST /mcp/pool                  Pool MCP endpoint (round-robin)
     GET  /pool                      Pool status
     POST /pool/command              Pool round-robin command
-    GET  /pool/cookies              Shared cookie jar
-    POST /fleet/provision?count=N   Batch-generate API keys
-    GET  /config                    Get server settings
-    POST /config                    Update server settings
+    GET  /pool/cookies              Per-key cookie jar (admin sees all)
+    POST /fleet/provision?count=N   Batch-generate API keys (admin)
+    GET  /config                    Get server settings (admin)
+    POST /config                    Update server settings (admin)
 
 ### Command API — POST /browsers/:id/command
 
