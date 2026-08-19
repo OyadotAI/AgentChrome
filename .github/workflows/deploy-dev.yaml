@@ -164,9 +164,18 @@ jobs:
           -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
 
     - name: Wait for rollout
+      # No `|| true` — a stuck rollout (ImagePullBackOff, unschedulable) must
+      # fail the job instead of reporting a green deploy that never landed.
       run: |
-        kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=120s || true
-        kubectl rollout status deployment/browser -n ${{ env.NAMESPACE }} --timeout=120s || true
+        kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=180s
+        kubectl rollout status deployment/browser -n ${{ env.NAMESPACE }} --timeout=180s
+
+    - name: Diagnose failed rollout
+      if: failure()
+      run: |
+        kubectl get pods -n ${{ env.NAMESPACE }}
+        kubectl get events -n ${{ env.NAMESPACE }} --field-selector type=Warning \
+          --sort-by=.lastTimestamp | tail -20
 
     - name: Show status
       if: always()
