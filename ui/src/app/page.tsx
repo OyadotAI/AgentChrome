@@ -72,7 +72,7 @@ const tools = [
 const mcpConfig = `{
   "mcpServers": {
     "oya-browser": {
-      "url": "https://browser.oya.ai/mcp/YOUR_BROWSER_ID",
+      "url": "https://browser.getoya.ai/mcp/YOUR_BROWSER_ID",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -84,7 +84,7 @@ const mcpConfig = `{
 const poolConfig = `{
   "mcpServers": {
     "oya-pool": {
-      "url": "https://browser.oya.ai/mcp/pool",
+      "url": "https://browser.getoya.ai/mcp/pool",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer YOUR_FLEET_TOKEN"
@@ -385,7 +385,7 @@ export default function Home() {
             <span className="text-text-muted">{'{'}</span>{'\n'}
             <span className="text-text-muted">{'  '}</span><span className="text-indigo">&quot;mcpServers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
             <span className="text-text-muted">{'    '}</span><span className="text-indigo">&quot;oya-browser&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;https://browser.oya.ai/mcp/YOUR_ID&quot;</span><span className="text-text-muted">,</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;https://browser.getoya.ai/mcp/YOUR_ID&quot;</span><span className="text-text-muted">,</span>{'\n'}
             <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;transport&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;streamable-http&quot;</span><span className="text-text-muted">,</span>{'\n'}
             <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;headers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
             <span className="text-text-muted">{'        '}</span><span className="text-indigo">&quot;Authorization&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;Bearer YOUR_API_KEY&quot;</span>{'\n'}
@@ -409,7 +409,7 @@ export default function Home() {
             <span className="text-text-muted">{'{'}</span>{'\n'}
             <span className="text-text-muted">{'  '}</span><span className="text-indigo">&quot;mcpServers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
             <span className="text-text-muted">{'    '}</span><span className="text-indigo">&quot;oya-pool&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
-            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;https://browser.oya.ai/mcp/pool&quot;</span><span className="text-text-muted">,</span>{'\n'}
+            <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;url&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;https://browser.getoya.ai/mcp/pool&quot;</span><span className="text-text-muted">,</span>{'\n'}
             <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;transport&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;streamable-http&quot;</span><span className="text-text-muted">,</span>{'\n'}
             <span className="text-text-muted">{'      '}</span><span className="text-indigo">&quot;headers&quot;</span><span className="text-text-muted">: {'{'}</span>{'\n'}
             <span className="text-text-muted">{'        '}</span><span className="text-indigo">&quot;Authorization&quot;</span><span className="text-text-muted">: </span><span className="text-yellow">&quot;Bearer YOUR_FLEET_TOKEN&quot;</span>{'\n'}

@@ -1,8 +1,8 @@
 # Ingress for Oya Browser Server
-# WebSocket: wss://browser.oya.ai/ws
-# MCP:       https://browser.oya.ai/mcp/:id
-# Dashboard: https://browser.oya.ai/
-# Live view: https://browser.oya.ai/live/:id
+# WebSocket: wss://browser.getoya.ai/ws
+# MCP:       https://browser.getoya.ai/mcp/:id
+# Dashboard: https://browser.getoya.ai/
+# Live view: https://browser.getoya.ai/live/:id
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -31,9 +31,23 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
+    - browser.getoya.ai
+    # Legacy host — kept so TLS terminates before the server's 308 redirect
     - browser.oya.ai
     secretName: oya-browser-cert
   rules:
+  - host: browser.getoya.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: server
+            port:
+              number: 3100
+  # Legacy host — server redirects browsers/docs to browser.getoya.ai,
+  # while /ws, /mcp, /api and /downloads keep serving for existing clients
   - host: browser.oya.ai
     http:
       paths:

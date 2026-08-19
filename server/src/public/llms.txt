@@ -6,7 +6,7 @@
 
 Oya Browser is a desktop browser (Electron) that connects to the Oya Browser server via WebSocket. AI tools (Claude Desktop, Cursor, Windsurf, any MCP client) connect to the server via MCP to control the browser.
 
-Users run the browser on their machines with their real cookies, logins, and sessions. The server is hosted at browser.oya.ai. Each user creates an API key from the dashboard and uses it to connect their browser.
+Users run the browser on their machines with their real cookies, logins, and sessions. The server is hosted at browser.getoya.ai. Each user creates an API key from the dashboard and uses it to connect their browser.
 
 Architecture:
 - User's machine: Oya Browser app → WebSocket → Oya Server
@@ -14,24 +14,24 @@ Architecture:
 
 ## Quickstart
 
-1. Go to https://browser.oya.ai/dashboard and click Generate to create an API key
+1. Go to https://browser.getoya.ai/dashboard and click Generate to create an API key
 2. Download Oya Browser (macOS .dmg or Linux .AppImage)
 3. macOS: after install run `xattr -cr /Applications/Oya\ Browser.app` (app is not notarized yet). To open multiple instances: `open -n "/Applications/Oya Browser.app" --args --user-data-dir=/tmp/oya-2`
-4. Open the app, enter `wss://browser.oya.ai/ws` as server URL and paste your API key
+4. Open the app, enter `wss://browser.getoya.ai/ws` as server URL and paste your API key
 4. Your browser appears in the dashboard — connect AI tools via MCP
 
 ## MCP Endpoint
 
 Each connected browser gets an MCP endpoint:
 
-    https://browser.oya.ai/mcp/{BROWSER_ID}
+    https://browser.getoya.ai/mcp/{BROWSER_ID}
 
 MCP config for Cursor / Claude Desktop:
 
     {
       "mcpServers": {
         "oya-browser": {
-          "url": "https://browser.oya.ai/mcp/BROWSER_ID",
+          "url": "https://browser.getoya.ai/mcp/BROWSER_ID",
           "transport": "streamable-http",
           "headers": {
             "Authorization": "Bearer YOUR_API_KEY"
@@ -158,7 +158,7 @@ different API keys are fully isolated from each other.
     {
       "mcpServers": {
         "oya-pool": {
-          "url": "https://browser.oya.ai/mcp/pool",
+          "url": "https://browser.getoya.ai/mcp/pool",
           "transport": "streamable-http",
           "headers": {
             "Authorization": "Bearer FLEET_TOKEN"
@@ -231,7 +231,7 @@ Examples:
 
 ## WebSocket Protocol
 
-Browsers connect via WebSocket at wss://browser.oya.ai/ws
+Browsers connect via WebSocket at wss://browser.getoya.ai/ws
 
 Auth: { "type": "auth", "api_key": "...", "browser_id": "...", "browser_name": "..." }
 Response: { "type": "auth_ok", "browser_id": "..." }

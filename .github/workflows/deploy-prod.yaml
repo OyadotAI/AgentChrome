@@ -1,4 +1,4 @@
-name: Deploy Prod (browser.oya.ai)
+name: Deploy Prod (browser.getoya.ai)
 
 on:
   push:

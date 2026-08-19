@@ -9,4 +9,6 @@ spec:
     name: letsencrypt-prod
     kind: ClusterIssuer
   dnsNames:
+  - dev-browser.getoya.ai
+  # Legacy host — still served (redirects to the canonical domain)
   - dev-browser.oya.ai

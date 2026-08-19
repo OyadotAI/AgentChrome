@@ -1,7 +1,7 @@
 {
   "name": "Oya Browser",
   "description": "Control a real Chrome browser that has the user's cookies, logins, and extensions. Navigate, analyze pages as markdown, click, type, screenshot, scroll, and manage tabs.",
-  "url": "https://browser.oya.ai",
+  "url": "https://browser.getoya.ai",
   "version": "1.0.0",
   "capabilities": {
     "streaming": true,

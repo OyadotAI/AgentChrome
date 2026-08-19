@@ -32,6 +32,23 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// ── Legacy domain redirect: *.oya.ai → *.getoya.ai ──
+// The old hosts still resolve and terminate TLS at the ingress; anything
+// human-facing gets pushed to the canonical domain. /ws, /mcp, /api and
+// /downloads pass through untouched so already-installed browsers and MCP
+// clients configured against the old host keep working.
+const LEGACY_HOST = /^([a-z0-9-]+)\.oya\.ai$/i;
+const REDIRECT_EXEMPT = ['/ws', '/mcp', '/api', '/downloads'];
+
+app.use((req, res, next) => {
+  const host = (req.headers.host || '').split(':')[0];
+  const legacy = LEGACY_HOST.exec(host);
+  if (!legacy) return next();
+  if (REDIRECT_EXEMPT.some((p) => req.path === p || req.path.startsWith(p + '/'))) return next();
+  // 308 rather than 301 — preserves method and body for non-GET requests
+  res.redirect(308, `https://${legacy[1]}.getoya.ai${req.originalUrl}`);
+});
+
 const publicDir = join(__dirname, 'public');
 
 // ── Discovery & docs (root level) ──

@@ -53,7 +53,7 @@ export default function DocsPage() {
       ['Quickstart', 'quickstart', 'H2'],
       ['Go to the dashboard and click Generate to create an API key', 'quickstart', 'LI'],
       ['Download Oya Browser for your OS', 'quickstart', 'LI'],
-      ['Open the app, enter wss://browser.oya.ai/ws as server URL and paste your API key', 'quickstart', 'LI'],
+      ['Open the app, enter wss://browser.getoya.ai/ws as server URL and paste your API key', 'quickstart', 'LI'],
       ['Your browser appears in the dashboard — you can now send commands or connect AI tools', 'quickstart', 'LI'],
       ['Create API Key', 'create-key', 'H2'],
       ['Go to the dashboard. Click the green Generate button next to the API key field.', 'create-key', 'P'],
@@ -120,7 +120,7 @@ export default function DocsPage() {
       ['Page Analysis Actions', 'command-api', 'H3'],
       ['Interaction Actions', 'command-api', 'H3'],
       ['WebSocket Protocol', 'websocket', 'H2'],
-      ['Browsers connect via WebSocket at wss://browser.oya.ai/ws.', 'websocket', 'P'],
+      ['Browsers connect via WebSocket at wss://browser.getoya.ai/ws.', 'websocket', 'P'],
     ];
     return items
       .filter(([text]) => text.length >= 3)
@@ -429,7 +429,7 @@ export default function DocsPage() {
           <ol className="list-decimal list-inside space-y-1.5 mb-4 text-[15px] leading-relaxed">
             <li>Go to the <InlineLink href="/dashboard">dashboard</InlineLink> and click <strong>Generate</strong> to create an API key</li>
             <li><InlineAnchor onClick={() => navClick('download')}>Download</InlineAnchor> Oya Browser for your OS</li>
-            <li>Open the app, enter <InlineCode>wss://browser.oya.ai/ws</InlineCode> as server URL and paste your API key</li>
+            <li>Open the app, enter <InlineCode>wss://browser.getoya.ai/ws</InlineCode> as server URL and paste your API key</li>
             <li>Your browser appears in the <InlineLink href="/dashboard">dashboard</InlineLink> — you can now send commands or connect AI tools</li>
           </ol>
 
@@ -494,7 +494,7 @@ open -n "/Applications/Oya Browser.app" --args --user-data-dir=/tmp/oya-3
           <Table
             headers={['Field', 'Value']}
             rows={[
-              ['Server URL', <InlineCode key="url">wss://browser.oya.ai/ws</InlineCode>],
+              ['Server URL', <InlineCode key="url">wss://browser.getoya.ai/ws</InlineCode>],
               ['API Key', 'The key you generated in the dashboard'],
               ['Browser Name', 'Optional — how it shows in the dashboard'],
             ]}
@@ -508,7 +508,7 @@ open -n "/Applications/Oya Browser.app" --args --user-data-dir=/tmp/oya-3
           <p className="mb-3 text-[15px] leading-relaxed">
             Oya Browser exposes each connected browser as an MCP server at:
           </p>
-          <CodeBlock>{'https://browser.oya.ai/mcp/{BROWSER_ID}'}</CodeBlock>
+          <CodeBlock>{'https://browser.getoya.ai/mcp/{BROWSER_ID}'}</CodeBlock>
           <p className="mb-3 text-[15px] leading-relaxed">
             Get your browser&apos;s ID from the <InlineLink href="/dashboard">dashboard</InlineLink> (shown under each browser name, or in the MCP Tools tab).
           </p>
@@ -520,7 +520,7 @@ open -n "/Applications/Oya Browser.app" --args --user-data-dir=/tmp/oya-3
           <CodeBlock>{`{
   "mcpServers": {
     "oya-browser": {
-      "url": "https://browser.oya.ai/mcp/YOUR_BROWSER_ID",
+      "url": "https://browser.getoya.ai/mcp/YOUR_BROWSER_ID",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -536,7 +536,7 @@ open -n "/Applications/Oya Browser.app" --args --user-data-dir=/tmp/oya-3
           <CodeBlock>{`{
   "mcpServers": {
     "oya-browser": {
-      "url": "https://browser.oya.ai/mcp/YOUR_BROWSER_ID",
+      "url": "https://browser.getoya.ai/mcp/YOUR_BROWSER_ID",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer YOUR_API_KEY"
@@ -893,7 +893,7 @@ analyze_page()`}</CodeBlock>
           {/* ============ WEBSOCKET ============ */}
           <SectionHeading id="websocket">WebSocket Protocol</SectionHeading>
           <p className="mb-3 text-[15px] leading-relaxed">
-            Browsers connect via WebSocket at <InlineCode>wss://browser.oya.ai/ws</InlineCode>.
+            Browsers connect via WebSocket at <InlineCode>wss://browser.getoya.ai/ws</InlineCode>.
           </p>
 
           <h3 className="text-base font-semibold mt-6 mb-2 text-text">Auth</h3>

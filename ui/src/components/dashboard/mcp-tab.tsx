@@ -15,7 +15,7 @@ export default function McpTab({ selectedBrowser, apiKey }: McpTabProps) {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
   const config = useMemo(() => {
-    const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'https://browser.oya.ai';
+    const baseUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : 'https://browser.getoya.ai';
     const browserUrl = selectedBrowser ? `${baseUrl}/mcp/${selectedBrowser}` : 'Select a browser';
     const poolUrl = `${baseUrl}/mcp/pool`;
     const authEntry = apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {};

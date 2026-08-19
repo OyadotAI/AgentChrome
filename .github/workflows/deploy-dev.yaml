@@ -1,4 +1,4 @@
-name: Deploy Dev (dev-browser.oya.ai)
+name: Deploy Dev (dev-browser.getoya.ai)
 
 on:
   push:
