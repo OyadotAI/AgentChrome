@@ -1,0 +1,60 @@
+{
+  "id": "f7300fe1-dc27-4603-920c-9bffbd02fc10",
+  "audio": {
+    "noiseSeed": 0.005867842481440828
+  },
+  "fonts": {
+    "available": [
+      "Arial",
+      "Arial Black",
+      "Courier New",
+      "Georgia",
+      "Helvetica",
+      "Helvetica Neue",
+      "Impact",
+      "Lucida Grande",
+      "Menlo",
+      "Monaco",
+      "SF Pro",
+      "Times New Roman",
+      "Trebuchet MS",
+      "Verdana"
+    ]
+  },
+  "proxy": null,
+  "rects": {
+    "noiseSeed": 0.0002864825926456793
+  },
+  "webgl": {
+    "vendor": "Google Inc. (Apple)",
+    "renderer": "ANGLE (Apple, Apple M2 Pro, OpenGL 4.1)",
+    "unmaskedVendor": "Apple",
+    "unmaskedRenderer": "Apple M2 Pro"
+  },
+  "canvas": {
+    "noiseSeed": 0.009863374542878795
+  },
+  "locale": "en-US",
+  "screen": {
+    "width": 1440,
+    "height": 900,
+    "availWidth": 1440,
+    "colorDepth": 24,
+    "pixelDepth": 24,
+    "availHeight": 860,
+    "devicePixelRatio": 2
+  },
+  "timezone": "America/Phoenix",
+  "createdAt": "2026-09-09T12:36:36.700Z",
+  "navigator": {
+    "vendor": "Google Inc.",
+    "platform": "MacIntel",
+    "languages": [
+      "en-US",
+      "en"
+    ],
+    "deviceMemory": 8,
+    "maxTouchPoints": 0,
+    "hardwareConcurrency": 8
+  }
+}
