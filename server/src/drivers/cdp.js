@@ -173,8 +173,15 @@ export class CDPDriver {
   clientType = 'cdp';
   capabilities = CDP_CAPABILITIES;
 
-  constructor({ wsUrl, provider = 'cdp', onClose } = {}) {
+  constructor({ wsUrl, provider = 'cdp', onClose, fingerprint } = {}) {
     Object.assign(this, { wsUrl, provider, onClose });
+    if (fingerprint) {
+      // Strip the headless marker and align the UA with the spoofed platform;
+      // "HeadlessChrome" in the UA is one of the oldest checks there is.
+      this.userAgent = String(fingerprint.userAgent || '').replace(/HeadlessChrome/g, 'Chrome') || null;
+      this.acceptLanguage = fingerprint.navigator?.languages?.join(',') || null;
+      this.platform = fingerprint.navigator?.platform || null;
+    }
   }
 
   async connect() {
@@ -200,6 +207,17 @@ export class CDPDriver {
     for (const domain of ['Page', 'Runtime', 'DOM', 'Network']) {
       await this.conn.send(`${domain}.enable`, {}, sessionId).catch(() => {});
     }
+    // The UA is an HTTP header as well as a JS property, so it cannot be fixed
+    // from an injected script — a page reads HeadlessChrome from the header no
+    // matter what navigator.userAgent says. Emulation sets both.
+    if (this.userAgent) {
+      await this.conn.send('Emulation.setUserAgentOverride', {
+        userAgent: this.userAgent,
+        ...(this.acceptLanguage ? { acceptLanguage: this.acceptLanguage } : {}),
+        ...(this.platform ? { platform: this.platform } : {}),
+      }, sessionId).catch(() => {});
+    }
+
     // Re-inject on every navigation so analyze works on the new document.
     const analyzer = getAnalyzer();
     if (analyzer) {

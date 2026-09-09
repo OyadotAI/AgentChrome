@@ -251,7 +251,7 @@ try {
   const X = await import('./src/proxies.js');
   const ownerFp = (await import('./src/audit.js')).fingerprint('tenant-key');
 
-  const px = X.register({ owner: ownerFp, label: 'us-1', url: 'http://u:p@px.example.com:8080', geo: 'US' });
+  const px = await X.register({ owner: ownerFp, label: 'us-1', url: 'http://u:p@example.com:8080', geo: 'US' });
   assert(px.id.startsWith('px-'), 'a proxy can be registered');
   assert(X.list(ownerFp).some((p) => p.id === px.id), 'and listed for its owner');
   assert(X.list((await import('./src/audit.js')).fingerprint('admin-key')).every((p) => p.id !== px.id),
@@ -259,15 +259,15 @@ try {
 
   // Credentials are the whole reason this is encrypted at rest.
   const shown = JSON.stringify(px.toJSON());
-  assert(!shown.includes('px.example.com') && !shown.includes('u:p'),
+  assert(!shown.includes('example.com') && !shown.includes('u:p'),
     'the API view carries no host or credentials');
-  assert(X.credentials(px).url === 'http://px.example.com:8080', 'the server can still decrypt them');
+  assert(X.credentials(px).url === 'http://example.com:8080', 'the server can still decrypt them');
   assert(X.credentials(px).username === 'u', 'including the username');
 
   // Chromium silently drops SOCKS5 auth, and that is what residential vendors
   // sell — refusing beats handing back an exit that does not apply.
   let socksRefused = false;
-  try { X.register({ owner: ownerFp, url: 'socks5://user:pw@px.example.com:1080' }); }
+  try { await X.register({ owner: ownerFp, url: 'socks5://user:pw@example.com:1080' }); }
   catch (e) { socksRefused = e.status === 400 && /SOCKS5/.test(e.message); }
   assert(socksRefused, 'an authenticated SOCKS5 proxy is refused with the reason');
 

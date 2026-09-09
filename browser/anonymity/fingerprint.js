@@ -319,6 +319,46 @@ function buildFingerprintBody(profile) {
     return out;
   });
 
+  // ── performance.memory ──
+  // Present on every desktop Chrome and absent in headless, which is exactly
+  // what the CHR_MEMORY check reads. Values are derived from the persona so
+  // they are stable and consistent with its deviceMemory.
+  if (window.performance && !window.performance.memory) {
+    const limit = (__fp.navigator.deviceMemory || 8) * 1024 * 1024 * 1024 / 4;
+    const used = Math.floor(limit * (0.08 + Math.abs(_noise(__canvasSeed, 'heap')) * 0.1));
+    const memory = Object.create(null);
+    Object.defineProperties(memory, {
+      jsHeapSizeLimit: { value: Math.floor(limit), enumerable: true },
+      totalJSHeapSize: { value: Math.floor(used * 1.4), enumerable: true },
+      usedJSHeapSize: { value: used, enumerable: true },
+    });
+    _defineGetter(window.performance, 'memory', memory);
+  }
+
+  // ── mediaDevices ──
+  // A headless container enumerates zero devices; a real desktop never does.
+  // Labels stay empty, which is what a real browser returns without permission,
+  // and the ids are derived from the persona so they are stable for it.
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
+    const deviceId = (n) => {
+      let h = Math.floor(Math.abs(__fp.canvas.noiseSeed) * 1e9) ^ (n * 2654435761);
+      let out = '';
+      for (let i = 0; i < 8; i++) { h = (Math.imul(h, 31) + n + i) >>> 0; out += h.toString(16).padStart(8, '0'); }
+      return out.slice(0, 64);
+    };
+    const devices = [
+      { kind: 'audioinput', label: '', deviceId: deviceId(1), groupId: deviceId(9) },
+      { kind: 'videoinput', label: '', deviceId: deviceId(2), groupId: deviceId(10) },
+      { kind: 'audiooutput', label: '', deviceId: 'default', groupId: deviceId(9) },
+    ].map((d) => (typeof InputDeviceInfo === 'function' && d.kind !== 'audiooutput'
+      ? Object.setPrototypeOf({ ...d, toJSON() { return d; } }, InputDeviceInfo.prototype)
+      : Object.setPrototypeOf({ ...d, toJSON() { return d; } }, MediaDeviceInfo.prototype)));
+
+    _patch(navigator.mediaDevices, 'enumerateDevices', (orig) => function enumerateDevices() {
+      return orig.call(this).then((real) => (real && real.length ? real : devices));
+    });
+  }
+
   // ── WebRTC leak prevention ──
   if (typeof RTCPeerConnection !== 'undefined') {
     const OrigRTC = RTCPeerConnection;

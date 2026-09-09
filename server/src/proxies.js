@@ -15,6 +15,7 @@
 import { randomBytes } from 'crypto';
 import { sealText, openText, haveSecret } from './secrets.js';
 import { metrics } from './metrics.js';
+import { assertSafeTarget } from './net-guard.js';
 
 const COOLDOWN_MS = 60_000;
 const CHECK_TIMEOUT_MS = Number(process.env.OYA_PROXY_CHECK_TIMEOUT_MS) || 10_000;
@@ -78,7 +79,7 @@ export function credentials(proxy) {
   return openText(scopeFor(proxy.id), proxy.sealed);
 }
 
-export function register({ owner = null, label, url, geo, kind, maxPersonas }) {
+export async function register({ owner = null, label, url, geo, kind, maxPersonas }) {
   if (!haveSecret()) {
     throw Object.assign(
       new Error('OYA_PROFILE_SECRET is required before proxy credentials can be stored'),
@@ -101,6 +102,17 @@ export function register({ owner = null, label, url, geo, kind, maxPersonas }) {
       { status: 400 },
     );
   }
+
+  // The server dials this address during health checks, using its own network
+  // position rather than the caller's — the same SSRF primitive as a
+  // caller-supplied CDP endpoint. Private and loopback are refused unless the
+  // host opts in, and link-local (cloud metadata) never.
+  // Validate the address only — credentials are the normal form for a proxy,
+  // and they are stripped and encrypted below rather than kept in the URL.
+  await assertSafeTarget(`${parsed.protocol}//${parsed.host}`, {
+    protocols: ['http:', 'https:', 'socks5:', 'socks:'],
+    label: 'proxy url',
+  });
 
   const id = 'px-' + randomBytes(6).toString('hex');
   const proxy = new Proxy({

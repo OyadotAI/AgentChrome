@@ -446,9 +446,9 @@ router.get('/proxies', authMiddleware, (req, res) => {
   res.json({ proxies: proxies.list(fingerprint(getKey(req))) });
 });
 
-router.post('/proxies', authMiddleware, (req, res) => {
+router.post('/proxies', authMiddleware, async (req, res) => {
   try {
-    const created = proxies.register({
+    const created = await proxies.register({
       owner: fingerprint(getKey(req)),
       label: req.body?.label,
       url: req.body?.url,
