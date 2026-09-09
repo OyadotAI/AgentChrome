@@ -18,6 +18,8 @@ import Onboarding from '@/components/dashboard/onboarding';
 import StartBrowser from '@/components/dashboard/start-browser';
 import DesktopBanner from '@/components/dashboard/desktop-banner';
 import ShortcutHelp from '@/components/dashboard/shortcut-help';
+import SnippetsDialog, { browserSnippets, fleetSnippets } from '@/components/dashboard/snippets';
+import Dialog from '@/components/ui/dialog';
 import { Confirm } from '@/components/ui/dialog';
 import { loadConfig, isOyaProvider, type KeyConfig } from '@/components/dashboard/config';
 import type { BrowserRow, Fleet, Persona } from '@/components/dashboard/types';
@@ -59,6 +61,9 @@ export default function DashboardPage() {
   const [stopIds, setStopIds] = useState<string[] | null>(null);
   const [stopping, setStopping] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [connectId, setConnectId] = useState<string | null>(null);
+  const [showCode, setShowCode] = useState(false);
+  const [shot, setShot] = useState<{ id: string; src: string } | null>(null);
 
   const filterRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<HTMLInputElement>(null);
@@ -152,6 +157,13 @@ export default function DashboardPage() {
     finally { setStopping(false); setStopIds(null); }
   };
 
+  const screenshotOf = useCallback(async (id: string) => {
+    try {
+      const r = await api<{ ok: boolean; data?: { screenshot?: string }; error?: string }>(`/browsers/${id}/command`, { key: apiKey, method: 'POST', body: { action: 'screenshot' } });
+      if (r.data?.screenshot) setShot({ id, src: r.data.screenshot }); else toast(r.error || 'No screenshot', 'error');
+    } catch (err) { toast(errorMessage(err), 'error'); }
+  }, [apiKey, toast]);
+
   const moveSelection = useCallback((dir: 1 | -1) => {
     const rows = [...document.querySelectorAll<HTMLElement>('tbody [data-id]')].map((el) => el.dataset.id!);
     if (!rows.length) return;
@@ -230,6 +242,7 @@ export default function DashboardPage() {
               {tab === 'browsers' && (
                 <FleetTable rows={browsers} selectedId={selected} onSelect={setSelected} checked={checked} onChecked={setChecked}
                   filter={filter} onFilter={(n) => setFilter((f) => ({ ...f, ...n }))} onStop={requestStop} onStart={() => setShowStart(true)}
+                  onConnect={setConnectId} onScreenshot={screenshotOf} onCode={() => setShowCode(true)} apiKey={apiKey}
                   filterRef={filterRef} now={now} />
               )}
               {tab === 'personas' && (
@@ -242,7 +255,7 @@ export default function DashboardPage() {
             {tab === 'browsers' && selected && (
               <div className="fixed inset-0 z-40 flex justify-end bg-black/50 lg:static lg:z-auto lg:bg-transparent" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
                 <BrowserPanel apiKey={apiKey} browserId={selected} onClose={() => setSelected(null)} onStop={requestStop}
-                  onOpenPersona={setOpenPersona} urlRef={urlRef} now={now} />
+                  onOpenPersona={setOpenPersona} onConnect={setConnectId} urlRef={urlRef} now={now} />
               </div>
             )}
           </div>
@@ -267,6 +280,19 @@ export default function DashboardPage() {
           : <>The session ends now. A CDP browser is handed back to its provider; a desktop browser just disconnects.</>} />
 
       <ShortcutHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={shortcuts} />
+
+      {(() => { const b = connectId ? browsers.find((x) => x.id === connectId) : null; return (
+        <SnippetsDialog open={!!b} onClose={() => setConnectId(null)} apiKey={apiKey}
+          title={b ? `Connect to ${b.name}` : 'Connect'}
+          description={b ? `${b.id} · ${b.clientType === 'cdp' ? 'CDP-backed — Playwright can attach' : 'Oya client — drive it over the API'}` : undefined}
+          snippets={b ? browserSnippets(b) : []} />
+      ); })()}
+      <SnippetsDialog open={showCode} onClose={() => setShowCode(false)} apiKey={apiKey}
+        title="Use this fleet from code" description="Every snippet targets this deployment and your current key." snippets={fleetSnippets()} />
+      <Dialog open={!!shot} onClose={() => setShot(null)} title="Screenshot" size="lg" description={shot?.id}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {shot && <img src={shot.src} alt="Screenshot" className="w-full rounded-md border border-border" />}
+      </Dialog>
 
       <SettingsDialog open={showSettings} onClose={() => { setShowSettings(false); fetchConfig(); }} apiKey={apiKey} onRerunSetup={() => setShowOnboarding(true)} />
     </div>

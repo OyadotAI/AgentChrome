@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Square, RotateCw, ArrowLeft, ArrowRight, Camera, ScanSearch, ExternalLink, Copy, Check } from 'lucide-react';
+import { X, Square, RotateCw, ArrowLeft, ArrowRight, Camera, ScanSearch, ExternalLink, Copy, Check, Plug } from 'lucide-react';
 import { api, ago, errorMessage, shortId } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api';
 import { useToast } from './toast';
@@ -18,6 +18,7 @@ interface Props {
   onClose: () => void;
   onStop: (ids: string[]) => void;
   onOpenPersona: (id: string) => void;
+  onConnect: (id: string) => void;
   urlRef: React.RefObject<HTMLInputElement | null>;
   now: number;
 }
@@ -28,7 +29,7 @@ interface Element { id: number; type: string; text?: string; visible: boolean }
  * One browser, close up: what it is looking at, what it has been doing, and a
  * way to act on it. Polled every 2s while open.
  */
-export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpenPersona, urlRef, now }: Props) {
+export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpenPersona, onConnect, urlRef, now }: Props) {
   const toast = useToast();
   const [detail, setDetail] = useState<BrowserDetail | null>(null);
   const [url, setUrl] = useState('');
@@ -150,6 +151,9 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
             )}
           </div>
         </div>
+        <button className="btn-ghost h-7" onClick={() => onConnect(browserId)} title="Code, Playwright, MCP — for this browser">
+          <Plug className="h-3 w-3" /> Connect
+        </button>
         <button className="btn-danger h-7" onClick={() => onStop([browserId])} title={cloud ? 'Destroys the sandbox' : 'Stops this browser'}>
           <Square className="h-3 w-3" /> Stop <Kbd>X</Kbd>
         </button>

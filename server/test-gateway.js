@@ -292,6 +292,42 @@ try {
   assert(pool.get(null, 'local-chrome').active >= 1, 'the session landed on the healthy provider');
   c2.conn.close();
   c1.conn.close();
+
+  console.log('\n9\ufe0f\u20e3  Attach to a browser already in the fleet (?browser=<id>)...');
+  {
+    const { registry } = await import('./src/connection-registry.js');
+    const { CDPDriver } = await import('./src/drivers/cdp.js');
+    // A fleet browser, as POST /browsers/start would register it.
+    const driver = await new CDPDriver({ wsUrl: chromeWs, provider: 'cdp' }).connect();
+    registry.add('fleet-1', { apiKey: 'tenant-key', name: 'Fleet 1', clientType: 'cdp', provider: 'cdp', driver });
+    await driver.send('navigate', { url: siteUrl + '?fleet=one' });
+
+    const attached = await client('&browser=fleet-1');
+    const where = await evaluate(attached, 'location.search');
+    assert(where === '?fleet=one', `a Playwright-style client lands on that exact browser (at "${where}")`);
+    assert(sessions.size >= 1 && [...sessions.values()].some((x) => x.attachedTo === 'fleet-1'), 'the session records what it is attached to');
+    attached.conn.close();
+    await new Promise((r) => setTimeout(r, 200));
+    assert(registry.isConnected('fleet-1'), 'closing the client does not stop the fleet browser');
+
+    const foreign = new WebSocket(`ws://${origin}/connect?token=admin-key&browser=fleet-1`);
+    const foreignResult = await new Promise((resolve) => {
+      foreign.once('unexpected-response', (_req, res) => resolve(res.statusCode));
+      foreign.once('error', () => resolve('error'));
+      foreign.once('open', () => resolve('open'));
+    });
+    assert(foreignResult === 404, `another key cannot attach to it (got ${foreignResult})`);
+
+    registry.add('oya-1', { apiKey: 'tenant-key', name: 'Oya 1', clientType: 'oya', provider: 'oya-desktop', ws: { close() {} } });
+    const notCdp = new WebSocket(`ws://${origin}/connect?token=tenant-key&browser=oya-1`);
+    const notCdpResult = await new Promise((resolve) => {
+      notCdp.once('unexpected-response', (_req, res) => resolve(res.statusCode));
+      notCdp.once('error', () => resolve('error'));
+      notCdp.once('open', () => resolve('open'));
+    });
+    assert(notCdpResult === 409, `an Oya-client browser has no CDP endpoint to attach to (got ${notCdpResult})`);
+    registry.remove('fleet-1'); registry.remove('oya-1');
+  }
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack?.split('\n').slice(0, 4).join('\n')}`);
   failed++;

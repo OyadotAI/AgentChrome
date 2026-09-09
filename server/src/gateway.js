@@ -30,6 +30,7 @@ import { consume, checkQuota, QUOTAS } from './limits.js';
 import { fingerprint } from './audit.js';
 import * as profiles from './profiles.js';
 import * as recorder from './recorder.js';
+import { registry } from './connection-registry.js';
 
 /** Live gateway sessions, keyed by session id. */
 export const sessions = new Map();
@@ -169,7 +170,7 @@ class Session {
 
   toJSON() {
     return {
-      id: this.id, provider: this.provider, profile: this.profile || null,
+      id: this.id, provider: this.provider, profile: this.profile || null, attachedTo: this.attachedTo || null,
       connected: !!this.client, startedAt: new Date(this.startedAt).toISOString(),
       seconds: Math.round((Date.now() - this.startedAt) / 1000),
       bytesUp: this.bytesUp, bytesDown: this.bytesDown,
@@ -214,6 +215,55 @@ export async function handleUpgrade(req, socket, head) {
       existing.attach(client);
       metrics.gatewayConnects.inc({ outcome: 'resumed' });
       audit({ action: 'gateway.session.resume', actorKey: token, targetType: 'session', targetId: existing.id, req });
+    });
+  }
+
+  // ── Attach to a browser already in the fleet ──
+  //
+  // "Connect Playwright to *this* browser" from the console. The registry
+  // browser stays where it is; this is a second CDP client on the same
+  // upstream, which Chrome allows. Only CDP-backed browsers have an endpoint —
+  // an Oya client is driven over its own socket and has nothing to hand out.
+  const attachId = url.searchParams.get('browser');
+  if (attachId) {
+    const target = registry.get(attachId);
+    if (!target || target.apiKey !== token) {
+      metrics.gatewayConnects.inc({ outcome: 'unknown_browser' });
+      return deny(404, 'Not Found');
+    }
+    if (!target.driver?.wsUrl) {
+      metrics.gatewayConnects.inc({ outcome: 'not_attachable' });
+      return deny(409, 'Not Attachable');
+    }
+    let upstream;
+    try {
+      upstream = new WebSocket(target.driver.wsUrl, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: 20_000 });
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('upstream connect timed out')), 20_000);
+        upstream.once('open', () => { clearTimeout(t); resolve(); });
+        upstream.once('error', (e) => { clearTimeout(t); reject(e); });
+      });
+    } catch (err) {
+      metrics.gatewayConnects.inc({ outcome: 'attach_failed' });
+      audit({ action: 'gateway.connect', actorKey: token, outcome: 'error', targetType: 'browser', targetId: attachId, meta: { error: err.message }, req });
+      return deny(502, 'Bad Gateway');
+    }
+    const id = randomUUID();
+    const session = new Session({
+      id, apiKey: token, provider: target.provider || 'cdp', profile: null, upstream,
+      // Nothing to release: the browser belongs to the registry, and stays.
+      release: () => {},
+    });
+    session.upstreamUrl = target.driver.wsUrl;
+    session.attachedTo = attachId;
+    session.bindUpstream();
+    sessions.set(id, session);
+    return wss.handleUpgrade(req, socket, head, (client) => {
+      session.attach(client);
+      metrics.gatewayConnects.inc({ outcome: 'attached' });
+      metrics.gatewaySessions.set({}, sessions.size);
+      audit({ action: 'gateway.session.attach', actorKey: token, targetType: 'browser', targetId: attachId,
+        meta: { session: id, provider: target.provider }, req });
     });
   }
 

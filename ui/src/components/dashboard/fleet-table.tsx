@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Square, Search, X, Monitor } from 'lucide-react';
+import { ArrowDown, ArrowUp, Square, Search, X, Monitor, Code2, Plug, Copy, Camera, PanelRightOpen, ExternalLink } from 'lucide-react';
+import ContextMenu, { type MenuItem } from '@/components/ui/context-menu';
 import type { BrowserRow, Health } from './types';
 import { providerLabel } from './types';
 import type { FleetFilter } from './fleet-strip';
@@ -20,6 +21,10 @@ interface Props {
   onFilter: (next: Partial<FleetFilter>) => void;
   onStop: (ids: string[]) => void;
   onStart: () => void;
+  onConnect: (id: string) => void;
+  onScreenshot: (id: string) => void;
+  onCode: () => void;
+  apiKey: string;
   filterRef: React.RefObject<HTMLInputElement | null>;
   now: number;
 }
@@ -54,11 +59,30 @@ function matches(r: BrowserRow, f: FleetFilter): boolean {
  * scroll bar. Rows paint lazily; the selection is keyboard-driven.
  */
 export default function FleetTable({
-  rows, selectedId, onSelect, checked, onChecked, filter, onFilter, onStop, onStart, filterRef, now,
+  rows, selectedId, onSelect, checked, onChecked, filter, onFilter, onStop, onStart, onConnect, onScreenshot, onCode, apiKey, filterRef, now,
 }: Props) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'health', dir: 1 });
   const [limit, setLimit] = useState(PAGE);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
+  const [menu, setMenu] = useState<{ at: { x: number; y: number }; row: BrowserRow } | null>(null);
+
+  // Right-click: everything you can do to one browser, without hunting for a button.
+  const menuItems = (r: BrowserRow): MenuItem[] => {
+    const http = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
+    const ws = http.replace(/^http/, 'ws');
+    const copy = (t: string) => navigator.clipboard.writeText(t);
+    return [
+      { label: 'Open', icon: <PanelRightOpen />, shortcut: '↵', onSelect: () => onSelect(r.id) },
+      { label: 'Connect… (code, Playwright, MCP)', icon: <Plug />, onSelect: () => onConnect(r.id) },
+      { label: 'Screenshot', icon: <Camera />, shortcut: 'S', onSelect: () => onScreenshot(r.id) },
+      { label: 'Open live stream in a tab', icon: <ExternalLink />, onSelect: () => window.open(`${http}/api/live/${r.id}?key=${encodeURIComponent(apiKey)}`, '_blank') },
+      { label: 'Copy browser id', icon: <Copy />, separator: true, onSelect: () => copy(r.id) },
+      { label: 'Copy MCP URL', icon: <Copy />, onSelect: () => copy(`${http}/mcp/${r.id}`) },
+      { label: r.clientType === 'cdp' ? 'Copy CDP attach URL (with key)' : 'Copy CDP attach URL — not a CDP browser', icon: <Copy />,
+        disabled: r.clientType !== 'cdp', onSelect: () => copy(`${ws}/connect?token=${encodeURIComponent(apiKey)}&browser=${r.id}`) },
+      { label: r.provider === 'oya-cloud' ? 'Stop — destroys the sandbox' : 'Stop', icon: <Square />, shortcut: 'X', danger: true, separator: true, onSelect: () => onStop([r.id]) },
+    ];
+  };
 
   const visible = useMemo(() => {
     const out = rows.filter((r) => matches(r, filter));
@@ -140,9 +164,11 @@ export default function FleetTable({
           {rows.length > 0 && checked.size === 0 && (
             <button className="btn-ghost h-7 text-[12px]" onClick={() => onStop(rows.map((r) => r.id))}>Stop all</button>
           )}
+          <button className="btn-ghost h-7" onClick={onCode} title="Code that starts browsers here"><Code2 className="h-3.5 w-3.5" /> Code</button>
           <button className="btn-primary h-7" onClick={onStart}>Start browser <Kbd>N</Kbd></button>
         </div>
       </div>
+      <ContextMenu at={menu?.at ?? null} items={menu ? menuItems(menu.row) : []} onClose={() => setMenu(null)} label={menu ? `Actions for ${menu.row.name}` : 'Actions'} />
 
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
@@ -156,7 +182,7 @@ export default function FleetTable({
                   <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all shown" className="accent-accent" />
                 </th>
                 {COLS.map(th)}
-                <th className="w-[72px]" />
+                <th className="w-[80px]" />
               </tr>
             </thead>
             <tbody ref={bodyRef}>
@@ -167,6 +193,7 @@ export default function FleetTable({
                     key={r.id}
                     data-id={r.id}
                     onClick={() => onSelect(selected ? null : r.id)}
+                    onContextMenu={(e) => { e.preventDefault(); setMenu({ at: { x: e.clientX, y: e.clientY }, row: r }); }}
                     className={`row-lazy group cursor-pointer border-b border-border/60 transition-colors ${
                       selected ? 'bg-accent/[0.08]' : 'hover:bg-white/[0.035]'}`}
                     aria-selected={selected}
@@ -190,7 +217,14 @@ export default function FleetTable({
                     </td>
                     <td className="px-2 py-1.5 text-right num text-text-muted">{ago(r.lastSeen, now)}</td>
                     <td className="px-2 py-1.5 text-right num text-text-muted">{ago(r.connectedAt, now)}</td>
-                    <td className="px-2 py-1.5 text-right">
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                      <button
+                        className="btn-icon h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        title="Connect (code, Playwright, MCP)" aria-label={`Connect to ${r.name}`}
+                        onClick={(e) => { e.stopPropagation(); onConnect(r.id); }}
+                      >
+                        <Plug className="h-3 w-3" />
+                      </button>
                       <button
                         className="btn-icon h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                         title="Stop" aria-label={`Stop ${r.name}`}

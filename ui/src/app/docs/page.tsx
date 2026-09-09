@@ -934,6 +934,23 @@ if (!r.completed) open(r.liveViewUrl);   // finish it by hand`}</CodeBlock>
             as <InlineCode>press_key</InlineCode>. <InlineCode>Esc</InlineCode> hands the keyboard back. What
             was typed is never written to the activity log — it records <em>2 chars</em>, not the text.
           </p>
+          <h3 className="text-base font-semibold mt-6 mb-2 text-text">Connect to a browser that is already running</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Right-click any row (or press <strong>Connect</strong> in the panel) for code that targets
+            that exact browser: SDK, CLI, an MCP config, curl — and for CDP-backed browsers, a
+            Playwright <InlineCode>connectOverCDP</InlineCode> URL. Snippets are written for this
+            deployment and your key; the key is masked until you ask, and copy always copies the real one.
+          </p>
+          <CodeBlock>{`// Attach through the gateway to one browser in the fleet. Closing your
+// client leaves the browser running.
+const browser = await chromium.connectOverCDP(
+  "wss://<host>/connect?token=<api-key>&browser=<browser-id>",
+);`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Only CDP-backed browsers (Browserbase, Steel, Anchor, your own Chrome) have an endpoint
+            to attach to; an Oya client is driven over its own socket, so use the SDK, CLI or MCP for those.
+          </p>
+
           <h3 className="text-base font-semibold mt-6 mb-2 text-text">Stop means stop</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
             One button, one endpoint (<InlineCode>POST /browsers/:id/stop</InlineCode>). A cloud browser&apos;s
