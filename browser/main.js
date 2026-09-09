@@ -13,7 +13,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const WebSocket = require('ws');
 const { applyTelemetryFlags, applyDomainBlocking } = require('./anonymity/telemetry');
-const { buildStealthScript } = require('./anonymity/stealth');
+const { buildInjectionScript } = require('./anonymity/inject');
 const { generateProfile, buildFingerprintInjectScript } = require('./anonymity/fingerprint');
 const { configureProxy, applyDNSLeakPrevention } = require('./anonymity/proxy');
 const { ProfileStore } = require('./anonymity/profile-store');
@@ -724,10 +724,7 @@ function createTab(url, activate = true) {
   // allowlist includes bot-detection vendors, which therefore read a completely
   // unspoofed browser and only saw the overrides afterwards.
   view.webContents.on('did-create-window', (childWindow) => {
-    const parts = [];
-    if (activeProfile) parts.push(buildFingerprintInjectScript(activeProfile));
-    parts.push(buildStealthScript());
-    const source = parts.join('\n;\n');
+    const source = buildInjectionScript(activeProfile);
 
     try {
       const dbg = childWindow.webContents.debugger;
@@ -833,14 +830,11 @@ function setupTabCDP(view) {
   try {
     if (!cdpAttach(view)) return fail('debugger attach', new Error('view destroyed'));
 
-    // Main world: only what the page itself must see. The analyzer is loaded
-    // separately into an isolated world by ensureWorld().
-    const parts = [];
-    if (activeProfile) parts.push(buildFingerprintInjectScript(activeProfile));
-    parts.push(buildStealthScript());
-
+    // Main world: only what the page itself must see, as one script in one
+    // scope so the toString mask covers the fingerprint patches too. The
+    // analyzer is loaded separately into an isolated world by ensureWorld().
     view.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: parts.join('\n;\n'),
+      source: buildInjectionScript(activeProfile),
     }).catch((e) => fail('fingerprint/stealth injection', e));
     view.webContents.debugger.sendCommand('Page.enable').catch((e) => fail('Page.enable', e));
 

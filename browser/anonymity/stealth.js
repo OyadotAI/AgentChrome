@@ -8,10 +8,13 @@
  * every patched function has to be registered with it.
  */
 
-function buildStealthScript() {
-  return `(function() {
-  'use strict';
-
+/**
+ * The mask, and the helpers every patch must use. Emitted once at the top of
+ * the combined injection so the fingerprint patches are covered too — they run
+ * before stealth and were previously left unmasked.
+ */
+function buildMaskPreamble() {
+  return `
   // ── Native toString mask ──
   // Registered functions report as native. The proxy registers itself, so
   // Function.prototype.toString.toString() is native too.
@@ -39,6 +42,41 @@ function buildStealthScript() {
     } catch {}
   };
 
+  /** Replace a method, keeping the original and reporting native. */
+  const _patch = (target, name, make) => {
+    try {
+      const orig = target[name];
+      if (typeof orig !== 'function') return null;
+      const fn = make(orig);
+      _mark(fn, name);
+      target[name] = fn;
+      return orig;
+    } catch { return null; }
+  };
+
+  /**
+   * Deterministic noise: a pure function of the seed and the inputs, so the
+   * same query returns the same answer. An advancing RNG made
+   * getBoundingClientRect() and toDataURL() differ between consecutive calls,
+   * which no real browser does and which CreepJS tests directly.
+   */
+  const _noise = (seed, ...parts) => {
+    let h = (seed >>> 0) || 1;
+    for (const part of parts) {
+      const str = String(part);
+      for (let i = 0; i < str.length; i++) {
+        h = (Math.imul(h, 31) + str.charCodeAt(i)) >>> 0;
+      }
+      h = (h ^ (h >>> 13)) >>> 0;
+    }
+    return ((h >>> 8) / 0x1000000) - 0.5;   // [-0.5, 0.5)
+  };
+`;
+}
+
+/** The stealth patches themselves. Assumes the mask preamble is in scope. */
+function buildStealthBody() {
+  return `
   // ── navigator.webdriver ──
   // On the PROTOTYPE, not the instance: an own property named 'webdriver' on
   // navigator never exists in real Chrome. And the value is false, not
@@ -176,8 +214,12 @@ function buildStealthScript() {
   // Error.prepareStackTrace is deliberately NOT patched. It is undefined on a
   // real page, so defining it is a stronger signal than the debugger frames it
   // was hiding.
-
-})();`;
+`;
 }
 
-module.exports = { buildStealthScript };
+/** Stealth alone, for callers that do not need the fingerprint layer. */
+function buildStealthScript() {
+  return `(function() {\n'use strict';\n${buildMaskPreamble()}\n${buildStealthBody()}\n})();`;
+}
+
+module.exports = { buildStealthScript, buildMaskPreamble, buildStealthBody };

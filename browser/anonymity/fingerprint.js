@@ -152,21 +152,12 @@ function generateProfile(options = {}) {
 
 // ── Build injection script string with profile baked in ──
 
-function buildFingerprintInjectScript(profile) {
+/** Fingerprint patches. Assumes the mask preamble (_mark, _noise, _patch) is in scope. */
+function buildFingerprintBody(profile) {
   const p = JSON.stringify(profile);
 
-  return `(function() {
-  'use strict';
+  return `
   const __fp = ${p};
-
-  // ── Seeded PRNG for deterministic noise ──
-  function __fpRNG(seed) {
-    let s = Math.floor(seed * 2147483647);
-    return function() {
-      s = (s * 16807) % 2147483647;
-      return (s - 1) / 2147483646;
-    };
-  }
 
   // ── Navigator overrides ──
   const navProps = {
@@ -206,37 +197,51 @@ function buildFingerprintInjectScript(profile) {
   });
 
   // ── Canvas fingerprint noise ──
-  const canvasRNG = __fpRNG(__fp.canvas.noiseSeed * 100000);
+  const __canvasSeed = Math.floor(__fp.canvas.noiseSeed * 100000);
 
-  const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-  HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
-    const ctx = this.getContext('2d');
-    if (ctx && this.width > 0 && this.height > 0) {
-      try {
-        const imageData = ctx.getImageData(0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + (canvasRNG() < 0.5 ? -1 : 1)));
-        }
-        ctx.putImageData(imageData, 0, 0);
-      } catch {}
+  // Noise a COPY, never the source. The previous version wrote the noised
+  // pixels back into the caller's canvas, so a second toDataURL() noised
+  // already-noised data and returned something different — non-deterministic,
+  // and it silently corrupted the page's own canvas.
+  const _origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+
+  const _noiseImageData = (img) => {
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = img.data[i];
+      img.data[i] = Math.max(0, Math.min(255, v + (_noise(__canvasSeed, i, v) < 0 ? -1 : 1)));
     }
-    return origToDataURL.call(this, type, quality);
+    return img;
   };
 
-  const origToBlob = HTMLCanvasElement.prototype.toBlob;
-  HTMLCanvasElement.prototype.toBlob = function(cb, type, quality) {
-    const ctx = this.getContext('2d');
-    if (ctx && this.width > 0 && this.height > 0) {
-      try {
-        const imageData = ctx.getImageData(0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + (canvasRNG() < 0.5 ? -1 : 1)));
-        }
-        ctx.putImageData(imageData, 0, 0);
-      } catch {}
-    }
-    return origToBlob.call(this, cb, type, quality);
+  const _noisyCopy = (source) => {
+    const copy = document.createElement('canvas');
+    copy.width = source.width;
+    copy.height = source.height;
+    const cctx = copy.getContext('2d');
+    cctx.drawImage(source, 0, 0);
+    const region = Math.min(source.width, 16);
+    const img = _origGetImageData.call(cctx, 0, 0, region, Math.min(source.height, 16));
+    cctx.putImageData(_noiseImageData(img), 0, 0);
+    return copy;
   };
+
+  _patch(HTMLCanvasElement.prototype, 'toDataURL', (orig) => function toDataURL(type, quality) {
+    if (!this.width || !this.height) return orig.call(this, type, quality);
+    try { return orig.call(_noisyCopy(this), type, quality); }
+    catch { return orig.call(this, type, quality); }
+  });
+
+  _patch(HTMLCanvasElement.prototype, 'toBlob', (orig) => function toBlob(cb, type, quality) {
+    if (!this.width || !this.height) return orig.call(this, cb, type, quality);
+    try { return orig.call(_noisyCopy(this), cb, type, quality); }
+    catch { return orig.call(this, cb, type, quality); }
+  });
+
+  // getImageData was left unpatched, so a detector could read the true pixels
+  // and compare them against the noised toDataURL output.
+  _patch(CanvasRenderingContext2D.prototype, 'getImageData', (orig) => function getImageData(x, y, w, h, settings) {
+    return _noiseImageData(orig.call(this, x, y, w, h, settings));
+  });
 
   // ── WebGL overrides ──
   function patchWebGL(proto) {
@@ -269,7 +274,7 @@ function buildFingerprintInjectScript(profile) {
   try { patchWebGL(WebGL2RenderingContext.prototype); } catch {}
 
   // ── AudioContext fingerprint noise ──
-  const audioRNG = __fpRNG(__fp.audio.noiseSeed * 100000);
+  const __audioSeed = Math.floor(__fp.audio.noiseSeed * 100000);
 
   if (typeof OfflineAudioContext !== 'undefined') {
     const origStartRendering = OfflineAudioContext.prototype.startRendering;
@@ -278,7 +283,7 @@ function buildFingerprintInjectScript(profile) {
         try {
           const data = buffer.getChannelData(0);
           for (let i = 0; i < Math.min(data.length, 100); i++) {
-            data[i] += (audioRNG() - 0.5) * 0.0001;
+            data[i] += _noise(__audioSeed, i) * 0.0001;
           }
         } catch {}
         return buffer;
@@ -286,36 +291,33 @@ function buildFingerprintInjectScript(profile) {
     };
   }
 
-  // ── ClientRects noise (with bypass for analyzer.js) ──
-  const rectsRNG = __fpRNG(__fp.rects.noiseSeed * 1000000);
+  // ── ClientRects noise ──
+  // Keyed by the rect's own geometry, so measuring the same element twice
+  // gives the same answer — a real browser is deterministic here, and the
+  // analyzer no longer needs a bypass because it runs in an isolated world.
+  const __rectsSeed = Math.floor(__fp.rects.noiseSeed * 1000000);
 
   function addRectsNoise(rect) {
-    const noise = () => (rectsRNG() - 0.5) * 0.1;
-    return new DOMRect(
-      rect.x + noise(),
-      rect.y + noise(),
-      rect.width + noise(),
-      rect.height + noise()
-    );
+    const n = (k) => _noise(__rectsSeed, k, rect.x, rect.y, rect.width, rect.height) * 0.1;
+    return new DOMRect(rect.x + n('x'), rect.y + n('y'), rect.width + n('w'), rect.height + n('h'));
   }
 
-  const origGetBCR = Element.prototype.getBoundingClientRect;
-  Element.prototype.getBoundingClientRect = function() {
-    const rect = origGetBCR.call(this);
-    return addRectsNoise(rect);
-  };
+  _patch(Element.prototype, 'getBoundingClientRect', (orig) => function getBoundingClientRect() {
+    return addRectsNoise(orig.call(this));
+  });
 
-  const origGetCR = Element.prototype.getClientRects;
-  Element.prototype.getClientRects = function() {
-    const rects = origGetCR.call(this);
-    const result = [];
-    for (let i = 0; i < rects.length; i++) {
-      result.push(addRectsNoise(rects[i]));
+  _patch(Element.prototype, 'getClientRects', (orig) => function getClientRects() {
+    const rects = orig.call(this);
+    const out = [];
+    for (let i = 0; i < rects.length; i++) out.push(addRectsNoise(rects[i]));
+    // A plain Array reports [object Array]; a real one reports [object DOMRectList].
+    out.item = _mark(function item(i) { return out[i] || null; }, 'item');
+    Object.defineProperty(out, 'length', { value: rects.length });
+    if (typeof DOMRectList === 'function') {
+      try { Object.setPrototypeOf(out, DOMRectList.prototype); } catch {}
     }
-    result.item = function(i) { return result[i] || null; };
-    Object.defineProperty(result, 'length', { value: rects.length });
-    return result;
-  };
+    return out;
+  });
 
   // ── WebRTC leak prevention ──
   if (typeof RTCPeerConnection !== 'undefined') {
@@ -357,8 +359,13 @@ function buildFingerprintInjectScript(profile) {
       return opts;
     };
   } catch {}
-
-})();`;
+`;
 }
 
-module.exports = { generateProfile, buildFingerprintInjectScript };
+/** Fingerprint alone, self-contained. */
+function buildFingerprintInjectScript(profile) {
+  const { buildMaskPreamble } = require('./stealth');
+  return `(function() {\n'use strict';\n${buildMaskPreamble()}\n${buildFingerprintBody(profile)}\n})();`;
+}
+
+module.exports = { generateProfile, buildFingerprintInjectScript, buildFingerprintBody };

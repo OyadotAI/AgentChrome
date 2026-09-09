@@ -17,7 +17,9 @@ import { createRequire } from 'module';
 import { CDPConnection } from './src/drivers/cdp.js';
 
 const require = createRequire(import.meta.url);
-const { buildStealthScript } = require('../browser/anonymity/stealth.js');
+const { buildInjectionScript } = require('../browser/anonymity/inject.js');
+const { generateProfile } = require('../browser/anonymity/fingerprint.js');
+const profile = generateProfile({ id: 'test-persona' });
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -25,15 +27,16 @@ const CHROME = [
 ].find((p) => existsSync(p));
 if (!CHROME) { console.log('⏭  No Chrome binary — skipping anonymity test'); process.exit(0); }
 
+const profilePlatform = profile.navigator.platform;
 let passed = 0, failed = 0;
 const assert = (c, label) => {
   if (c) { console.log(`  ✅ ${label}`); passed++; }
   else { console.log(`  ❌ ${label}`); failed++; }
 };
 
-const profile = mkdtempSync(join(tmpdir(), 'oya-anon-'));
+const userDataDir = mkdtempSync(join(tmpdir(), 'oya-anon-'));
 const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=0', '--no-first-run',
-  `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  `--user-data-dir=${userDataDir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 const wsUrl = await new Promise((resolve, reject) => {
   let buf = '';
   const t = setTimeout(() => reject(new Error('Chrome did not report an endpoint')), 20000);
@@ -51,7 +54,7 @@ try {
   const { sessionId } = await conn.send('Target.attachToTarget', { targetId, flatten: true });
   await conn.send('Page.enable', {}, sessionId);
   await conn.send('Runtime.enable', {}, sessionId);
-  await conn.send('Page.addScriptToEvaluateOnNewDocument', { source: buildStealthScript() }, sessionId);
+  await conn.send('Page.addScriptToEvaluateOnNewDocument', { source: buildInjectionScript(profile) }, sessionId);
   await conn.send('Page.navigate', { url: 'about:blank' }, sessionId);
   await new Promise((r) => setTimeout(r, 400));
 
@@ -108,7 +111,41 @@ try {
   const globals = await evaluate(`JSON.stringify(Object.getOwnPropertyNames(window).filter(k => /^__(ac|oya)/i.test(k) || k === 'analyzePage'))`);
   assert(globals === '[]', `no product globals on window (found ${globals})`);
 
-  console.log('\n7️⃣  The analyzer works from an isolated world, invisibly...');
+  console.log('\n7️⃣  Spoofed surfaces are deterministic...');
+  // An advancing RNG made these differ between consecutive calls. No real
+  // browser does that, and it is exactly the "lies that lie inconsistently"
+  // class CreepJS tests for.
+  await conn.send('Page.navigate', { url: 'data:text/html,<div id=d style="width:200px;height:50px">x</div><canvas id=c width=64 height=64></canvas>' }, sessionId);
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert(await evaluate(`(() => {
+    const el = document.getElementById('d');
+    const a = JSON.stringify(el.getBoundingClientRect());
+    const b = JSON.stringify(el.getBoundingClientRect());
+    return a === b;
+  })()`), 'getBoundingClientRect returns the same value twice');
+
+  assert(await evaluate(`(() => {
+    const c = document.getElementById('c');
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#abc'; ctx.fillRect(0, 0, 40, 40); ctx.fillText('fp', 5, 30);
+    return c.toDataURL() === c.toDataURL();
+  })()`), 'toDataURL returns the same value twice');
+
+  assert(await evaluate(`(() => {
+    const el = document.getElementById('d');
+    return Object.prototype.toString.call(el.getClientRects());
+  })()`) === '[object DOMRectList]', 'getClientRects returns a DOMRectList, not an Array');
+
+  assert(await evaluate(`Element.prototype.getBoundingClientRect.toString().includes('[native code]')`),
+    'the patched getBoundingClientRect reports as native');
+  assert(await evaluate(`HTMLCanvasElement.prototype.toDataURL.toString().includes('[native code]')`),
+    'the patched toDataURL reports as native — fingerprint patches are masked too');
+
+  assert(await evaluate('navigator.platform') === profilePlatform,
+    'the profile platform is applied');
+
+  console.log('\n8️⃣  The analyzer works from an isolated world, invisibly...');
   // This is the mechanism browser/main.js now uses: Page.createIsolatedWorld
   // returns the context id directly, so it needs no Runtime.enable — that
   // domain is itself a detection vector.
@@ -151,7 +188,7 @@ try {
   // Chrome holds the profile briefly after SIGKILL; retry rather than throw
   // over a temp directory and mask the test result.
   await new Promise((r) => setTimeout(r, 300));
-  try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  try { rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
 }
 
 console.log('\n──────────────────────────────────────────────────');
