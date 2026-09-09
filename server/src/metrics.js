@@ -147,6 +147,19 @@ export const metrics = {
   // Provisioning
   sandboxes: counter('oya_sandboxes_total', 'Sandbox operations by op and outcome'),
 
+  // Routing
+  routingAcquired: counter('oya_routing_acquired_total', 'Sessions routed to a provider'),
+  routingQueued: counter('oya_routing_queued_total', 'Sessions that had to wait for a free slot'),
+  routingRejected: counter('oya_routing_rejected_total', 'Sessions rejected by the router'),
+  providerFailures: counter('oya_provider_failures_total', 'Provider connect failures'),
+
+  // Gateway
+  gatewayConnects: counter('oya_gateway_connects_total', 'CDP gateway connection attempts by outcome'),
+  gatewaySessions: gauge('oya_gateway_sessions', 'Live gateway sessions'),
+  gatewaySessionDuration: histogram('oya_gateway_session_duration_ms', 'Gateway session lifetime'),
+  recordings: counter('oya_recordings_total', 'Session recordings started and stopped'),
+  recordedFrames: counter('oya_recorded_frames_total', 'Frames written to session recordings'),
+
   // Enforcement
   rateLimited: counter('oya_rate_limited_total', 'Requests rejected by a rate limit'),
   quotaExceeded: counter('oya_quota_exceeded_total', 'Requests rejected by a quota'),

@@ -21,6 +21,9 @@ import { dirname, join } from 'path';
 import cors from 'cors';
 import { router as apiRouter } from './api.js';
 import { drain as drainAudit } from './audit.js';
+import {
+  handleJsonVersion, handleJsonList, handleUpgrade as handleGatewayUpgrade, sessions as gatewaySessions,
+} from './gateway.js';
 import * as usage from './usage.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
@@ -60,6 +63,11 @@ app.get('/docs.txt', (req, res) => res.type('text/plain').sendFile(join(publicDi
 app.get('/openapi.json', (req, res) => res.type('application/json').sendFile(join(publicDir, 'openapi.json')));
 
 // ── REST API under /api ──
+// CDP discovery. Playwright, Puppeteer, Stagehand and browser-use fetch these
+// before connecting, which is what lets them treat the gateway as a browser.
+app.get('/json/version', handleJsonVersion);
+app.get('/json/list', handleJsonList);
+
 app.use('/api', apiRouter);
 // Prometheus convention is /metrics at the root; the same handler also serves
 // /api/metrics for callers that prefix everything.
@@ -100,9 +108,23 @@ server.requestTimeout = 0;
 
 // ── WebSocket at /ws ──
 const wss = new WebSocketServer({
-  server,
-  path: '/ws',
+  noServer: true,
   perMessageDeflate: false,
+});
+
+// One upgrade router: /ws is the Oya client protocol, /connect is raw CDP.
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  if (pathname === '/ws') {
+    return wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  }
+  if (pathname === '/connect') {
+    return handleGatewayUpgrade(req, socket, head).catch((e) => {
+      console.error('[gateway] upgrade failed:', e.message);
+      try { socket.destroy(); } catch {}
+    });
+  }
+  socket.destroy();
 });
 
 wss.on('connection', (ws, req) => {
@@ -133,6 +155,9 @@ usage.restore().catch(() => {});
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, async () => {
     registry.draining = true;
+    // End gateway sessions cleanly so profiles are captured and recordings
+    // get their manifest, rather than being cut off mid-write.
+    await Promise.allSettled([...gatewaySessions.values()].map((s) => s.destroy('server shutting down')));
     await Promise.allSettled([drainAudit(), usage.drain()]);
     process.exit(0);
   });
@@ -145,4 +170,5 @@ server.listen(PORT, () => {
   console.log(`[oya] WebSocket:    ws://localhost:${PORT}/ws`);
   console.log(`[oya] MCP endpoint: http://localhost:${PORT}/mcp/:browserId`);
   console.log(`[oya] MCP pool:     http://localhost:${PORT}/mcp/pool`);
+  console.log(`[oya] CDP gateway:  ws://localhost:${PORT}/connect  (discovery: /json/version)`);
 });

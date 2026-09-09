@@ -24,6 +24,10 @@ import { enforce, consume, checkQuota, checkHourly, status as limitStatus, LIMIT
 import { acquire as acquireBrowser, available as availableProviders } from './providers.js';
 import { CDPDriver } from './drivers/cdp.js';
 import { v4 as uuidv4 } from 'uuid';
+import { listSessions, killSession, sessions as gatewaySessions } from './gateway.js';
+import { pool, STRATEGIES } from './routing.js';
+import * as profiles from './profiles.js';
+import * as recorder from './recorder.js';
 
 export const router = Router();
 
@@ -369,6 +373,90 @@ router.delete('/browsers/:browserId/connection', authMiddleware, (req, res) => {
   audit({ action: 'browser.disconnect', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
     meta: { clientType: browser.clientType, provider: browser.provider }, req });
   res.json({ ok: true });
+});
+
+// ─── CDP gateway: sessions, providers, profiles, recordings ──────────────────
+
+router.get('/gateway/sessions', authMiddleware, (req, res) => {
+  const key = getKey(req);
+  res.json({ sessions: listSessions(key, { all: isAdminKey(key) }) });
+});
+
+router.delete('/gateway/sessions/:id', authMiddleware, async (req, res) => {
+  const session = gatewaySessions.get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'No such session' });
+  if (session.apiKey !== getKey(req) && !isAdminKey(getKey(req))) {
+    return res.status(404).json({ error: 'No such session' });
+  }
+  await killSession(req.params.id, req.body?.reason || 'closed by operator');
+  audit({ action: 'gateway.session.kill', actorKey: getKey(req), targetType: 'session', targetId: req.params.id, req });
+  res.json({ ok: true });
+});
+
+/** Provider pool: health, capacity, latency and the queue. */
+router.get('/gateway/providers', authMiddleware, (req, res) => res.json(pool.stats()));
+
+router.post('/gateway/providers', authMiddleware, adminOnly, (req, res) => {
+  try {
+    const provider = pool.register(req.body || {});
+    audit({ action: 'provider.upsert', actorKey: getKey(req), targetType: 'provider', targetId: provider.name,
+      meta: { type: provider.type, maxConcurrent: provider.maxConcurrent, priority: provider.priority }, req });
+    res.json(provider.toJSON());
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+router.delete('/gateway/providers/:name', authMiddleware, adminOnly, (req, res) => {
+  const removed = pool.remove(req.params.name);
+  if (removed) audit({ action: 'provider.remove', actorKey: getKey(req), targetType: 'provider', targetId: req.params.name, req });
+  res.json({ ok: removed });
+});
+
+router.post('/gateway/strategy', authMiddleware, adminOnly, (req, res) => {
+  const strategy = String(req.body?.strategy || '');
+  if (!STRATEGIES.includes(strategy)) {
+    return res.status(400).json({ error: `strategy must be one of ${STRATEGIES.join(', ')}` });
+  }
+  const previous = pool.strategy;
+  pool.strategy = strategy;
+  audit({ action: 'routing.strategy', actorKey: getKey(req), targetType: 'routing',
+    meta: { from: previous, to: strategy }, req });
+  res.json({ ok: true, strategy });
+});
+
+router.get('/gateway/profiles', authMiddleware, async (req, res) => res.json({ profiles: await profiles.list() }));
+
+router.delete('/gateway/profiles/:name', authMiddleware, async (req, res) => {
+  try {
+    const removed = await profiles.remove(req.params.name);
+    audit({ action: 'profile.delete', actorKey: getKey(req), targetType: 'profile', targetId: req.params.name,
+      outcome: removed ? 'ok' : 'error', req });
+    res.json({ ok: removed });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/gateway/recordings', authMiddleware, async (req, res) => res.json({ recordings: await recorder.list() }));
+
+router.get('/gateway/recordings/:id', authMiddleware, async (req, res) => {
+  const found = await recorder.manifest(req.params.id);
+  if (!found) return res.status(404).json({ error: 'No such recording' });
+  res.json(found);
+});
+
+/** One frame of a recording, for the dashboard player to scrub through. */
+router.get('/gateway/recordings/:id/frames/:index', authMiddleware, async (req, res) => {
+  const buf = await recorder.frame(req.params.id, req.params.index);
+  if (!buf) return res.status(404).json({ error: 'No such frame' });
+  res.type('image/jpeg').set('Cache-Control', 'private, max-age=3600').send(buf);
+});
+
+router.delete('/gateway/recordings/:id', authMiddleware, async (req, res) => {
+  const removed = await recorder.remove(req.params.id);
+  audit({ action: 'recording.delete', actorKey: getKey(req), targetType: 'recording', targetId: req.params.id, req });
+  res.json({ ok: removed });
 });
 
 // ─── Cloud browser provisioning (Daytona) ───

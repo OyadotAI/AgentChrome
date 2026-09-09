@@ -60,7 +60,7 @@ const FIND_ELEMENT_JS = (selector) => `(() => {
 })()`;
 
 /** Minimal CDP JSON-RPC transport over the ws dependency we already have. */
-class CDPConnection {
+export class CDPConnection {
   constructor(url) {
     this.url = url;
     this.nextId = 1;
