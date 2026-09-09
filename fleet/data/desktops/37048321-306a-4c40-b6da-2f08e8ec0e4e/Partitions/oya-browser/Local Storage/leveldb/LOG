@@ -1,6 +1,0 @@
-2026/09/09-09:52:53.634 8c03 Reusing MANIFEST /Users/mk/Dev/oya/agentchrome/fleet/data/desktops/37048321-306a-4c40-b6da-2f08e8ec0e4e/Partitions/oya-browser/Local Storage/leveldb/MANIFEST-000001
-2026/09/09-09:52:53.635 8c03 Recovering log #3
-2026/09/09-09:52:53.635 8c03 Reusing old log /Users/mk/Dev/oya/agentchrome/fleet/data/desktops/37048321-306a-4c40-b6da-2f08e8ec0e4e/Partitions/oya-browser/Local Storage/leveldb/000003.log 
-2026/09/09-10:08:42.124 8c03 Level-0 table #5: started
-2026/09/09-10:08:42.133 8c03 Level-0 table #5: 45965 bytes OK
-2026/09/09-10:08:42.142 8c03 Delete type=0 #3

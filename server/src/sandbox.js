@@ -39,9 +39,22 @@ export function isConfigured(env = process.env) {
   return settings(env) !== null;
 }
 
-function unconfigured() {
+/** Name what is actually missing. Listing all three when two are set sends
+ *  people to re-check settings that were never the problem. */
+export function missingSettings(env = process.env) {
+  return ['DAYTONA_API_KEY', 'DAYTONA_SNAPSHOT', 'OYA_PUBLIC_WS_URL'].filter((k) => !env[k]);
+}
+
+function unconfigured(env = process.env) {
+  const missing = missingSettings(env);
+  const hint = missing.includes('OYA_PUBLIC_WS_URL')
+    // The sandbox dials back to this server, so localhost cannot work from a
+    // cloud VM — this is the one people hit and cannot diagnose.
+    ? ' OYA_PUBLIC_WS_URL must be reachable from the sandbox, so a localhost'
+      + ' server needs a tunnel (ngrok, cloudflared) rather than ws://localhost.'
+    : '';
   return Object.assign(
-    new Error('Daytona is not configured. Set DAYTONA_API_KEY, DAYTONA_SNAPSHOT and OYA_PUBLIC_WS_URL.'),
+    new Error(`Cloud browsers need ${missing.join(', ')}, which ${missing.length > 1 ? 'are' : 'is'} not set.${hint}`),
     { status: 409 },
   );
 }
@@ -103,7 +116,18 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
   // Hard cap behind the idle stop, so a wedged sandbox still stops billing.
   await sandbox.setTtl(config.ttlMinutes + 10);
 
-  // The snapshot's entrypoint just sleeps; this starts the browser.
+  // The snapshot's entrypoint just sleeps; this starts the browser. Check it
+  // exists first: fired async, a snapshot that is not the Oya browser image
+  // fails invisibly and the caller waits out the full enrol window for a
+  // browser that was never going to arrive.
+  const probe = await sandbox.process.executeCommand('test -x /docker-entrypoint.sh && echo ok').catch(() => null);
+  if (!/\bok\b/.test(probe?.result ?? probe?.output ?? '')) {
+    await sandbox.delete().catch(() => {});
+    throw Object.assign(new Error(
+      `DAYTONA_SNAPSHOT "${config.snapshot}" has no /docker-entrypoint.sh, so it is not an Oya browser image. `
+      + 'Build one from browser/Dockerfile, push it, and point DAYTONA_SNAPSHOT at that.'), { status: 409 });
+  }
+
   await sandbox.process.createSession(SESSION);
   await sandbox.process.executeSessionCommand(SESSION, {
     command: 'cd /app && /docker-entrypoint.sh',

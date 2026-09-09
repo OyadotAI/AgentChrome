@@ -16,7 +16,7 @@ import { runChat } from './chat-service.js';
 import { runtimeConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
 import { getAll as getAllCookies, clear as clearCookies } from './cookie-store.js';
-import { isConfigured as sandboxConfigured, createSandbox, removeSandbox } from './sandbox.js';
+import { isConfigured as sandboxConfigured, missingSettings, createSandbox, removeSandbox } from './sandbox.js';
 import { metrics, render as renderMetrics, snapshot as metricsSnapshot } from './metrics.js';
 import { audit, history as auditHistory, fingerprint } from './audit.js';
 import * as usage from './usage.js';
@@ -505,8 +505,16 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
     // Oya browsers dial in on their own once the sandbox is up.
     if (wanted === 'oya-cloud' || wanted === 'oya-selfhosted') {
       if (!sandboxConfigured()) {
+        const missing = missingSettings();
         return res.status(409).json({
-          error: 'Cloud browsers are not configured. Set DAYTONA_API_KEY, DAYTONA_SNAPSHOT and OYA_PUBLIC_WS_URL.',
+          error: `Cloud browsers need ${missing.join(', ')}, which ${missing.length > 1 ? 'are' : 'is'} not set.`
+            + (missing.includes('OYA_PUBLIC_WS_URL')
+              // The sandbox dials back to this server, so a localhost address
+              // is unreachable from a cloud VM.
+              ? ' OYA_PUBLIC_WS_URL must be reachable from the sandbox, so a server on'
+                + ' localhost needs a tunnel (ngrok, cloudflared) rather than ws://localhost.'
+              : ''),
+          missing,
         });
       }
       const created = await createSandbox({ apiKey: key, name: req.body?.name, persona: persona.id });
@@ -800,8 +808,14 @@ router.post('/browsers/provision', authMiddleware, enforce('provision'), async (
     return res.status(429).json({ error: `Sandbox quota reached for this hour (${hourly.quota})`, ...hourly });
   }
   if (!sandboxConfigured()) {
+    const missing = missingSettings();
     return res.status(409).json({
-      error: 'Cloud browsers are not configured. Set DAYTONA_API_KEY, DAYTONA_SNAPSHOT and OYA_PUBLIC_WS_URL.',
+      error: `Cloud browsers need ${missing.join(', ')}, which ${missing.length > 1 ? 'are' : 'is'} not set.`
+        + (missing.includes('OYA_PUBLIC_WS_URL')
+          ? ' OYA_PUBLIC_WS_URL must be reachable from the sandbox, so a server on'
+            + ' localhost needs a tunnel (ngrok, cloudflared) rather than ws://localhost.'
+          : ''),
+      missing,
     });
   }
   const key = getKey(req);
