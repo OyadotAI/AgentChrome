@@ -9,6 +9,11 @@
   if (window.__acAnalyzerLoaded) return;
   window.__acAnalyzerLoaded = true;
 
+  // Attribute used to tag indexed elements. The loader substitutes a random
+  // name per document: a constant blooming across the DOM is visible to any
+  // MutationObserver and identifies the product.
+  const ATTR = '__OYA_ATTR__';
+
   const MAX_MARKDOWN_CHARS = 80000;
 
   const COLORS = {
@@ -100,7 +105,7 @@
     let focusedId = null;
     const focused = document.activeElement;
     if (focused && focused !== document.body) {
-      const aid = focused.getAttribute('data-ac-id');
+      const aid = focused.getAttribute(ATTR);
       if (aid) focusedId = parseInt(aid, 10);
     }
 
@@ -120,7 +125,7 @@
     }
 
     if (!focusedId && focused && focused !== document.body) {
-      const aid = focused.getAttribute('data-ac-id');
+      const aid = focused.getAttribute(ATTR);
       if (aid) focusedId = parseInt(aid, 10);
     }
 
@@ -447,10 +452,10 @@
   function annotateInteractive(node, type) {
     elementCounter++;
     const id = elementCounter;
-    node.setAttribute('data-ac-id', String(id));
+    node.setAttribute(ATTR, String(id));
     elementRefs.set(id, node); // keep live reference for click/type
     const text = getLabel(node, type);
-    const entry = { id, type, tag: node.tagName.toLowerCase(), selector: `[data-ac-id="${id}"]`, text };
+    const entry = { id, type, tag: node.tagName.toLowerCase(), selector: `[${ATTR}="${id}"]`, text };
     if (node.href) entry.href = node.href;
     if (node.value !== undefined && node.value !== '') entry.value = node.value;
     if (node.placeholder) entry.placeholder = node.placeholder;
@@ -622,7 +627,11 @@
 
   // Element lookup: ID-only. Never falls back to CSS selectors.
   window.__acFindElement = function (selector) {
-    const match = selector.match(/data-ac-id="(\d+)"/);
+    // Accepts a number, or any selector carrying one — the attribute name is
+    // per-document now, so the id identifies the element, not the name.
+    const match = typeof selector === 'number'
+      ? [null, String(selector)]
+      : String(selector).match(/(\d+)/);
     if (!match) return null;
 
     const id = parseInt(match[1], 10);
@@ -632,17 +641,17 @@
     if (ref && ref.isConnected) return ref;
 
     // 2. DOM query by data-ac-id (may have been re-attached by observer)
-    const byAttr = document.querySelector(`[data-ac-id="${id}"]`);
+    const byAttr = document.querySelector(`[${ATTR}="${id}"]`);
     if (byAttr) { elementRefs.set(id, byAttr); return byAttr; }
 
     // 3. Shadow DOM + iframe search by data-ac-id
-    const byShadow = queryShadow(`[data-ac-id="${id}"]`);
+    const byShadow = queryShadow(`[${ATTR}="${id}"]`);
     if (byShadow) { elementRefs.set(id, byShadow); return byShadow; }
 
     // 4. Recovery: find replacement element by stored metadata
     const replacement = findReplacementElement(id);
     if (replacement) {
-      replacement.setAttribute('data-ac-id', String(id));
+      replacement.setAttribute(ATTR, String(id));
       elementRefs.set(id, replacement);
       return replacement;
     }
@@ -652,7 +661,7 @@
     if (entry?.domId) {
       const byDomId = document.getElementById(entry.domId);
       if (byDomId) {
-        byDomId.setAttribute('data-ac-id', String(id));
+        byDomId.setAttribute(ATTR, String(id));
         elementRefs.set(id, byDomId);
         return byDomId;
       }
@@ -663,7 +672,7 @@
 
   // ─── Highlight Overlays ───
 
-  const HIGHLIGHT_CSS = `[data-ac-id]{outline:2px solid var(--ac-hl-color,#3b82f6)!important;outline-offset:1px!important}`;
+  const HIGHLIGHT_CSS = `[${ATTR}]{outline:2px solid var(--ac-hl-color,#3b82f6)!important;outline-offset:1px!important}`;
   const LABEL_CSS = `.ac-label{position:absolute;font-family:ui-monospace,monospace;font-size:11px;font-weight:700;line-height:16px;padding:0 5px;border-radius:4px;color:#fff;z-index:2147483646;pointer-events:none;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)}`;
 
   function addHighlights() {
@@ -715,7 +724,7 @@
     if (stateCheckTimer) clearTimeout(stateCheckTimer);
     const c = document.getElementById('ac-labels'); if (c) c.remove();
     const s = document.getElementById('ac-highlight-style'); if (s) s.remove();
-    document.querySelectorAll('[data-ac-id]').forEach(el => { el.removeAttribute('data-ac-id'); el.style.removeProperty('--ac-hl-color'); });
+    document.querySelectorAll(`[${ATTR}]`).forEach(el => { el.removeAttribute(ATTR); el.style.removeProperty('--ac-hl-color'); });
     // Clean up inside same-origin iframes
     document.querySelectorAll('iframe').forEach(iframe => {
       try {
@@ -723,7 +732,7 @@
         if (!iframeDoc) return;
         const iframeStyle = iframeDoc.getElementById('ac-highlight-style');
         if (iframeStyle) iframeStyle.remove();
-        iframeDoc.querySelectorAll('[data-ac-id]').forEach(el => { el.removeAttribute('data-ac-id'); el.style.removeProperty('--ac-hl-color'); });
+        iframeDoc.querySelectorAll(`[${ATTR}]`).forEach(el => { el.removeAttribute(ATTR); el.style.removeProperty('--ac-hl-color'); });
       } catch {}
     });
   }
@@ -807,17 +816,17 @@
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
       let el = node;
       while (el) {
-        if (!el.hasAttribute('data-ac-id') && !SKIP_TAGS.has(el.tagName) && !isHardHidden(el)) {
+        if (!el.hasAttribute(ATTR) && !SKIP_TAGS.has(el.tagName) && !isHardHidden(el)) {
           const type = getInteractiveType(el);
           if (type) {
             const isLeaf = el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA';
             if (isLeaf || !hasInteractiveChild(el)) {
               elementCounter++;
               const id = elementCounter;
-              el.setAttribute('data-ac-id', String(id));
+              el.setAttribute(ATTR, String(id));
               elementRefs.set(id, el);
               const text = getLabel(el, type);
-              const entry = { id, type, tag: el.tagName.toLowerCase(), selector: `[data-ac-id="${id}"]`, text };
+              const entry = { id, type, tag: el.tagName.toLowerCase(), selector: `[${ATTR}="${id}"]`, text };
               if (el.href) entry.href = el.href;
               if (el.disabled) entry.disabled = true;
               if (el.id) entry.domId = el.id;
@@ -859,28 +868,28 @@
     // 1. By DOM id
     if (entry.domId) {
       const byId = document.getElementById(entry.domId);
-      if (byId && !byId.hasAttribute('data-ac-id')) return byId;
+      if (byId && !byId.hasAttribute(ATTR)) return byId;
     }
     // 2. By name attribute
     if (entry.name) {
       const byName = document.querySelector(`${entry.tag}[name="${CSS.escape(entry.name)}"]`);
-      if (byName && !byName.hasAttribute('data-ac-id')) return byName;
+      if (byName && !byName.hasAttribute(ATTR)) return byName;
     }
     // 3. By data-testid
     if (entry.testId) {
       const byTestId = document.querySelector(`[data-testid="${CSS.escape(entry.testId)}"]`);
-      if (byTestId && !byTestId.hasAttribute('data-ac-id')) return byTestId;
+      if (byTestId && !byTestId.hasAttribute(ATTR)) return byTestId;
     }
     // 4. By aria-label + tag
     if (entry.ariaLabel) {
       const byAria = document.querySelector(`${entry.tag}[aria-label="${CSS.escape(entry.ariaLabel)}"]`);
-      if (byAria && !byAria.hasAttribute('data-ac-id')) return byAria;
+      if (byAria && !byAria.hasAttribute(ATTR)) return byAria;
     }
     // 5. By tag + text content match
     if (entry.text) {
       const candidates = document.querySelectorAll(entry.tag);
       for (const c of candidates) {
-        if (c.hasAttribute('data-ac-id')) continue;
+        if (c.hasAttribute(ATTR)) continue;
         const cText = getLabel(c, entry.type);
         if (cText === entry.text) return c;
       }
@@ -894,13 +903,13 @@
     if (ref && ref.isConnected) return; // still alive
 
     // Check if data-ac-id already exists in DOM (was re-rendered with it)
-    const existing = document.querySelector(`[data-ac-id="${id}"]`);
+    const existing = document.querySelector(`[${ATTR}="${id}"]`);
     if (existing) { elementRefs.set(id, existing); return; }
 
     // Find replacement
     const replacement = findReplacementElement(id);
     if (replacement) {
-      replacement.setAttribute('data-ac-id', String(id));
+      replacement.setAttribute(ATTR, String(id));
       elementRefs.set(id, replacement);
     }
   }
@@ -910,8 +919,8 @@
     for (const m of mutations) {
       if (m.type === 'attributes') {
         const node = m.target;
-        if (node.hasAttribute('data-ac-id')) {
-          const id = parseInt(node.getAttribute('data-ac-id'), 10);
+        if (node.hasAttribute(ATTR)) {
+          const id = parseInt(node.getAttribute(ATTR), 10);
           const entry = elementMap.find(e => e.id === id);
           if (entry) {
             // Update dynamic properties
@@ -925,13 +934,13 @@
             entry.visible = rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw && rect.width > 0 && rect.height > 0;
           }
         }
-      } else if (m.type === 'characterData' && m.target.parentElement?.hasAttribute('data-ac-id')) {
+      } else if (m.type === 'characterData' && m.target.parentElement?.hasAttribute(ATTR)) {
         // Detect text change in contenteditable elements
         const el = m.target.parentElement;
         if (el.getAttribute('contenteditable') === 'true') {
           hasEditableChange = true;
         }
-      } else if (m.type === 'childList' && m.target.hasAttribute('data-ac-id')) {
+      } else if (m.type === 'childList' && m.target.hasAttribute(ATTR)) {
         const el = m.target;
         if (el.getAttribute('contenteditable') === 'true') {
           hasEditableChange = true;
@@ -940,9 +949,9 @@
         // Track removed elements for SPA re-render recovery
         for (const node of m.removedNodes) {
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
-          const removed = node.querySelectorAll ? [node, ...node.querySelectorAll('[data-ac-id]')] : [node];
+          const removed = node.querySelectorAll ? [node, ...node.querySelectorAll(`[${ATTR}]`)] : [node];
           for (const oldEl of removed) {
-            const aid = oldEl.getAttribute?.('data-ac-id');
+            const aid = oldEl.getAttribute?.(ATTR);
             if (!aid) continue;
             const id = parseInt(aid, 10);
             const ref = elementRefs.get(id);

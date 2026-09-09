@@ -128,8 +128,14 @@ async function ensureWorld(view, { force = false } = {}) {
     frameId, worldName: ISOLATED_WORLD, grantUniveralAccess: true,
   });
   worldContexts.set(view, executionContextId);
+
+  // A fresh tag attribute per document, so the marks the analyzer leaves on the
+  // DOM are not a constant any MutationObserver can match on.
+  const attr = 'data-' + require('crypto').randomBytes(4).toString('hex');
   await cdp(view, 'Runtime.evaluate', {
-    expression: analyzerScript, contextId: executionContextId, returnByValue: true,
+    expression: analyzerScript.replace('__OYA_ATTR__', attr),
+    contextId: executionContextId,
+    returnByValue: true,
   });
   return executionContextId;
 }

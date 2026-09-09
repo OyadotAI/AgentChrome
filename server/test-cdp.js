@@ -100,7 +100,9 @@ try {
   assert((await driver.send('read_page')).data.title === 'clicked', 'the click actually fired the page handler');
 
   await driver.send('type', { element_id: input.id, text: 'hello fleet' });
-  const typed = await driver.evaluate(`document.querySelector('[data-ac-id="${input.id}"]').value`);
+  // Query by a page-authored attribute: the analyzer's own tag is randomised
+  // per session now, so it is deliberately not something a caller can rely on.
+  const typed = await driver.evaluate(`document.querySelector('input[placeholder="name"]').value`);
   assert(typed === 'hello fleet', `type lands in the real input (got "${typed}")`);
 
   const before = await driver.evaluate('window.scrollY');

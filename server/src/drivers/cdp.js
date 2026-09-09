@@ -13,6 +13,7 @@
 
 import WebSocket from 'ws';
 import { readFileSync } from 'fs';
+import { randomBytes } from 'crypto';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -202,7 +203,10 @@ export class CDPDriver {
     // Re-inject on every navigation so analyze works on the new document.
     const analyzer = getAnalyzer();
     if (analyzer) {
-      await this.conn.send('Page.addScriptToEvaluateOnNewDocument', { source: analyzer }, sessionId).catch(() => {});
+      // Same per-session random tag attribute as the desktop path.
+      this.tagAttr = 'data-' + randomBytes(4).toString('hex');
+      await this.conn.send('Page.addScriptToEvaluateOnNewDocument',
+        { source: analyzer.replace('__OYA_ATTR__', this.tagAttr) }, sessionId).catch(() => {});
     }
   }
 

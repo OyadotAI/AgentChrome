@@ -157,7 +157,9 @@ try {
   }, sessionId);
   assert(typeof executionContextId === 'number', 'an isolated world can be created for the frame');
 
-  const analyzer = readFileSync(new URL('../browser/scripts/analyzer.js', import.meta.url), 'utf8');
+  const tagAttr = 'data-' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+  const analyzer = readFileSync(new URL('../browser/scripts/analyzer.js', import.meta.url), 'utf8')
+    .replace('__OYA_ATTR__', tagAttr);
   await conn.send('Runtime.evaluate',
     { expression: analyzer, contextId: executionContextId, returnByValue: true }, sessionId);
 
@@ -179,6 +181,17 @@ try {
   assert(leaked === '[]', `the page's own world stays clean (found ${leaked})`);
   assert(await evaluate('typeof window.analyzePage') === 'undefined',
     'window.analyzePage is undefined to the page — the product-specific detector is gone');
+
+  console.log('\n9️⃣  The DOM carries no constant to match on...');
+  assert(await evaluate(`document.querySelectorAll('[data-ac-id]').length`) === 0,
+    'no data-ac-id attributes are left on the page');
+  // The analyzer still tags elements, but under a name that changes per
+  // document, so a MutationObserver has no constant to watch for.
+  const tagged = await evaluate(
+    `JSON.stringify([...document.querySelectorAll('*')].flatMap(e => [...e.attributes].map(a => a.name)).filter(n => /^data-[0-9a-f]{8}$/.test(n)).slice(0, 1))`);
+  assert(tagged !== '[]', `elements are tagged under a randomised name (${tagged})`);
+  assert(analyzed.data.elements[0].selector.includes('data-'),
+    'the returned selector still resolves within this document');
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}`);
   failed++;
