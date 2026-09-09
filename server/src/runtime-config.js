@@ -15,7 +15,11 @@ import { fileURLToPath } from 'url';
 import { db } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = join(__dirname, '..', 'data', 'config.json');
+// OYA_DATA_DIR lets tests point at a scratch directory instead of writing
+// through to the deployment's real state.
+const CONFIG_PATH = process.env.OYA_DATA_DIR
+  ? join(process.env.OYA_DATA_DIR, 'config.json')
+  : join(__dirname, '..', 'data', 'config.json');
 
 let config = {};
 let loaded = false;

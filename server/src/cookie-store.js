@@ -17,7 +17,11 @@ import { fileURLToPath } from 'url';
 const db = null;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const COOKIE_PATH = join(__dirname, '..', 'data', 'cookies.json');
+// OYA_DATA_DIR lets tests point at a scratch directory instead of writing
+// through to the deployment's real state.
+const COOKIE_PATH = process.env.OYA_DATA_DIR
+  ? join(process.env.OYA_DATA_DIR, 'cookies.json')
+  : join(__dirname, '..', 'data', 'cookies.json');
 
 /**
  * Per-API-key jars. Outer key is the API key, inner key is "<domain>|<path>|<name>".

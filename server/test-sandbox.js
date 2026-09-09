@@ -16,6 +16,11 @@
 import { createServer } from 'http';
 import express from 'express';
 
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as joinPath } from 'path';
+// Never write through to the deployment's real data/ directory.
+process.env.OYA_DATA_DIR = mkdtempSync(joinPath(tmpdir(), 'oya-test-'));
 process.env.API_KEYS = 'admin-key,tenant-key';
 // Force the no-database path so nothing here can write to Supabase or to
 // data/config.json. runtimeConfig.set() persists for real -- never call it.

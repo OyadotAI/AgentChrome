@@ -17,6 +17,11 @@ import { v4 as uuidv4 } from 'uuid';
 // ── Inline server setup (same as index.js but on a random port) ──────────
 
 process.env.FLEET_TOKEN = 'test-fleet-token';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as joinPath } from 'path';
+// Never write through to the deployment's real data/ directory.
+process.env.OYA_DATA_DIR = mkdtempSync(joinPath(tmpdir(), 'oya-test-'));
 process.env.API_KEYS = 'admin-key-for-testing';
 
 const { router: apiRouter } = await import('./src/api.js');
@@ -259,9 +264,18 @@ try {
   }));
   await wait(500);
 
-  // Other browsers should receive the merged jar
+  b1.messages.length = 0;   // only look at what arrives after the dump
+  // A dump merges into the jar and is NOT fanned out — pushing a full jar to
+  // every browser on every connect was the worst of the quadratic paths.
   const b1SyncMsg = b1.messages.find(m => m.type === 'cookie_sync' && m.cookies?.some(c => c.name === 'token'));
-  assert(b1SyncMsg != null, 'Browser-1 received full cookie_sync after Browser-4 dump');
+  assert(b1SyncMsg == null, 'Browser-4 dump is NOT broadcast to Browser-1');
+
+  // Browser-1 gets it by pulling the host, like any other change.
+  b1.messages.length = 0;
+  b1.ws.send(JSON.stringify({ type: 'cookie_pull', domains: ['test.com'], pullId: 'dump-1' }));
+  await wait(300);
+  const afterDump = b1.messages.find(m => m.type === 'cookie_sync' && m.pullId === 'dump-1');
+  assert(afterDump?.cookies?.some(c => c.name === 'token'), "Browser-1 pulls Browser-4's dumped cookie on demand");
 
   const jar2 = await httpGet('/pool/cookies');
   const hasToken = jar2.data.cookies.some(c => c.name === 'token' && c.value === 'xyz789');

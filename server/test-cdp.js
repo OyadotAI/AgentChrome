@@ -119,6 +119,31 @@ try {
   console.log('\n5️⃣  Unsupported actions fail cleanly...');
   const bogus = await driver.send('teleport', {});
   assert(bogus.ok === false && /Unsupported action/.test(bogus.error), 'an unknown action returns a clear error, not a throw');
+
+  console.log('\n6️⃣  element_id cannot smuggle code into the page...');
+  // Driving a browser means evaluating source in it; a caller-supplied id must
+  // never reach that source. Analyzer ids are integers, so anything else is out.
+  await driver.send('navigate', { url: siteUrl });
+  const hostile = [
+    `1"]); window.__pwned = 1; //`,
+    `1'); window.__pwned = 1; //`,
+    '1]); window.__pwned = 1; //',
+    '__proto__',
+    { toString() { return '1'; } },
+  ];
+  let rejected = 0;
+  for (const id of hostile) {
+    for (const action of ['click', 'select', 'hover', 'type']) {
+      try { await driver.send(action, { element_id: id, value: 'x', text: 'x' }); }
+      catch (e) { if (e.status === 400) rejected++; }
+    }
+  }
+  assert(rejected === hostile.length * 4, `every hostile element_id is rejected (${rejected}/${hostile.length * 4})`);
+  assert(await driver.evaluate('window.__pwned === undefined'), 'nothing was injected into the page');
+
+  const evalAttempt = await driver.send('evaluate', { expression: 'window.__pwned = 1' });
+  assert(evalAttempt.ok === false, 'arbitrary evaluate is not exposed as a command');
+  assert(await driver.evaluate('window.__pwned === undefined'), 'the evaluate attempt changed nothing');
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}`);
   failed++;

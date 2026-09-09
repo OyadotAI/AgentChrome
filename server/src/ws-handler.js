@@ -8,6 +8,14 @@ import { registry } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
 import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from './cookie-store.js';
 import { getFingerprintForKey } from './fingerprint.js';
+import { metrics } from './metrics.js';
+
+/** One place both client types report through, so the numbers are comparable. */
+function recordCommand(action, outcome, ms) {
+  metrics.commands.inc({ action, outcome });
+  metrics.commandDuration.observe({ action }, ms);
+}
+
 
 const PING_INTERVAL = 20000;
 const PONG_TIMEOUT = PING_INTERVAL * 4;
@@ -47,6 +55,7 @@ export function handleConnection(ws) {
       clearTimeout(authTimeout);
 
       if (!validateApiKey(msg.api_key)) {
+        metrics.wsConnections.inc({ outcome: 'invalid_key' });
         ws.close(4003, 'Invalid API key');
         return;
       }
@@ -59,6 +68,7 @@ export function handleConnection(ws) {
       // valid key could hijack another tenant's browser_id.
       const existing = registry.get(browserId);
       if (existing && existing.apiKey !== apiKey) {
+        metrics.wsConnections.inc({ outcome: 'id_conflict' });
         ws.close(4003, 'browser_id registered to a different key');
         return;
       }
@@ -71,6 +81,7 @@ export function handleConnection(ws) {
           if (pending.browserId === browserId) {
             clearTimeout(pending.timer);
             pendingCommands.delete(cmdId);
+            recordCommand(pending.action, 'reconnected', Date.now() - pending.startedAt);
             pending.reject(new Error('Browser reconnected'));
           }
         }
@@ -79,7 +90,9 @@ export function handleConnection(ws) {
         destroyMcpServer(browserId);
       }
 
-      registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser' });
+      registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya' });
+      metrics.wsConnections.inc({ outcome: 'ok' });
+      metrics.browsersConnected.set({}, registry.browsers.size);
 
       // Generate deterministic fingerprint from API key — same key = same profile everywhere
       const fingerprint = getFingerprintForKey(msg.api_key);
@@ -127,6 +140,7 @@ export function handleConnection(ws) {
     if (msg.type === 'frame') {
       if (msg.data) {
         registry.pushFrame(browserId, msg.data);
+        metrics.frames.inc({ client: 'oya' });
       }
       return;
     }
@@ -151,12 +165,14 @@ export function handleConnection(ws) {
     if (msg.type === 'cookie_changed') {
       const changes = Array.isArray(msg.changes) ? msg.changes : (msg.change ? [msg.change] : []);
       for (const change of changes.slice(0, 500)) applyChange(apiKey, change);
+      metrics.cookieChanges.inc({}, changes.length);
       return;
     }
 
     // ── Cookie pull (browser asks for the hosts it is about to visit) ──
     if (msg.type === 'cookie_pull') {
       const cookies = getForDomains(apiKey, msg.domains || []);
+      metrics.cookiePulls.inc({});
       try {
         ws.send(JSON.stringify({ type: 'cookie_sync', cookies, pullId: msg.pullId }));
       } catch {}
@@ -170,6 +186,8 @@ export function handleConnection(ws) {
         console.log(`[ws] ← cmd_result from ${browserId}: id=${msg.id} ok=${msg.ok}`);
         clearTimeout(pending.timer);
         pendingCommands.delete(msg.id);
+        metrics.pendingCommands.set({}, pendingCommands.size);
+        recordCommand(pending.action, msg.ok ? 'ok' : 'error', Date.now() - pending.startedAt);
         pending.resolve({
           ok: msg.ok,
           data: msg.data,
@@ -202,12 +220,16 @@ export function handleConnection(ws) {
           if (pending.browserId === browserId) {
             clearTimeout(pending.timer);
             pendingCommands.delete(cmdId);
+            recordCommand(pending.action, 'disconnected', Date.now() - pending.startedAt);
             pending.reject(new Error('Browser disconnected'));
           }
         }
 
         registry.remove(browserId);
         destroyMcpServer(browserId);
+        metrics.wsDisconnections.inc({ client: 'oya' });
+        metrics.browsersConnected.set({}, registry.browsers.size);
+        metrics.pendingCommands.set({}, pendingCommands.size);
       }
     }
   });
@@ -266,13 +288,27 @@ export function sendCommand(browserId, action, params = {}, timeoutMs) {
   const id = uuidv4();
   const timeout = timeoutMs || (action === 'navigate' ? 90000 : 30000);
 
+  // Outbound clients (CDP: Anchor, Browserbase, Steel, plain Chrome) are driven
+  // directly rather than by handing a command to a socket and awaiting a
+  // cmd_result. Same action vocabulary either way, so callers never branch.
+  if (browser.driver) {
+    const started = Date.now();
+    return browser.driver.send(action, params, timeout).then(
+      (result) => { recordCommand(action, result?.ok === false ? 'error' : 'ok', Date.now() - started); return result; },
+      (err) => { recordCommand(action, 'error', Date.now() - started); throw err; },
+    );
+  }
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingCommands.delete(id);
+      metrics.pendingCommands.set({}, pendingCommands.size);
+      recordCommand(action, 'timeout', timeout);
       reject(new Error(`Command ${action} timed out after ${timeout / 1000}s`));
     }, timeout);
 
-    pendingCommands.set(id, { resolve, reject, timer, browserId });
+    pendingCommands.set(id, { resolve, reject, timer, browserId, action, startedAt: Date.now() });
+    metrics.pendingCommands.set({}, pendingCommands.size);
 
     console.log(`[ws] → cmd to ${browserId}: id=${id} action=${action}`);
     try {

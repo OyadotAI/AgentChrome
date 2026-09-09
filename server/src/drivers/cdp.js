@@ -31,6 +31,21 @@ function getAnalyzer() {
   return analyzerScript;
 }
 
+/**
+ * Analyzer element ids are integers assigned by analyzePage(). Rejecting
+ * anything else keeps caller-supplied values out of evaluated source, rather
+ * than relying on every interpolation site escaping correctly.
+ */
+function elementSelector(elementId) {
+  // Only a number or a numeric string. An object with a coercing toString()
+  // would slip past Number() alone.
+  const id = (typeof elementId === 'number' || typeof elementId === 'string') ? Number(elementId) : NaN;
+  if (!Number.isInteger(id) || id < 0) {
+    throw Object.assign(new Error('element_id must be an analyzer element id'), { status: 400 });
+  }
+  return `[data-ac-id="${id}"]`;
+}
+
 const FIND_ELEMENT_JS = (selector) => `(() => {
   window.__oyaInternalCall = true;
   try {
@@ -151,7 +166,7 @@ const KEY_CODES = {
 export const CDP_CAPABILITIES = new Set([
   'navigate', 'reload', 'back', 'forward', 'screenshot', 'analyze', 'read_page',
   'click', 'click-coords', 'hover', 'type', 'press-key', 'scroll-up', 'scroll-down',
-  'select', 'wait', 'list-tabs', 'new-tab', 'close-tab', 'evaluate', 'cookies',
+  'select', 'wait', 'list-tabs', 'new-tab', 'close-tab', 'cookies',
 ]);
 
 export class CDPDriver {
@@ -270,7 +285,7 @@ export class CDPDriver {
         return { ok: true, data: await this.pageInfo() };
       case 'click': {
         if (!params.element_id) return { ok: false, error: 'element_id required' };
-        const { x, y } = await this.locate(`[data-ac-id="${params.element_id}"]`);
+        const { x, y } = await this.locate(elementSelector(params.element_id));
         await this.clickAt(x, y);
         return { ok: true, data: { clicked: true, url: await this.evaluate('location.href') } };
       }
@@ -279,14 +294,14 @@ export class CDPDriver {
         return { ok: true, data: { clicked: true } };
       case 'hover': {
         const { x, y } = params.element_id
-          ? await this.locate(`[data-ac-id="${params.element_id}"]`)
+          ? await this.locate(elementSelector(params.element_id))
           : { x: Number(params.x) || 0, y: Number(params.y) || 0 };
         await this.mouse('mouseMoved', x, y);
         return { ok: true };
       }
       case 'type': {
         if (params.element_id) {
-          const { x, y } = await this.locate(`[data-ac-id="${params.element_id}"]`);
+          const { x, y } = await this.locate(elementSelector(params.element_id));
           await this.clickAt(x, y);
         }
         await this.conn.send('Input.insertText', { text: String(params.text ?? '') }, this.sessionId);
@@ -313,9 +328,9 @@ export class CDPDriver {
         await this.ensureAnalyzer();
         const ok = await this.evaluate(`(() => {
           const f = window.__acFindElement || ((s) => document.querySelector(s));
-          const el = f('[data-ac-id="${params.element_id}"]');
+          const el = f(${JSON.stringify(elementSelector(params.element_id))});
           if (!el) return false;
-          el.value = ${JSON.stringify(params.value ?? '')};
+          el.value = ${JSON.stringify(String(params.value ?? ''))};
           el.dispatchEvent(new Event('change', { bubbles: true }));
           return true;
         })()`);
@@ -352,13 +367,35 @@ export class CDPDriver {
         }
         return { ok: true };
       }
-      case 'evaluate':
-        return { ok: true, data: { result: await this.evaluate(String(params.expression || '')) } };
       case 'cookies':
         return { ok: true, data: (await this.conn.send('Network.getAllCookies', {}, this.sessionId)) };
       default:
         return { ok: false, error: `Unsupported action for a CDP browser: ${action}` };
     }
+  }
+
+  /**
+   * Push frames the same way the Oya client does, so /live/:id is identical
+   * for both client types. CDP screencasts natively — no polling loop.
+   */
+  async startScreencast(onFrame, { quality = 40, maxWidth = 1280, everyNthFrame = 2 } = {}) {
+    if (this.screencasting) return;
+    this.screencasting = true;
+    this.offScreencast = this.conn.on('Page.screencastFrame', async (params, sessionId) => {
+      if (sessionId && sessionId !== this.sessionId) return;
+      try { onFrame(`data:image/jpeg;base64,${params.data}`); } catch {}
+      // Must ack or Chrome stops sending.
+      this.conn.send('Page.screencastFrameAck', { sessionId: params.sessionId }, this.sessionId).catch(() => {});
+    });
+    await this.conn.send('Page.startScreencast',
+      { format: 'jpeg', quality, maxWidth, everyNthFrame }, this.sessionId);
+  }
+
+  async stopScreencast() {
+    if (!this.screencasting) return;
+    this.screencasting = false;
+    this.offScreencast?.();
+    await this.conn.send('Page.stopScreencast', {}, this.sessionId).catch(() => {});
   }
 
   async pageInfo() {

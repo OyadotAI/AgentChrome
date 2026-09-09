@@ -21,6 +21,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 
 // Configure keys BEFORE importing server modules (they read env at load).
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join as joinPath } from 'path';
+// Never write through to the deployment's real data/ directory.
+process.env.OYA_DATA_DIR = mkdtempSync(joinPath(tmpdir(), 'oya-test-'));
 process.env.API_KEYS = 'admin-key-security-test';
 process.env.FLEET_TOKEN = 'fleet-token-security-test';
 

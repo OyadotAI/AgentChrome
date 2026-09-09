@@ -12,9 +12,20 @@ class ConnectionRegistry extends EventEmitter {
     this.browsers = new Map();
   }
 
-  add(browserId, { ws, apiKey, name }) {
+  /**
+   * @param {object} opts
+   * @param {WebSocket} [opts.ws]        inbound client (Oya) — it dialled us
+   * @param {object}    [opts.driver]    outbound driver (CDP) — we dialled it
+   * @param {string}    [opts.clientType] 'oya' | 'cdp'
+   * @param {string}    [opts.provider]  which vendor supplied a hosted browser
+   */
+  add(browserId, { ws, apiKey, name, driver = null, clientType = 'oya', provider = null, release = null }) {
     this.browsers.set(browserId, {
       ws,
+      driver,
+      clientType,
+      provider,
+      release,
       apiKey: apiKey || '',
       name: name || 'Unknown Browser',
       connectedAt: new Date(),
@@ -24,12 +35,16 @@ class ConnectionRegistry extends EventEmitter {
       lastFrameAt: null,
       streamViewers: new Set(),
     });
-    this.emit('browser:connected', { id: browserId, name });
+    this.emit('browser:connected', { id: browserId, name, clientType, provider });
   }
 
   remove(browserId) {
     const browser = this.browsers.get(browserId);
     if (browser) {
+      // An outbound browser does not disconnect itself; close what we opened
+      // and hand the vendor session back so it stops billing.
+      try { browser.driver?.close(); } catch {}
+      if (browser.release) Promise.resolve(browser.release()).catch(() => {});
       for (const res of browser.streamViewers) {
         try { res.end(); } catch {}
       }
@@ -102,6 +117,8 @@ class ConnectionRegistry extends EventEmitter {
       result.push({
         id,
         name: b.name,
+        clientType: b.clientType,
+        provider: b.provider,
         connectedAt: b.connectedAt.toISOString(),
         lastSeen: b.lastSeen.toISOString(),
         currentUrl: b.currentUrl,
