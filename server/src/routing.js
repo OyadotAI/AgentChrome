@@ -78,8 +78,10 @@ export class ProviderPool {
     this.providers = new Map();
     this.rr = 0;
     this.waiters = [];
+    // Host default; each key may choose its own.
     this.strategy = STRATEGIES.includes(process.env.OYA_ROUTING_STRATEGY)
       ? process.env.OYA_ROUTING_STRATEGY : 'priority';
+    this.strategies = new Map();
   }
 
   /** Config comes from OYA_PROVIDERS (JSON array) or register() at runtime. */
@@ -91,6 +93,13 @@ export class ProviderPool {
       console.error('[routing] OYA_PROVIDERS is not valid JSON:', e.message);
     }
     return this;
+  }
+
+  strategyFor(owner) { return this.strategies.get(owner) || this.strategy; }
+
+  setStrategy(owner, strategy) {
+    if (!STRATEGIES.includes(strategy)) throw Object.assign(new Error('Unknown strategy'), { status: 400 });
+    this.strategies.set(owner, strategy);
   }
 
   /** Names are namespaced by owner so two keys can both have a "chrome". */
@@ -123,7 +132,7 @@ export class ProviderPool {
   /** Candidates that could take a session for this owner right now. */
   candidates(owner) { return this.visible(owner).filter((p) => p.available); }
 
-  pick(owner, strategy = this.strategy, exclude = new Set()) {
+  pick(owner, strategy = this.strategyFor(owner), exclude = new Set()) {
     const pool = this.candidates(owner).filter((p) => !exclude.has(p.name));
     if (!pool.length) return null;
 
@@ -221,7 +230,7 @@ export class ProviderPool {
   stats(owner = null) {
     const providers = this.list(owner);
     return {
-      strategy: this.strategy,
+      strategy: this.strategyFor(owner),
       queueDepth: this.queueDepth,
       capacity: providers.reduce((n, p) => n + p.maxConcurrent, 0),
       active: providers.reduce((n, p) => n + p.active, 0),

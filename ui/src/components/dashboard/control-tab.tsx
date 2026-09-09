@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, AlertTriangle, Circle, Clock, Film, Gauge, HardDrive, Play, Pause,
-  RefreshCw, Server, ShieldCheck, Trash2, Users, X, Zap,
+  Plus, RefreshCw, Server, ShieldCheck, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import { apiUrl, apiKeyHeaders } from '@/lib/api';
 
@@ -19,7 +19,7 @@ type Fleet = {
   quotas: Record<string, number>;
 };
 type Session = { id: string; provider: string; profile: string | null; connected: boolean; seconds: number; bytesUp: number; bytesDown: number; recording: boolean };
-type Provider = { name: string; type: string; active: number; maxConcurrent: number; priority: number; weight: number; healthy: boolean; available: boolean; latencyMs: number | null; cooldownMsRemaining: number; totalSessions: number; totalFailures: number };
+type Provider = { name: string; type: string; shared?: boolean; owner?: string | null; active: number; maxConcurrent: number; priority: number; weight: number; healthy: boolean; available: boolean; latencyMs: number | null; cooldownMsRemaining: number; totalSessions: number; totalFailures: number };
 type Routing = { strategy: string; queueDepth: number; capacity: number; active: number; healthy: number; providers: Provider[] };
 type AuditEvent = { ts: string; action: string; actor: string | null; target_type: string | null; target_id: string | null; outcome: string; ip: string | null; meta: Record<string, unknown> | null };
 type Recording = { sessionId: string; provider?: string; profile?: string | null; startedAt?: string; durationMs?: number; frameCount?: number; bytes?: number; live?: boolean; truncated?: boolean };
@@ -79,6 +79,8 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
   const [player, setPlayer] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [draft, setDraft] = useState({ name: '', type: 'cdp', wsUrl: '', maxConcurrent: '5', priority: '100', weight: '1' });
   const polling = useRef(false);
 
   const headers = useMemo(() => apiKeyHeaders(apiKey), [apiKey]);
@@ -285,6 +287,12 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
         {view === 'providers' && routing && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => setShowAdd((v) => !v)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-accent text-bg hover:opacity-90"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add provider
+              </button>
               <span className="text-xs text-text-dim uppercase tracking-wider">Strategy</span>
               <select
                 value={routing.strategy}
@@ -298,6 +306,94 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
               </span>
             </div>
 
+            {showAdd && (
+              <form
+                className="border border-border rounded-lg p-4 space-y-3 bg-bg-elevated/30"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void act('add-provider', async () => {
+                    await post('/gateway/providers', {
+                      name: draft.name.trim(),
+                      type: draft.type,
+                      ...(draft.type === 'cdp' ? { wsUrl: draft.wsUrl.trim() } : {}),
+                      maxConcurrent: Number(draft.maxConcurrent) || 5,
+                      priority: Number(draft.priority) || 100,
+                      weight: Number(draft.weight) || 1,
+                    });
+                    setShowAdd(false);
+                    setDraft({ name: '', type: 'cdp', wsUrl: '', maxConcurrent: '5', priority: '100', weight: '1' });
+                    setNotice('Provider added.');
+                  });
+                }}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs text-text-dim space-y-1 block">
+                    <span>Name</span>
+                    <input
+                      required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                      placeholder="my-chrome"
+                      className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm text-text"
+                    />
+                  </label>
+                  <label className="text-xs text-text-dim space-y-1 block">
+                    <span>Type</span>
+                    <select
+                      value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}
+                      className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm text-text"
+                    >
+                      <option value="cdp">cdp — your own CDP endpoint</option>
+                      <option value="anchor">anchor</option>
+                      <option value="browserbase">browserbase</option>
+                      <option value="steel">steel</option>
+                    </select>
+                  </label>
+                </div>
+
+                {draft.type === 'cdp' ? (
+                  <label className="text-xs text-text-dim space-y-1 block">
+                    <span>CDP WebSocket URL</span>
+                    <input
+                      required value={draft.wsUrl} onChange={(e) => setDraft({ ...draft, wsUrl: e.target.value })}
+                      placeholder="ws://127.0.0.1:9222/devtools/browser/…"
+                      className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm font-mono text-text"
+                    />
+                    <span className="block text-text-dim">
+                      From <code className="font-mono">http://host:9222/json/version</code> →{' '}
+                      <code className="font-mono">webSocketDebuggerUrl</code>. Private and loopback
+                      addresses need <code className="font-mono">OYA_ALLOW_PRIVATE_TARGETS=true</code> on the host.
+                    </span>
+                  </label>
+                ) : (
+                  <p className="text-xs text-text-dim">
+                    A session is opened per connection using the host&apos;s{' '}
+                    <code className="font-mono">{draft.type.toUpperCase()}_API_KEY</code>.
+                  </p>
+                )}
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {([['maxConcurrent', 'Max sessions'], ['priority', 'Priority (lower wins)'], ['weight', 'Weight']] as const).map(([k, label]) => (
+                    <label key={k} className="text-xs text-text-dim space-y-1 block">
+                      <span>{label}</span>
+                      <input
+                        type="number" min={0} value={draft[k]}
+                        onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+                        className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm font-mono text-text"
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  <button type="submit" disabled={!!busy}
+                    className="px-3 py-1.5 rounded text-xs font-medium bg-accent text-bg disabled:opacity-40">
+                    {busy === 'add-provider' ? 'Adding…' : 'Add provider'}
+                  </button>
+                  <button type="button" onClick={() => setShowAdd(false)}
+                    className="px-3 py-1.5 rounded text-xs text-text-dim hover:text-text">Cancel</button>
+                </div>
+              </form>
+            )}
+
             <div className="grid gap-3 md:grid-cols-2">
               {routing.providers.map((p) => (
                 <div key={p.name} className="border border-border rounded-lg p-4 space-y-3">
@@ -307,12 +403,16 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                       <span className="font-medium truncate">{p.name}</span>
                       <span className="text-text-dim text-xs">{p.type}</span>
                     </div>
-                    <button
-                      disabled={!!busy}
-                      onClick={() => void act(p.name, () => del(`/gateway/providers/${p.name}`))}
-                      className="text-text-dim hover:text-red-400 disabled:opacity-40"
-                      title="Remove provider"
-                    ><Trash2 className="w-3.5 h-3.5" /></button>
+                    {p.shared ? (
+                      <span className="text-text-dim text-xs" title="Declared by the host via OYA_PROVIDERS">shared</span>
+                    ) : (
+                      <button
+                        disabled={!!busy}
+                        onClick={() => void act(p.name, () => del(`/gateway/providers/${p.name}`))}
+                        className="text-text-dim hover:text-red-400 disabled:opacity-40"
+                        title="Remove provider"
+                      ><Trash2 className="w-3.5 h-3.5" /></button>
+                    )}
                   </div>
                   <Bar used={p.active} capacity={p.maxConcurrent} />
                   <div className="grid grid-cols-2 gap-y-1 text-xs text-text-dim">
@@ -326,7 +426,10 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                 </div>
               ))}
               {!routing.providers.length && (
-                <p className="text-text-dim text-sm">No providers registered. Add one with POST /api/gateway/providers, or set OYA_PROVIDERS.</p>
+                <p className="text-text-dim text-sm">
+                  No providers yet. Add one above — a CDP endpoint you run, or a hosted vendor.
+                  The host can also declare shared providers with OYA_PROVIDERS.
+                </p>
               )}
             </div>
           </div>

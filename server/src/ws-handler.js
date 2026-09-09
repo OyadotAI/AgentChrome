@@ -27,7 +27,10 @@ const pendingCommands = new Map();
 /**
  * Handle a new WebSocket connection from a browser extension.
  */
-export function handleConnection(ws) {
+export function handleConnection(ws, req) {
+  // A rejected connection used to close silently, which made "it says offline"
+  // impossible to diagnose from the server side.
+  const from = req?.socket?.remoteAddress || 'unknown';
   let browserId = null;
   let apiKey = null;
   let authenticated = false;
@@ -37,6 +40,7 @@ export function handleConnection(ws) {
   // Must authenticate within 10s
   const authTimeout = setTimeout(() => {
     if (!authenticated) {
+      console.warn(`[ws] ✗ ${from} rejected: no auth message within 10s`);
       ws.close(4001, 'Auth timeout');
     }
   }, 10000);
@@ -58,12 +62,16 @@ export function handleConnection(ws) {
       // Draining: finish what is in flight, accept nothing new, so an
       // instance can be restarted without dropping live sessions.
       if (registry.draining) {
+        console.warn(`[ws] ✗ ${from} rejected: server is draining`);
         metrics.wsConnections.inc({ outcome: 'draining' });
         ws.close(4009, 'Server draining');
         return;
       }
 
       if (!validateApiKey(msg.api_key)) {
+        const shown = msg.api_key ? `…${String(msg.api_key).slice(-4)}` : '(none sent)';
+        console.warn(`[ws] ✗ ${from} rejected: unknown API key ${shown}. `
+          + 'It must be listed in API_KEYS or registered for an account.');
         metrics.wsConnections.inc({ outcome: 'invalid_key' });
         ws.close(4003, 'Invalid API key');
         return;
@@ -77,6 +85,7 @@ export function handleConnection(ws) {
       // valid key could hijack another tenant's browser_id.
       const existing = registry.get(browserId);
       if (existing && existing.apiKey !== apiKey) {
+        console.warn(`[ws] ✗ ${from} rejected: browser_id ${browserId} belongs to a different key`);
         metrics.wsConnections.inc({ outcome: 'id_conflict' });
         ws.close(4003, 'browser_id registered to a different key');
         return;

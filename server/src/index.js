@@ -132,6 +132,7 @@ server.on('upgrade', (req, socket, head) => {
       try { socket.destroy(); } catch {}
     });
   }
+  console.warn(`[ws] ✗ upgrade to unknown path ${pathname} — use /ws (Oya client) or /connect (CDP)`);
   socket.destroy();
 });
 
@@ -144,7 +145,7 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  handleConnection(ws);
+  handleConnection(ws, req);
 });
 
 // Log browser events

@@ -145,6 +145,46 @@ try {
 
   const badConnect = await call('/api/browsers/connect', { method: 'POST', body: { provider: 'cdp' }, key: 'tenant-key' });
   assert(badConnect.status === 400, 'connecting without a wsUrl is rejected');
+  console.log('\n8.  The host does not dial caller-supplied private addresses...');
+  const { assertSafeTarget } = await import('./src/net-guard.js');
+  delete process.env.OYA_ALLOW_PRIVATE_TARGETS;
+  const hostile = ['ws://127.0.0.1:6379/', 'ws://169.254.169.254/', 'wss://[::1]/x', 'ws://10.1.2.3/x',
+    'ws://user:pw@example.com/', 'http://example.com/', 'garbage'];
+  let blocked = 0;
+  for (const url of hostile) {
+    try { await assertSafeTarget(url, { label: 'wsUrl' }); }
+    catch (e) { if (e.status === 400) blocked++; }
+  }
+  assert(blocked === hostile.length, `all ${hostile.length} unsafe targets refused (${blocked})`);
+
+  const viaApi = await call('/api/gateway/providers', { method: 'POST', key: 'tenant-key',
+    body: { name: 'ssrf', type: 'cdp', wsUrl: 'ws://169.254.169.254/' } });
+  assert(viaApi.status === 400, `provider registration refuses a metadata address (got ${viaApi.status})`);
+
+  process.env.OYA_ALLOW_PRIVATE_TARGETS = 'true';
+  const allowed = await assertSafeTarget('ws://127.0.0.1:9222/x', { label: 'wsUrl' }).then(() => true, () => false);
+  assert(allowed, 'a single-operator host can opt in to loopback targets');
+  // The escape hatch must not cover cloud metadata: opting into loopback for a
+  // laptop should never open 169.254.169.254 on a cloud VM.
+  const stillBlocked = [];
+  for (const url of ['ws://169.254.169.254/', 'wss://[fe80::1]/x', 'ws://0.0.0.0/x']) {
+    const ok = await assertSafeTarget(url, { label: 'wsUrl' }).then(() => true, () => false);
+    if (!ok) stillBlocked.push(url);
+  }
+  assert(stillBlocked.length === 3, 'link-local and reserved stay blocked even with the opt-in on');
+  delete process.env.OYA_ALLOW_PRIVATE_TARGETS;
+
+  console.log('\n9.  Operator token is header-only...');
+  const viaQuery = await fetch(`${base}/metrics?token=operator-token`);
+  assert(viaQuery.status === 403, `a token in the query string is not accepted (got ${viaQuery.status})`);
+  assert((await call('/metrics', { key: 'operator-token', raw: true })).status === 200, 'the header is');
+
+  console.log('\n10. Routing strategy is per key...');
+  await call('/api/gateway/strategy', { method: 'POST', key: 'tenant-key', body: { strategy: 'latency' } });
+  const mineStrategy = await call('/api/gateway/providers', { key: 'tenant-key' });
+  const theirStrategy = await call('/api/gateway/providers', { key: 'admin-key' });
+  assert(mineStrategy.body.strategy === 'latency', "the key's own strategy changed");
+  assert(theirStrategy.body.strategy !== 'latency', "another key's routing is unaffected");
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack}`);
   failed++;

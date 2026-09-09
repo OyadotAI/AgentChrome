@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import {
   authMiddleware, userAuthMiddleware,
   registerApiKey, listApiKeys, deleteApiKey,
@@ -23,6 +23,7 @@ import * as usage from './usage.js';
 import { enforce, consume, checkQuota, checkHourly, status as limitStatus, LIMITS, QUOTAS } from './limits.js';
 import { acquire as acquireBrowser, available as availableProviders } from './providers.js';
 import { CDPDriver } from './drivers/cdp.js';
+import { assertSafeTarget } from './net-guard.js';
 import { v4 as uuidv4 } from 'uuid';
 import { listSessions, killSession, sessions as gatewaySessions } from './gateway.js';
 import { pool, STRATEGIES } from './routing.js';
@@ -72,9 +73,17 @@ const ownerScope = (req) => fingerprint(getKey(req));
  */
 function operatorOnly(req, res, next) {
   const token = process.env.OYA_OPERATOR_TOKEN || process.env.OYA_METRICS_TOKEN;
-  const supplied = getKey(req) || req.query.token || '';
-  if (token && supplied === token) return next();
-  return res.status(403).json({ error: 'Set OYA_OPERATOR_TOKEN and present it to use host controls' });
+  // Header only: a token in the query string lands in access logs, proxy logs
+  // and browser history. Prometheus sends an Authorization header natively.
+  const supplied = getKey(req);
+  if (token && supplied) {
+    const a = Buffer.from(supplied);
+    const b = Buffer.from(token);
+    if (a.length === b.length && timingSafeEqual(a, b)) return next();
+  }
+  return res.status(403).json({
+    error: 'Host controls need OYA_OPERATOR_TOKEN in the Authorization header',
+  });
 }
 
 /** Extract API key from Authorization header */
@@ -335,6 +344,7 @@ router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req,
   const provider = String(req.body?.provider || 'cdp');
   let session;
   try {
+    if (provider === 'cdp' && req.body?.wsUrl) await assertSafeTarget(req.body.wsUrl, { label: 'wsUrl' });
     session = await acquireBrowser({ provider, wsUrl: req.body?.wsUrl });
   } catch (err) {
     audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'error',
@@ -409,9 +419,16 @@ router.delete('/gateway/sessions/:id', authMiddleware, async (req, res) => {
 router.get('/gateway/providers', authMiddleware, (req, res) =>
   res.json(pool.stats(fingerprint(getKey(req)))));
 
-router.post('/gateway/providers', authMiddleware, (req, res) => {
+router.post('/gateway/providers', authMiddleware, async (req, res) => {
   try {
-    const provider = pool.register({ ...(req.body || {}), owner: fingerprint(getKey(req)) });
+    const cfg = { ...(req.body || {}), owner: fingerprint(getKey(req)) };
+    // The host dials this URL, using its network position rather than the
+    // caller's. Unvalidated, that is a server-side request forgery primitive.
+    if (cfg.wsUrl) {
+      const safe = await assertSafeTarget(cfg.wsUrl, { label: 'wsUrl' });
+      cfg.wsUrl = safe.href;
+    }
+    const provider = pool.register(cfg);
     audit({ action: 'provider.upsert', actorKey: getKey(req), targetType: 'provider', targetId: provider.name,
       meta: { type: provider.type, maxConcurrent: provider.maxConcurrent, priority: provider.priority }, req });
     res.json(provider.toJSON());
@@ -432,8 +449,10 @@ router.post('/gateway/strategy', authMiddleware, (req, res) => {
   if (!STRATEGIES.includes(strategy)) {
     return res.status(400).json({ error: `strategy must be one of ${STRATEGIES.join(', ')}` });
   }
-  const previous = pool.strategy;
-  pool.strategy = strategy;
+  // Per key: how you want your sessions routed is not a host-wide switch.
+  const owner = fingerprint(getKey(req));
+  const previous = pool.strategyFor(owner);
+  pool.setStrategy(owner, strategy);
   audit({ action: 'routing.strategy', actorKey: getKey(req), targetType: 'routing',
     meta: { from: previous, to: strategy }, req });
   res.json({ ok: true, strategy });
