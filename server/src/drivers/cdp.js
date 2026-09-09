@@ -47,8 +47,7 @@ function elementSelector(elementId) {
 }
 
 const FIND_ELEMENT_JS = (selector) => `(() => {
-  window.__oyaInternalCall = true;
-  try {
+  {
     const f = window.__acFindElement || ((s) => document.querySelector(s));
     const el = f(${JSON.stringify(selector)});
     if (!el) return { ok: false, error: 'Element not found' };
@@ -56,7 +55,7 @@ const FIND_ELEMENT_JS = (selector) => `(() => {
     let r = el.getBoundingClientRect();
     if (r.top < 80) { window.scrollBy(0, r.top - 100); r = el.getBoundingClientRect(); }
     return { ok: true, data: { x: r.left + r.width / 2, y: r.top + r.height / 2 } };
-  } finally { window.__oyaInternalCall = false; }
+  }
 })()`;
 
 /** Minimal CDP JSON-RPC transport over the ws dependency we already have. */

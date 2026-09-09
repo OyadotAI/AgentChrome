@@ -290,7 +290,6 @@ function buildFingerprintInjectScript(profile) {
   const rectsRNG = __fpRNG(__fp.rects.noiseSeed * 1000000);
 
   function addRectsNoise(rect) {
-    if (window.__oyaInternalCall) return rect;
     const noise = () => (rectsRNG() - 0.5) * 0.1;
     return new DOMRect(
       rect.x + noise(),
@@ -309,7 +308,6 @@ function buildFingerprintInjectScript(profile) {
   const origGetCR = Element.prototype.getClientRects;
   Element.prototype.getClientRects = function() {
     const rects = origGetCR.call(this);
-    if (window.__oyaInternalCall) return rects;
     const result = [];
     for (let i = 0; i < rects.length; i++) {
       result.push(addRectsNoise(rects[i]));

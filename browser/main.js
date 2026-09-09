@@ -80,7 +80,6 @@ function saveConfig() {
 // ─── Scripts ───
 
 const analyzerScript = fs.readFileSync(path.join(__dirname, 'scripts', 'analyzer.js'), 'utf8');
-const agentScript = fs.readFileSync(path.join(__dirname, 'scripts', 'agent.js'), 'utf8');
 
 // ─── Chrome DevTools Protocol ───
 
@@ -99,6 +98,64 @@ async function cdp(view, method, params = {}) {
   const dbg = cdpAttach(view);
   if (!dbg) throw new Error('View is destroyed');
   return dbg.sendCommand(method, params);
+}
+
+// ─── Isolated world ───
+//
+// The analyzer runs in its own JS world, not the page's. The page can then
+// neither see our globals (window.analyzePage was a one-line, 100%-precision
+// identifier for this product) nor reach into them. The name is randomised per
+// process so it is not a constant to match on either.
+//
+// An isolated world shares the DOM but has its own globals, so it also gets the
+// UNPATCHED getBoundingClientRect — which is why the analyzer no longer needs a
+// flag to switch the fingerprint noise off while it measures.
+
+const ISOLATED_WORLD = 'w' + require('crypto').randomBytes(8).toString('hex');
+const worldContexts = new WeakMap(); // view -> executionContextId
+
+/**
+ * Create (or recreate) the isolated world for this view's main frame and load
+ * the analyzer into it. Page.createIsolatedWorld returns the context id
+ * directly, so this needs no Runtime.enable — that domain is a detection
+ * vector and is deliberately never enabled on a page we drive.
+ */
+async function ensureWorld(view, { force = false } = {}) {
+  if (!force && worldContexts.has(view)) return worldContexts.get(view);
+  const { frameTree } = await cdp(view, 'Page.getFrameTree');
+  const frameId = frameTree.frame.id;
+  const { executionContextId } = await cdp(view, 'Page.createIsolatedWorld', {
+    frameId, worldName: ISOLATED_WORLD, grantUniveralAccess: true,
+  });
+  worldContexts.set(view, executionContextId);
+  await cdp(view, 'Runtime.evaluate', {
+    expression: analyzerScript, contextId: executionContextId, returnByValue: true,
+  });
+  return executionContextId;
+}
+
+/**
+ * Evaluate in the isolated world. Retries once against a fresh world, because
+ * a navigation between calls invalidates the context id.
+ */
+async function worldEval(view, expression, { retry = true } = {}) {
+  const contextId = await ensureWorld(view);
+  let res;
+  try {
+    res = await cdp(view, 'Runtime.evaluate', {
+      expression, contextId, returnByValue: true, awaitPromise: true,
+    });
+  } catch (err) {
+    if (retry && /context|Cannot find/i.test(err.message || '')) {
+      await ensureWorld(view, { force: true });
+      return worldEval(view, expression, { retry: false });
+    }
+    throw err;
+  }
+  if (res.exceptionDetails) {
+    throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text || 'Evaluation failed');
+  }
+  return res.result?.value;
 }
 
 // ── Key definitions (CDP Input.dispatchKeyEvent format) ──
@@ -661,14 +718,26 @@ function createTab(url, activate = true) {
   });
 
   // Configure child windows created by allowed popups (OAuth, 2FA, etc.)
+  //
+  // These must be protected BEFORE the popup's own scripts run. Injecting on
+  // did-finish-load meant the document had already executed — and the popup
+  // allowlist includes bot-detection vendors, which therefore read a completely
+  // unspoofed browser and only saw the overrides afterwards.
   view.webContents.on('did-create-window', (childWindow) => {
-    childWindow.webContents.on('did-finish-load', () => {
-      // Inject stealth scripts into child windows so auth flows work
-      const parts = [];
-      if (activeProfile) parts.push(buildFingerprintInjectScript(activeProfile));
-      parts.push(buildStealthScript());
-      if (parts.length) childWindow.webContents.executeJavaScript(parts.join('\n;\n'), true).catch(() => {});
-    });
+    const parts = [];
+    if (activeProfile) parts.push(buildFingerprintInjectScript(activeProfile));
+    parts.push(buildStealthScript());
+    const source = parts.join('\n;\n');
+
+    try {
+      const dbg = childWindow.webContents.debugger;
+      if (!dbg.isAttached()) dbg.attach(CDP_VERSION);
+      dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source })
+        .catch((e) => console.error('[anonymity] popup injection failed — popup is NOT protected:', e.message));
+      dbg.sendCommand('Page.enable').catch(() => {});
+    } catch (e) {
+      console.error('[anonymity] popup debugger attach failed — popup is NOT protected:', e.message);
+    }
   });
 
   // Right-click context menu with DevTools, View Source, Inspect
@@ -689,12 +758,11 @@ function createTab(url, activate = true) {
       { label: 'View Page Source', click: async () => {
         try {
           await injectScripts(view);
-          const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML', true);
+          const html = await worldEval(view, 'document.documentElement.outerHTML');
           let markdown = '';
           try {
-            const result = await view.webContents.executeJavaScript(
-              '(typeof analyzePage === "function") ? analyzePage({}) : null', true
-            );
+            const result = await worldEval(view,
+              '(typeof analyzePage === "function") ? analyzePage({}) : null');
             if (result?.ok) markdown = result.data.markdown || '';
           } catch {}
           if (!devPanelOpen) {
@@ -710,7 +778,7 @@ function createTab(url, activate = true) {
       { label: 'Inspect Element', click: async () => {
         try {
           await injectScripts(view);
-          const result = await view.webContents.executeJavaScript(`
+          const result = await worldEval(view, `
             (function() {
               const el = document.elementFromPoint(${params.x}, ${params.y});
               if (!el) return { ok: false, error: 'No element at coordinates' };
@@ -756,37 +824,43 @@ function createTab(url, activate = true) {
 }
 
 function setupTabCDP(view) {
+  const fail = (what, err) => {
+    // A silent failure here means a tab that loads with no fingerprint and no
+    // stealth, and at fleet scale you cannot tell which browsers are naked.
+    console.error('[anonymity] ' + what + ' failed — this tab is NOT protected:', err?.message || err);
+  };
+
   try {
-    cdpAttach(view);
+    if (!cdpAttach(view)) return fail('debugger attach', new Error('view destroyed'));
 
-    // Build injection chain: fingerprint → stealth → analyzer → agent
+    // Main world: only what the page itself must see. The analyzer is loaded
+    // separately into an isolated world by ensureWorld().
     const parts = [];
-
-    // Fingerprint spoofing (if profile active)
-    if (activeProfile) {
-      parts.push(buildFingerprintInjectScript(activeProfile));
-    }
-
-    // Anti-detection stealth (always)
+    if (activeProfile) parts.push(buildFingerprintInjectScript(activeProfile));
     parts.push(buildStealthScript());
-
-    // Core scripts
-    parts.push(analyzerScript);
-    parts.push(agentScript);
 
     view.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
       source: parts.join('\n;\n'),
-    }).catch(() => {});
-    view.webContents.debugger.sendCommand('Page.enable').catch(() => {});
+    }).catch((e) => fail('fingerprint/stealth injection', e));
+    view.webContents.debugger.sendCommand('Page.enable').catch((e) => fail('Page.enable', e));
 
-    // Apply timezone/locale override via CDP if profile has them
+    // A fresh document means a fresh isolated world; rebuild it eagerly so the
+    // first command after a navigation does not pay for it.
+    view.webContents.on('did-finish-load', () => {
+      ensureWorld(view, { force: true }).catch((e) => fail('isolated world', e));
+    });
+
     if (activeProfile?.timezone) {
-      cdp(view, 'Emulation.setTimezoneOverride', { timezoneId: activeProfile.timezone }).catch(() => {});
+      cdp(view, 'Emulation.setTimezoneOverride', { timezoneId: activeProfile.timezone })
+        .catch((e) => fail('timezone override', e));
     }
     if (activeProfile?.locale) {
-      cdp(view, 'Emulation.setLocaleOverride', { locale: activeProfile.locale }).catch(() => {});
+      cdp(view, 'Emulation.setLocaleOverride', { locale: activeProfile.locale })
+        .catch((e) => fail('locale override', e));
     }
-  } catch {}
+  } catch (e) {
+    fail('CDP setup', e);
+  }
 }
 
 function activateTab(id) {
@@ -863,13 +937,15 @@ function enterBrowsingMode(url) {
 
 // ─── Script Injection (fallback — CDP auto-inject is primary) ───
 
+/** Ensure the analyzer is loaded in this view's isolated world. */
 async function injectScripts(view) {
   if (!view) view = getActiveView();
   if (!view) return;
   try {
-    await view.webContents.executeJavaScript(analyzerScript, true);
-    await view.webContents.executeJavaScript(agentScript, true);
-  } catch {}
+    await ensureWorld(view);
+  } catch (e) {
+    console.error('[anonymity] isolated world unavailable, analyzer not loaded:', e.message);
+  }
 }
 
 // ─── IPC ───
@@ -1045,12 +1121,11 @@ ipcMain.handle('get-page-source', async () => {
   const view = getActiveView();
   if (!view) return { html: '', markdown: '', url: '' };
   try {
-    const html = await view.webContents.executeJavaScript('document.documentElement.outerHTML', true);
+    const html = await worldEval(view, 'document.documentElement.outerHTML');
     let markdown = '';
     try {
-      const result = await view.webContents.executeJavaScript(
-        '(typeof analyzePage === "function") ? analyzePage({}) : null', true
-      );
+      const result = await worldEval(view,
+        '(typeof analyzePage === "function") ? analyzePage({}) : null');
       if (result?.ok) markdown = result.data.markdown || '';
     } catch {}
     return { html, markdown, url: view.webContents.getURL() };
@@ -1066,9 +1141,8 @@ ipcMain.handle('dev-action', async (e, action, params) => {
     switch (action) {
       case 'analyze': {
         await injectScripts(view);
-        return await view.webContents.executeJavaScript(
-          '(typeof analyzePage === "function") ? analyzePage({}) : { ok: false, error: "Analyzer not loaded" }', true
-        );
+        return await worldEval(view,
+          '(typeof analyzePage === "function") ? analyzePage({}) : { ok: false, error: "Analyzer not loaded" }');
       }
       case 'screenshot': {
         const r = await cdp(view, 'Page.captureScreenshot', { format: 'png' });
@@ -1101,7 +1175,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         if (!params?.element_id) return { ok: false, error: 'element_id required' };
         await injectScripts(view);
         const selector = `[data-ac-id="${params.element_id}"]`;
-        const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(selector), true);
+        const info = await worldEval(view, FIND_ELEMENT_JS(selector));
         if (!info?.ok) return { ok: false, error: info?.error || 'Element not found' };
         await cdpClick(view, info.data.x, info.data.y);
         await sleep(300);
@@ -1111,7 +1185,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         if (!params?.element_id || !params?.text) return { ok: false, error: 'element_id and text required' };
         await injectScripts(view);
         const sel = `[data-ac-id="${params.element_id}"]`;
-        const inf = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(sel), true);
+        const inf = await worldEval(view, FIND_ELEMENT_JS(sel));
         if (!inf?.ok) return { ok: false, error: inf?.error || 'Element not found' };
         await cdpClick(view, inf.data.x, inf.data.y);
         await sleep(20);
@@ -1128,7 +1202,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         if (!params?.element_id) return { ok: false, error: 'element_id required' };
         await injectScripts(view);
         const hSel = `[data-ac-id="${params.element_id}"]`;
-        const hInfo = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(hSel), true);
+        const hInfo = await worldEval(view, FIND_ELEMENT_JS(hSel));
         if (!hInfo?.ok) return { ok: false, error: hInfo?.error || 'Element not found' };
         await cdpMouseMove(view, Math.round(hInfo.data.x), Math.round(hInfo.data.y));
         return { ok: true, data: { hovered: true } };
@@ -1141,8 +1215,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
       case 'wait': {
         if (!params?.selector) return { ok: false, error: 'selector required' };
         await injectScripts(view);
-        const wResult = await view.webContents.executeJavaScript(
-          `(async () => { const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (document.querySelector(${JSON.stringify(params.selector)})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`, true
+        const wResult = await worldEval(view, `(async () => { const maxWait = ${params?.timeout || 10000}; const start = Date.now(); while (Date.now() - start < maxWait) { if (document.querySelector(${JSON.stringify(params.selector)})) return { ok: true, data: { found: true } }; await new Promise(r => setTimeout(r, 250)); } return { ok: false, error: 'Timeout' }; })()`, true
         );
         return wResult;
       }
@@ -1160,7 +1233,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
       case 'select': {
         if (!params?.element_id || !params?.value) return { ok: false, error: 'element_id and value required' };
         await injectScripts(view);
-        const sResult = await view.webContents.executeJavaScript(`(() => {
+        const sResult = await worldEval(view, `(() => {
           const el = document.querySelector('[data-ac-id="${params.element_id}"]');
           if (!el || el.tagName !== 'SELECT') return { ok: false, error: 'Select element not found' };
           el.value = ${JSON.stringify(params.value)};
@@ -1414,7 +1487,7 @@ async function handleCommand(msg) {
     if (action === 'click') {
       const view = getActiveView();
       await injectScripts(view);
-      const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(params?.selector || ''), true);
+      const info = await worldEval(view, FIND_ELEMENT_JS(params?.selector || ''));
       if (!info?.ok) { sendResult(id, false, null, info?.error || 'Element not found'); return; }
 
       await cdpClick(view, info.data.x, info.data.y);
@@ -1422,7 +1495,7 @@ async function handleCommand(msg) {
       // For iframe elements, also dispatch full pointer/mouse event sequence — CDP
       // mouse events may not trigger framework handlers (jsaction, etc.) in iframes.
       if (info.data.inIframe) {
-        await view.webContents.executeJavaScript(`(() => {
+        await worldEval(view, `(() => {
           const f = window.__acFindElement || ((s) => document.querySelector(s));
           const el = f(${JSON.stringify(params?.selector || '')});
           if (!el) return;
@@ -1463,7 +1536,7 @@ async function handleCommand(msg) {
       await injectScripts(view);
 
       // Find element and click on it (natural focus — like a human clicking the field)
-      const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(params?.selector || ''), true);
+      const info = await worldEval(view, FIND_ELEMENT_JS(params?.selector || ''));
       if (!info?.ok) { sendResult(id, false, null, info?.error || 'Element not found'); return; }
 
       await cdpClick(view, info.data.x, info.data.y);
@@ -1474,7 +1547,7 @@ async function handleCommand(msg) {
 
       if (info.data.inIframe) {
         // CDP keyboard events don't route to iframe frames — use JS clear + Electron insertText
-        await view.webContents.executeJavaScript(`(() => {
+        await worldEval(view, `(() => {
           const f = window.__acFindElement || ((s) => document.querySelector(s));
           const el = f(${JSON.stringify(params?.selector || '')});
           if (!el) return;
@@ -1495,7 +1568,7 @@ async function handleCommand(msg) {
       } else {
         // Clear existing content — use JS to target the specific element
         // instead of CDP Cmd+A which can select the entire page
-        const cleared = await view.webContents.executeJavaScript(`(() => {
+        const cleared = await worldEval(view, `(() => {
           const f = window.__acFindElement || ((s) => document.querySelector(s));
           const el = f(${JSON.stringify(params?.selector || '')});
           if (!el) return false;
@@ -1523,13 +1596,13 @@ async function handleCommand(msg) {
 
       // Wait for autocomplete/suggestions to appear
       await sleep(800);
-      await view.webContents.executeJavaScript(
-        'if (typeof window.__acForcePollState === "function") window.__acForcePollState()', true
+      await worldEval(view,
+        'if (typeof window.__acForcePollState === "function") window.__acForcePollState()'
       ).catch(() => {});
 
       // Check if suggestions/autocomplete appeared
       await injectScripts(view);
-      const hasDropdown = await view.webContents.executeJavaScript(`(() => {
+      const hasDropdown = await worldEval(view, `(() => {
         const lists = document.querySelectorAll('[role="listbox"], [role="menu"], [role="list"], .pac-container, [class*="suggest"], [class*="autocomplete"], [class*="dropdown"], [id*="suggest"], [id*="autocomplete"], ul[class*="result"]');
         for (const l of lists) {
           const r = l.getBoundingClientRect();
@@ -1616,7 +1689,7 @@ async function handleCommand(msg) {
         y = params.y;
       } else if (params?.selector) {
         await injectScripts(view);
-        const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(params.selector), true);
+        const info = await worldEval(view, FIND_ELEMENT_JS(params.selector));
         if (!info?.ok) { sendResult(id, false, null, info?.error || 'Element not found'); return; }
         x = info.data.x;
         y = info.data.y;
@@ -1693,8 +1766,7 @@ async function handleCommand(msg) {
       await sleep(300);
 
       // Run analyzer after scroll if requested
-      const result = await view.webContents.executeJavaScript(
-        `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params?.analyze || {})}) : { ok: true, data: { direction: '${params?.direction || 'down'}', amount: ${amount} } }`, true
+      const result = await worldEval(view, `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params?.analyze || {})}) : { ok: true, data: { direction: '${params?.direction || 'down'}', amount: ${amount} } }`, true
       );
       sendResult(id, result?.ok ?? true, result?.data, result?.error);
       return;
@@ -1705,7 +1777,7 @@ async function handleCommand(msg) {
     if (action === 'hover') {
       const view = getActiveView();
       await injectScripts(view);
-      const info = await view.webContents.executeJavaScript(FIND_ELEMENT_JS(params?.selector || ''), true);
+      const info = await worldEval(view, FIND_ELEMENT_JS(params?.selector || ''));
       if (!info?.ok) { sendResult(id, false, null, info?.error || 'Element not found'); return; }
       await cdpMouseMove(view, Math.round(info.data.x), Math.round(info.data.y));
       await sleep(100);
@@ -1718,7 +1790,7 @@ async function handleCommand(msg) {
     if (action === 'select') {
       const view = getActiveView();
       await injectScripts(view);
-      const result = await view.webContents.executeJavaScript(`(() => {
+      const result = await worldEval(view, `(() => {
         const f = window.__acFindElement || ((s) => document.querySelector(s));
         const el = f(${JSON.stringify(params?.selector || '')});
         if (!el || el.tagName !== 'SELECT') return { ok: false, error: 'Select element not found' };
@@ -1770,7 +1842,7 @@ async function handleCommand(msg) {
     // ── All other actions via injected scripts ──
 
     await injectScripts(view);
-    const result = await view.webContents.executeJavaScript(buildActionJS(action, params), true);
+    const result = await worldEval(view, buildActionJS(action, params));
     sendResult(id, result?.ok ?? true, result?.data, result?.error);
   } catch (err) {
     sendResult(id, false, null, err.message || String(err));

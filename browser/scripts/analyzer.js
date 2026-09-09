@@ -49,8 +49,9 @@
 
   window.analyzePage = function (options = {}) {
     // Bypass ClientRects noise from fingerprint spoofing during analysis
-    window.__oyaInternalCall = true;
-    try { return _analyzePageInner(options); } finally { window.__oyaInternalCall = false; }
+    // Runs in an isolated world, so the page's patched getBoundingClientRect
+    // does not apply here and measurements are already unnoised.
+    return _analyzePageInner(options);
   };
 
   function _analyzePageInner(options = {}) {

@@ -10,7 +10,7 @@
  */
 
 import { spawn } from 'child_process';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createRequire } from 'module';
@@ -107,6 +107,41 @@ try {
   console.log('\n6️⃣  Nothing identifies the product...');
   const globals = await evaluate(`JSON.stringify(Object.getOwnPropertyNames(window).filter(k => /^__(ac|oya)/i.test(k) || k === 'analyzePage'))`);
   assert(globals === '[]', `no product globals on window (found ${globals})`);
+
+  console.log('\n7️⃣  The analyzer works from an isolated world, invisibly...');
+  // This is the mechanism browser/main.js now uses: Page.createIsolatedWorld
+  // returns the context id directly, so it needs no Runtime.enable — that
+  // domain is itself a detection vector.
+  await conn.send('Page.navigate', { url: 'data:text/html,<button>Press me</button><input placeholder=name>' }, sessionId);
+  await new Promise((r) => setTimeout(r, 400));
+  const { frameTree } = await conn.send('Page.getFrameTree', {}, sessionId);
+  const { executionContextId } = await conn.send('Page.createIsolatedWorld', {
+    frameId: frameTree.frame.id, worldName: 'w' + Math.random().toString(16).slice(2), grantUniveralAccess: true,
+  }, sessionId);
+  assert(typeof executionContextId === 'number', 'an isolated world can be created for the frame');
+
+  const analyzer = readFileSync(new URL('../browser/scripts/analyzer.js', import.meta.url), 'utf8');
+  await conn.send('Runtime.evaluate',
+    { expression: analyzer, contextId: executionContextId, returnByValue: true }, sessionId);
+
+  const inWorld = async (expr) => {
+    const r = await conn.send('Runtime.evaluate',
+      { expression: expr, contextId: executionContextId, returnByValue: true, awaitPromise: true }, sessionId);
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || expr);
+    return r.result?.value;
+  };
+
+  assert(await inWorld('typeof analyzePage') === 'function', 'analyzePage exists inside the isolated world');
+  const analyzed = await inWorld('analyzePage({})');
+  assert(analyzed?.ok === true, 'analyzePage runs there and returns a result');
+  assert((analyzed.data?.elements || []).length >= 2, `it indexes the page (${analyzed.data?.elements?.length} elements)`);
+
+  // The whole point: the page cannot see any of it.
+  const leaked = await evaluate(
+    `JSON.stringify(Object.getOwnPropertyNames(window).filter(k => /^__(ac|oya)/i.test(k) || k === 'analyzePage'))`);
+  assert(leaked === '[]', `the page's own world stays clean (found ${leaked})`);
+  assert(await evaluate('typeof window.analyzePage') === 'undefined',
+    'window.analyzePage is undefined to the page — the product-specific detector is gone');
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}`);
   failed++;
