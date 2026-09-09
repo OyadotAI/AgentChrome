@@ -1260,10 +1260,13 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         return await worldEval(view,
           '(typeof analyzePage === "function") ? analyzePage({}) : { ok: false, error: "Analyzer not loaded" }');
       }
-      // Server-internal: CAPTCHA and MFA handling run their own scripts in the
-      // isolated world. Not exposed as a public command.
+      // Server-internal: the channel CAPTCHA and MFA handling use. It runs in
+      // the PAGE's world, not the analyzer's isolated one — clearing a captcha
+      // means calling back into the page's own globals
+      // (`___grecaptcha_cfg.clients[…].callback` is a function the page
+      // defined), which an isolated world cannot see. Not a public command.
       case 'evaluate_raw': {
-        return { ok: true, data: { result: await worldEval(view, String(params?.expression || '')) } };
+        return { ok: true, data: { result: await cdpEval(view, String(params?.expression || '')) } };
       }
       case 'screenshot': {
         const r = await cdp(view, 'Page.captureScreenshot', { format: 'png' });
@@ -1958,6 +1961,18 @@ async function handleCommand(msg) {
       await setupBrowserSession();
       enterBrowsingMode('https://google.com');
       sendResult(id, true, { activated: profileId, platform: profile.navigator.platform });
+      return;
+    }
+
+    // ── Server-internal: the channel CAPTCHA and MFA handling use ──
+    //
+    // Runs in the PAGE's world, not the analyzer's isolated one: clearing a
+    // captcha means calling back into globals the page defined
+    // (`___grecaptcha_cfg.clients[…].callback`), which an isolated world
+    // cannot see. Not a public command — /browsers/:id/command rejects it,
+    // and only captcha.js and mfa.js reach it.
+    if (action === 'evaluate_raw') {
+      sendResult(id, true, { result: await cdpEval(view, String(params?.expression || '')) });
       return;
     }
 

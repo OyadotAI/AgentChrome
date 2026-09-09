@@ -950,6 +950,17 @@ router.get('/live/:browserId', (req, res, next) => {
 });
 
 // Send command to a browser
+/**
+ * Actions the server sends on its own behalf and a caller may not.
+ *
+ * `evaluate_raw` runs arbitrary JavaScript in the page's own world, which is
+ * how CAPTCHA and MFA handling reach a site's globals. Exposed here it would
+ * be arbitrary code execution inside a browser holding the customer's real
+ * cookies and logged-in sessions — the CDP driver already refuses it, and the
+ * Oya client must not be the way around that.
+ */
+const INTERNAL_ACTIONS = new Set(['evaluate_raw', 'evaluate']);
+
 router.post('/browsers/:browserId/command', authMiddleware, enforce('command'), async (req, res) => {
   // Navigate can take up to 90s — disable socket timeout for this request
   req.setTimeout(0);
@@ -960,6 +971,9 @@ router.post('/browsers/:browserId/command', authMiddleware, enforce('command'), 
 
   if (!action) {
     return res.status(400).json({ error: 'Missing action' });
+  }
+  if (INTERNAL_ACTIONS.has(action)) {
+    return res.status(403).json({ error: `${action} is not available through this API` });
   }
 
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
@@ -1024,6 +1038,10 @@ router.post('/pool/command', authMiddleware, async (req, res) => {
 
   if (!action) {
     return res.status(400).json({ error: 'Missing action' });
+  }
+  // The pool is the same surface by another door.
+  if (INTERNAL_ACTIONS.has(action)) {
+    return res.status(403).json({ error: `${action} is not available through this API` });
   }
 
   const browserId = nextBrowser(key);

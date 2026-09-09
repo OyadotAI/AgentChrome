@@ -399,6 +399,29 @@ try {
     pairing.reset();
   }
 
+  console.log('\n9\ufe0f\u20e3  Arbitrary page JavaScript is not reachable through the API');
+  {
+    // evaluate_raw is how CAPTCHA and MFA handling reach a site's own globals.
+    // Exposed, it is code execution inside a browser holding the customer's
+    // real cookies — and the Oya client must not be the way around the CDP
+    // driver's refusal.
+    const browser = await connectBrowser('Evaluator', keyA);
+    await wait(200);
+    for (const action of ['evaluate_raw', 'evaluate']) {
+      const direct = await request('POST', `/api/browsers/${browser.browserId}/command`, {
+        key: keyA, body: { action, params: { expression: 'window.__pwned = 1' } },
+      });
+      assert(direct.status === 403, `${action} is refused on /browsers/:id/command (got ${direct.status})`);
+
+      const viaPool = await request('POST', '/api/pool/command', {
+        key: keyA, body: { action, params: { expression: 'window.__pwned = 1' } },
+      });
+      assert(viaPool.status === 403, `${action} is refused on /pool/command too (got ${viaPool.status})`);
+    }
+    browser.ws.close();
+    await wait(150);
+  }
+
   // ── Summary ──
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`  ${passed} passed, ${failed} failed`);

@@ -111,14 +111,14 @@ export function handleConnection(ws, req) {
         destroyMcpServer(browserId);
       }
 
-      registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona });
-      metrics.wsConnections.inc({ outcome: 'ok' });
-      metrics.browsersConnected.set({}, registry.browsers.size);
-      usage.browserConnected(apiKey, browserId);
-
       // A browser runs as a persona: fingerprint, cookie jar and proxy
       // together. Unspecified means this key's default, which reproduces the
       // fingerprint the key had before personas existed.
+      //
+      // Resolved before registering, not after: registering first passed an
+      // undefined persona, so GET /browsers reported null for every browser
+      // that dialled in, and a capped persona was registered before it was
+      // refused.
       try {
         persona = personas.resolve(apiKey, msg.persona);
         personas.acquire(persona, browserId);
@@ -128,6 +128,15 @@ export function handleConnection(ws, req) {
         ws.close(4010, err.message.slice(0, 120));
         return;
       }
+
+      // No release callback here: the socket's close handler already releases
+      // the slot, and every path that removes this browser closes the socket.
+      registry.add(browserId, {
+        ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona,
+      });
+      metrics.wsConnections.inc({ outcome: 'ok' });
+      metrics.browsersConnected.set({}, registry.browsers.size);
+      usage.browserConnected(apiKey, browserId);
       const fingerprint = personas.fingerprintFor(persona);
 
       // The proxy is part of the identity, so it travels with the fingerprint.
