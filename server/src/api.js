@@ -29,6 +29,7 @@ import { listSessions, killSession, sessions as gatewaySessions } from './gatewa
 import { pool, STRATEGIES } from './routing.js';
 import * as profiles from './profiles.js';
 import * as recorder from './recorder.js';
+import * as personas from './personas.js';
 
 export const router = Router();
 
@@ -397,6 +398,44 @@ router.delete('/browsers/:browserId/connection', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Personas ────────────────────────────────────────────────────────────────
+//
+// A persona is one identity — fingerprint, cookie jar and proxy bound together
+// and stable. Rotation means choosing a different persona, never giving one a
+// new fingerprint.
+
+router.get('/personas', authMiddleware, (req, res) => {
+  res.json({ personas: personas.list(getKey(req)).map(personas.describe) });
+});
+
+router.post('/personas', authMiddleware, (req, res) => {
+  const created = personas.create(getKey(req), {
+    name: req.body?.name,
+    proxy: req.body?.proxy,
+    maxConcurrent: req.body?.maxConcurrent,
+  });
+  audit({ action: 'persona.create', actorKey: getKey(req), targetType: 'persona', targetId: created.id,
+    meta: { name: created.name }, req });
+  res.status(201).json(personas.describe(created));
+});
+
+router.get('/personas/:id', authMiddleware, (req, res) => {
+  const p = personas.get(getKey(req), req.params.id);
+  if (!p) return res.status(404).json({ error: 'No such persona' });
+  res.json(personas.describe(p));
+});
+
+router.delete('/personas/:id', authMiddleware, (req, res) => {
+  try {
+    const removed = personas.remove(getKey(req), req.params.id);
+    if (!removed) return res.status(404).json({ error: 'No such persona' });
+    audit({ action: 'persona.delete', actorKey: getKey(req), targetType: 'persona', targetId: req.params.id, req });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 // ─── CDP gateway: sessions, providers, profiles, recordings ──────────────────
 
 router.get('/gateway/sessions', authMiddleware, (req, res) => {
@@ -743,15 +782,28 @@ router.post('/pool/command', authMiddleware, async (req, res) => {
 
 // Pool cookies — view the shared cookie jar for the caller's API key.
 // Admin also gets a per-key breakdown.
+// Cookies live with the persona, not the key — the jar and the fingerprint
+// have to move together or a returning session looks like a new device.
 router.get('/pool/cookies', authMiddleware, (req, res) => {
-  res.json({ cookies: getAllCookies(getKey(req)) });
+  try {
+    const persona = personas.resolve(getKey(req), req.query.persona);
+    res.json({ persona: persona.id, cookies: getAllCookies(persona.id) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // Pool cookies — clear the caller's API-key jar only. Admin clears every jar.
 router.delete('/pool/cookies', authMiddleware, (req, res) => {
   const key = getKey(req);
-  clearCookies(key);
+  let persona;
+  try {
+    persona = personas.resolve(key, req.query.persona);
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+  clearCookies(persona.id);
   // Destroying sessions is exactly the action you want a record of afterwards.
-  audit({ action: 'cookies.clear', actorKey: key, targetType: 'cookies', targetId: 'own', req });
-  res.json({ ok: true });
+  audit({ action: 'cookies.clear', actorKey: key, targetType: 'cookies', targetId: persona.id, req });
+  res.json({ ok: true, persona: persona.id });
 });

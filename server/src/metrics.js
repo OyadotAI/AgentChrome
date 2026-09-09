@@ -160,6 +160,10 @@ export const metrics = {
   recordings: counter('oya_recordings_total', 'Session recordings started and stopped'),
   recordedFrames: counter('oya_recorded_frames_total', 'Frames written to session recordings'),
 
+  // Personas
+  personasActive: gauge('oya_personas_active_browsers', 'Browsers currently running as some persona'),
+  personaCapped: counter('oya_persona_capped_total', 'Starts refused by a persona concurrency cap'),
+
   // Enforcement
   rateLimited: counter('oya_rate_limited_total', 'Requests rejected by a rate limit'),
   quotaExceeded: counter('oya_quota_exceeded_total', 'Requests rejected by a quota'),

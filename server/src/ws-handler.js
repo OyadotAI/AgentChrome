@@ -7,9 +7,9 @@ import { validateApiKey } from './auth.js';
 import { registry } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
 import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from './cookie-store.js';
-import { getFingerprintForKey } from './fingerprint.js';
 import { metrics } from './metrics.js';
 import * as usage from './usage.js';
+import * as personas from './personas.js';
 
 /** One place both client types report through, so the numbers are comparable. */
 function recordCommand(action, outcome, ms) {
@@ -33,6 +33,7 @@ export function handleConnection(ws, req) {
   const from = req?.socket?.remoteAddress || 'unknown';
   let browserId = null;
   let apiKey = null;
+  let persona = null;
   let authenticated = false;
   let pingTimer = null;
   let lastPong = Date.now();
@@ -108,13 +109,24 @@ export function handleConnection(ws, req) {
         destroyMcpServer(browserId);
       }
 
-      registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya' });
+      registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona });
       metrics.wsConnections.inc({ outcome: 'ok' });
       metrics.browsersConnected.set({}, registry.browsers.size);
       usage.browserConnected(apiKey, browserId);
 
-      // Generate deterministic fingerprint from API key — same key = same profile everywhere
-      const fingerprint = getFingerprintForKey(msg.api_key);
+      // A browser runs as a persona: fingerprint, cookie jar and proxy
+      // together. Unspecified means this key's default, which reproduces the
+      // fingerprint the key had before personas existed.
+      try {
+        persona = personas.resolve(apiKey, msg.persona);
+        personas.acquire(persona, browserId);
+      } catch (err) {
+        console.warn(`[ws] ✗ ${from} rejected: ${err.message}`);
+        metrics.wsConnections.inc({ outcome: err.status === 429 ? 'persona_capped' : 'persona_unknown' });
+        ws.close(4010, err.message.slice(0, 120));
+        return;
+      }
+      const fingerprint = personas.fingerprintFor(persona);
 
       ws.send(JSON.stringify({
         type: 'auth_ok',
@@ -124,7 +136,7 @@ export function handleConnection(ws, req) {
 
       // Send this API key's cookie jar so this browser syncs immediately.
       // Cookies are scoped per API key to prevent cross-account leakage.
-      const cookies = getAllCookies(apiKey);
+      const cookies = getAllCookies(persona.id);
       if (cookies.length > 0) {
         try {
           ws.send(JSON.stringify({ type: 'cookie_sync', cookies }));
@@ -173,7 +185,7 @@ export function handleConnection(ws, req) {
     // O(pool size) per connect, so a fleet-wide restart was quadratic.
     if (msg.type === 'cookie_dump') {
       if (Array.isArray(msg.cookies)) {
-        const merged = mergeDump(apiKey, msg.cookies);
+        const merged = mergeDump(persona.id, msg.cookies);
         console.log(`[ws] Cookie dump from ${browserId}: ${msg.cookies.length} cookies, jar now ${merged.length}`);
       }
       return;
@@ -185,14 +197,14 @@ export function handleConnection(ws, req) {
     // navigate somewhere that needs them.
     if (msg.type === 'cookie_changed') {
       const changes = Array.isArray(msg.changes) ? msg.changes : (msg.change ? [msg.change] : []);
-      for (const change of changes.slice(0, 500)) applyChange(apiKey, change);
+      for (const change of changes.slice(0, 500)) applyChange(persona.id, change);
       metrics.cookieChanges.inc({}, changes.length);
       return;
     }
 
     // ── Cookie pull (browser asks for the hosts it is about to visit) ──
     if (msg.type === 'cookie_pull') {
-      const cookies = getForDomains(apiKey, msg.domains || []);
+      const cookies = getForDomains(persona.id, msg.domains || []);
       metrics.cookiePulls.inc({});
       usage.record(apiKey, 'cookie_pulls');
       try {
@@ -250,6 +262,7 @@ export function handleConnection(ws, req) {
         registry.remove(browserId);
         destroyMcpServer(browserId);
         usage.browserDisconnected(apiKey, browserId);
+        personas.release(persona, browserId);
         metrics.wsDisconnections.inc({ client: 'oya' });
         metrics.browsersConnected.set({}, registry.browsers.size);
         metrics.pendingCommands.set({}, pendingCommands.size);

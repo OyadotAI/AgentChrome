@@ -13,6 +13,7 @@ import { readFileSync, mkdirSync, renameSync, existsSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { defaultPersonaSeed } from './fingerprint.js';
 // DB disabled for cookies — volume too high for Supabase
 const db = null;
 
@@ -165,13 +166,22 @@ function loadFromFile() {
 
     if (parsed && typeof parsed === 'object') {
       let total = 0;
-      for (const [apiKey, cookies] of Object.entries(parsed)) {
+      let migrated = 0;
+      for (const [storedKey, cookies] of Object.entries(parsed)) {
         if (!Array.isArray(cookies)) continue;
-        const jar = getJar(apiKey);
+        // Jars used to be keyed by the raw API key; they are keyed by persona
+        // now, so the fingerprint and the cookies it is paired with move
+        // together. Remap on load so existing logins survive the upgrade — and
+        // so raw API keys stop being written to disk.
+        const isPersona = /^(apikey-[0-9a-f]{12}|p-[0-9a-f]{16})$/.test(storedKey);
+        const owner = isPersona ? storedKey : defaultPersonaSeed(storedKey).id;
+        if (!isPersona) migrated++;
+        const jar = getJar(owner);
         for (const c of cookies) jar.set(cookieKey(c), c);
         total += cookies.length;
       }
-      console.log(`[cookies] Loaded ${total} cookies across ${jars.size} API keys from file`);
+      console.log(`[cookies] Loaded ${total} cookies across ${jars.size} personas from file`
+        + (migrated ? ` (migrated ${migrated} jar(s) from API-key scope)` : ''));
     }
   } catch {}
 }

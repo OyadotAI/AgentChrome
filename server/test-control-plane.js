@@ -185,6 +185,67 @@ try {
   const theirStrategy = await call('/api/gateway/providers', { key: 'admin-key' });
   assert(mineStrategy.body.strategy === 'latency', "the key's own strategy changed");
   assert(theirStrategy.body.strategy !== 'latency', "another key's routing is unaffected");
+  console.log('\n11. Personas — the identity unit...');
+  const P = await import('./src/personas.js');
+
+  // 1. Distinct personas get distinct fingerprints. Before this, 1,000
+  //    browsers on one key shared one identity and one canvas hash.
+  const made = Array.from({ length: 20 }, (_, i) => P.create('tenant-key', { name: `p${i}` }));
+  const seeds = new Set(made.map((p) => P.fingerprintFor(p).canvas.noiseSeed));
+  assert(seeds.size === 20, `20 personas produce 20 distinct fingerprints (got ${seeds.size})`);
+
+  // 2. One persona is STABLE. This is the property that keeps the fingerprint
+  //    coherent with the cookies, and the one a per-browser seed would break.
+  const before = JSON.stringify(P.fingerprintFor(made[0]));
+  const again = JSON.stringify(P.fingerprintFor(P.get('tenant-key', made[0].id)));
+  assert(before === again, 'the same persona yields a byte-identical fingerprint');
+
+  // 3. The default persona reproduces the pre-persona fingerprint exactly, so
+  //    a customer running one account sees no change.
+  const { getFingerprintForKey } = await import('./src/fingerprint.js');
+  assert(JSON.stringify(P.fingerprintFor(P.defaultFor('tenant-key')))
+    === JSON.stringify(getFingerprintForKey('tenant-key')),
+    'the default persona matches the fingerprint that key had before personas');
+
+  // 4. Concurrency is capped, because one device cannot be in many places.
+  const capped = P.create('tenant-key', { name: 'capped', maxConcurrent: 2 });
+  P.acquire(capped, 'b1');
+  P.acquire(capped, 'b2');
+  let refused = false;
+  try { P.acquire(capped, 'b3'); } catch (e) { refused = e.status === 429; }
+  assert(refused, 'a third browser on a cap of 2 is refused');
+  P.release(capped, 'b1');
+  assert(P.acquire(capped, 'b3') === capped, 'releasing a slot lets the next one in');
+  assert(P.activeCount(capped.id) === 2, 'active count tracks reality');
+
+  // 5. Ownership is the boundary — a persona id must not be usable by another
+  //    key, or one customer drives another's logged-in sessions.
+  assert(P.get('admin-key', made[0].id) === null, "another key cannot resolve someone else's persona");
+  let denied = false;
+  try { P.resolve('admin-key', made[0].id); } catch (e) { denied = e.status === 404; }
+  assert(denied, 'resolving another key\'s persona is refused');
+  assert(P.list('admin-key').every((p) => p.id !== made[0].id), 'and it is not listed');
+
+  // 6. The default persona is permanent; a busy one cannot be deleted.
+  let guarded = false;
+  try { P.remove('tenant-key', P.defaultFor('tenant-key').id); } catch (e) { guarded = e.status === 400; }
+  assert(guarded, 'the default persona cannot be deleted');
+  let busy = false;
+  try { P.remove('tenant-key', capped.id); } catch (e) { busy = e.status === 409; }
+  assert(busy, 'a persona with running browsers cannot be deleted');
+
+  console.log('\n12. Personas over the API...');
+  const created = await call('/api/personas', { method: 'POST', key: 'tenant-key', body: { name: 'via-api' } });
+  assert(created.status === 201 && created.body.id, 'a persona can be created over the API');
+  assert(created.body.fingerprint?.canvasSeed !== undefined, 'its fingerprint is reported');
+  assert(created.body.seed === undefined, 'the seed is never exposed');
+  const mineList = await call('/api/personas', { key: 'tenant-key' });
+  assert(mineList.body.personas.some((p) => p.id === created.body.id), 'it is listed for its owner');
+  const theirs = await call('/api/personas', { key: 'admin-key' });
+  assert(!theirs.body.personas.some((p) => p.id === created.body.id), 'and not for anyone else');
+  assert((await call(`/api/personas/${created.body.id}`, { key: 'admin-key' })).status === 404,
+    "another key gets 404, not another key's persona");
+
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack}`);
   failed++;

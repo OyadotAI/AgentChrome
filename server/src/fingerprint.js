@@ -97,9 +97,17 @@ function pick(arr, rng) {
 
 // ── Profile Generation ──
 
-function generateProfile(apiKey) {
-  const id = 'apikey-' + createHash('sha256').update(apiKey).digest('hex').slice(0, 12);
-  const rng = createPRNG(seedFromString(apiKey));
+/**
+ * @param {{ id: string, seed: number, proxy?: object|null }} identity
+ *   An explicit id and numeric seed, so a persona's fingerprint is stable for
+ *   its whole life and independent of what created it. Seeding from the API key
+ *   made every browser on that key one device; seeding from an ephemeral
+ *   browser id would give one account a new device on every restart. Neither is
+ *   what a persona needs.
+ */
+function generateProfile(identity) {
+  const { id, seed } = identity;
+  const rng = createPRNG(seed);
 
   const platform = pick(['Win32', 'MacIntel', 'Linux x86_64'], rng);
   const gpu = pick(GPU_DB[platform] || GPU_DB.Win32, rng);
@@ -140,25 +148,50 @@ function generateProfile(apiKey) {
     fonts: { available: fonts },
     timezone,
     locale,
-    proxy: null,
+    proxy: identity.proxy || null,
   };
 }
 
-// ── Cache: one profile per API key, generated once ──
+// ── Cache: one profile per persona, generated once ──
 
 const cache = new Map();
 
+/** The seed and id a key's default persona uses. */
+export function defaultPersonaSeed(apiKey) {
+  return {
+    id: 'apikey-' + createHash('sha256').update(apiKey).digest('hex').slice(0, 12),
+    seed: seedFromString(apiKey),
+  };
+}
+
+/** A fresh persona's seed, independent of any key. */
+export function newPersonaSeed() {
+  const id = 'p-' + randomBytes(8).toString('hex');
+  return { id, seed: seedFromString(id) };
+}
+
 /**
- * Get the fingerprint profile for an API key.
- * Returns the same object every time for the same key.
+ * Stable fingerprint for a persona. Same persona in, same fingerprint out,
+ * for the life of the persona — that stability is what keeps the fingerprint
+ * coherent with the cookies it is paired with.
+ */
+export function getFingerprintForPersona(identity) {
+  if (!identity?.id) return null;
+  let profile = cache.get(identity.id);
+  if (!profile) {
+    profile = generateProfile(identity);
+    cache.set(identity.id, profile);
+    console.log(`[fingerprint] Generated ${profile.id} (${profile.navigator.platform}, ${profile.timezone})`);
+  }
+  return profile;
+}
+
+/**
+ * Back-compat for callers that still think in API keys: resolves to that key's
+ * default persona, preserving the exact fingerprint it had before personas
+ * existed — same id, same seed, same output.
  */
 export function getFingerprintForKey(apiKey) {
   if (!apiKey) return null;
-  let profile = cache.get(apiKey);
-  if (!profile) {
-    profile = generateProfile(apiKey);
-    cache.set(apiKey, profile);
-    console.log(`[fingerprint] Generated profile ${profile.id} for API key ...${apiKey.slice(-6)} (${profile.navigator.platform}, ${profile.timezone})`);
-  }
-  return profile;
+  return getFingerprintForPersona(defaultPersonaSeed(apiKey));
 }

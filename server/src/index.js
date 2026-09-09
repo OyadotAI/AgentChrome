@@ -25,6 +25,7 @@ import {
   handleJsonVersion, handleJsonList, handleUpgrade as handleGatewayUpgrade, sessions as gatewaySessions,
 } from './gateway.js';
 import * as usage from './usage.js';
+import * as personas from './personas.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
 import { validateApiKey } from './auth.js';
@@ -160,6 +161,7 @@ registry.on('browser:disconnected', ({ id, name }) => {
 // Continue this hour's usage buckets across a restart, so a quota cannot be
 // reset by bouncing the process.
 usage.restore().catch(() => {});
+personas.restore().catch(() => {});
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, async () => {
@@ -167,7 +169,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     // End gateway sessions cleanly so profiles are captured and recordings
     // get their manifest, rather than being cut off mid-write.
     await Promise.allSettled([...gatewaySessions.values()].map((s) => s.destroy('server shutting down')));
-    await Promise.allSettled([drainAudit(), usage.drain()]);
+    await Promise.allSettled([drainAudit(), usage.drain(), personas.drain()]);
     process.exit(0);
   });
 }
