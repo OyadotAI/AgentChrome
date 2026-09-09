@@ -16,8 +16,8 @@ import { Http } from './client.js';
 import { Browser } from './browser.js';
 import {
   OyaError,
-  type BrowserInfo, type MfaConfig, type OyaOptions,
-  type PersonaInfo, type StartOptions, type StartResult,
+  type BrowserInfo, type Fingerprint, type MfaConfig, type OyaOptions,
+  type PersonaInfo, type PersonaPrefs, type StartOptions, type StartResult, type StopResult,
 } from './types.js';
 
 export { Browser, OyaError };
@@ -72,10 +72,11 @@ export class Oya {
 
     list: (): Promise<BrowserInfo[]> => this.http.request<BrowserInfo[]>('GET', '/api/browsers'),
 
-    stopAll: async (): Promise<number> => {
-      const res = await this.http.request<{ disconnected: number }>('POST', '/api/browsers/disconnect-all', {});
-      return res.disconnected ?? 0;
-    },
+    /** Stop some (`ids`) or every browser on this key. Each reports separately. */
+    stop: (ids: string[] | 'all'): Promise<{ stopped: number; results: StopResult[] }> =>
+      this.http.request('POST', '/api/browsers/stop', ids === 'all' ? { all: true } : { ids }, 120_000),
+
+    stopAll: async (): Promise<number> => (await this.browser.stop('all')).stopped,
   };
 
   readonly personas = {
@@ -83,8 +84,32 @@ export class Oya {
       (await this.http.request<{ personas: PersonaInfo[] }>('GET', '/api/personas')).personas,
     get: (id: string): Promise<PersonaInfo> => this.http.request<PersonaInfo>('GET', `/api/personas/${id}`),
 
-    create: (options: { name?: string; proxy?: string; maxConcurrent?: number } = {}): Promise<PersonaInfo> =>
+    /**
+     * Create an identity. The device — platform, timezone, locale — is chosen
+     * here and fixed for its life; `preview()` shows what a choice produces.
+     */
+    create: (options: { name?: string; prefs?: PersonaPrefs; proxy?: { geo?: string }; maxConcurrent?: number | null } = {}): Promise<PersonaInfo> =>
       this.http.request<PersonaInfo>('POST', '/api/personas', options),
+
+    /** Name, concurrency cap and proxy hint. Never the device — clone for that. */
+    update: (id: string, changes: { name?: string; maxConcurrent?: number | null; proxy?: { geo?: string } | null }): Promise<PersonaInfo> =>
+      this.http.request<PersonaInfo>('PUT', `/api/personas/${id}`, changes),
+
+    /** A new persona of the same kind of device: same choices, fresh identity, empty jar. */
+    clone: (id: string, options: { name?: string } = {}): Promise<PersonaInfo> =>
+      this.http.request<PersonaInfo>('POST', `/api/personas/${id}/clone`, options),
+
+    /** The fingerprint these choices would produce. Persists nothing. */
+    preview: async (prefs: PersonaPrefs = {}): Promise<Fingerprint> =>
+      (await this.http.request<{ fingerprint: Fingerprint }>('POST', '/api/personas/preview', { prefs })).fingerprint,
+
+    /** Platforms, and the timezones and locales each may coherently claim. */
+    options: (): Promise<{ platforms: string[]; timezones: Record<string, string[]>; locales: Record<string, string[]> }> =>
+      this.http.request('GET', '/api/personas/options'),
+
+    /** Pin the persona to one of your proxies, or `null` to let assignment happen at connect. */
+    pinProxy: (id: string, proxyId: string | null) =>
+      this.http.request<{ ok: boolean; proxy: { id: string; label: string } | null }>('PUT', `/api/personas/${id}/proxy`, { proxyId }),
 
     remove: async (id: string): Promise<void> => { await this.http.request('DELETE', `/api/personas/${id}`); },
 

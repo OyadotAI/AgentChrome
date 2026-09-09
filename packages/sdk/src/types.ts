@@ -78,18 +78,35 @@ export interface MfaResult {
   error?: string;
 }
 
+export interface Fingerprint {
+  platform: string; timezone: string; locale: string; screen: string; webgl: string;
+  hardwareConcurrency: number; deviceMemory: number; canvasSeed: number;
+}
+
+/** Device choices made at creation. Fixed for the persona's life. */
+export interface PersonaPrefs { platform?: 'Win32' | 'MacIntel' | 'Linux x86_64'; timezone?: string; locale?: string }
+
 export interface PersonaInfo {
   id: string;
   name: string;
   isDefault: boolean;
   activeBrowsers: number;
   maxConcurrent: number | null;
-  proxy: { label?: string; geo?: string } | null;
-  fingerprint: Record<string, unknown>;
-  mfa?: { configured: boolean; type?: string };
+  proxy: { geo: string | null } | null;
+  /** The proxy it is actually on, once assigned or pinned. */
+  exit: { id: string; label: string; geo: string | null; healthy: boolean } | null;
+  prefs: PersonaPrefs | null;
+  fingerprint: Fingerprint;
+  mfa: { configured: boolean; type?: string };
   createdAt: string;
   lastUsedAt: string | null;
 }
+
+export type Health = 'ok' | 'stale' | 'errors' | 'dead';
+
+export interface Activity { ts: string; action: string; summary: string; ok: boolean; ms: number; error?: string }
+
+export interface StopResult { id: string; ok: boolean; provider?: string | null; sandboxRemoved?: boolean | null; error?: string }
 
 export type MfaConfig =
   | { type: 'totp'; secret: string }
@@ -98,12 +115,22 @@ export type MfaConfig =
 export interface BrowserInfo {
   id: string;
   name: string;
-  provider?: string;
-  persona?: string;
-  connectedAt?: string;
-  url?: string;
-  title?: string;
+  clientType: 'oya' | 'cdp';
+  provider: string | null;
+  persona: string | null;
+  personaName: string | null;
+  health: Health;
+  connectedAt: string;
+  lastSeen: string;
+  currentUrl: string;
+  commands: number;
+  errors: number;
+  pending: number;
+  lastCommandAt: string | null;
+  lastError: string | null;
 }
+
+export interface BrowserDetail extends BrowserInfo { activity: Activity[] }
 
 export interface OyaOptions {
   /** Defaults to OYA_API_KEY. */

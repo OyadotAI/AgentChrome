@@ -26,7 +26,11 @@ const HELP = `oya — thousands of browsers, one API
   oya ask "<prompt>" [--id <id>]  Drive it in plain language
   oya ls                          List running browsers
   oya rm <id> | --all             Stop browsers
-  oya personas [new|rm <id>]      Identities: fingerprint + cookies + proxy
+  oya personas                    Identities: fingerprint + cookies + proxy
+  oya personas new [name]         --platform Win32|MacIntel|Linux --tz <zone> --locale <l> --max <n>
+  oya personas edit <id>          --name <n> --max <n> --geo <cc>
+  oya personas clone|rm <id>      A new device of the same kind · delete
+  oya status [--id <id>]          Health, counters and what it has been doing
   oya open [--id <id>]            Open the live view in your browser
   oya config [key=value ...]      Show or change this key's settings
   oya usage                       What this key has spent
@@ -234,8 +238,9 @@ async function cmdLs(flags: Flags): Promise<void> {
   const all = await client(flags).browser.list();
   out(flags, all, () => {
     if (!all.length) return console.log('No browsers running.');
+    const dot: Record<string, string> = { ok: '●', stale: '◐', errors: '✗', dead: '○' };
     for (const b of all) {
-      console.log(`${b.id}  ${(b.provider || 'oya').padEnd(14)} ${(b.persona || 'default').padEnd(12)} ${b.name}`);
+      console.log(`${dot[b.health] || '·'} ${b.id}  ${(b.provider || 'oya').padEnd(14)} ${(b.personaName || b.persona || 'default').padEnd(14)} ${b.name.padEnd(18)} ${b.commands}·${b.errors}  ${b.currentUrl.replace(/^https?:\/\//, '').slice(0, 40)}`);
     }
     console.log(`\n${all.length} running.`);
   });
@@ -243,15 +248,29 @@ async function cmdLs(flags: Flags): Promise<void> {
 
 async function cmdRm(args: string[], flags: Flags): Promise<void> {
   const oya = client(flags);
-  if (flags.all) {
-    console.log(`✅ stopped ${await oya.browser.stopAll()}`);
-    return;
+  if (!flags.all && !args.length) throw new Error('Usage: oya rm <id>… | oya rm --all');
+  const r = await oya.browser.stop(flags.all ? 'all' : args);
+  for (const x of r.results) {
+    const note = x.sandboxRemoved === true ? ' (sandbox destroyed)' : x.sandboxRemoved === false ? ' — sandbox NOT removed, check Daytona' : '';
+    console.log(`${x.ok ? '✅' : '✗'} ${x.id}${note}${x.error ? ` ${x.error}` : ''}`);
   }
-  if (!args.length) throw new Error('Usage: oya rm <id> | oya rm --all');
-  for (const id of args) {
-    await (await oya.browser.get(id)).close();
-    console.log(`✅ stopped ${id}`);
-  }
+  console.log(`stopped ${r.stopped}`);
+}
+
+async function cmdStatus(flags: Flags): Promise<void> {
+  const oya = client(flags);
+  const browser = await targetBrowser(oya, flags);
+  const s = await browser.status();
+  out(flags, s, () => {
+    console.log(`${s.name}  ${s.id}`);
+    console.log(`  ${s.health} · ${s.provider || 'oya'} · persona ${s.personaName || s.persona || 'default'}`);
+    console.log(`  ${s.commands} commands · ${s.errors} errors · ${s.pending} in flight · at ${s.currentUrl || '—'}`);
+    if (s.lastError) console.log(`  last error: ${s.lastError}`);
+    if (s.activity.length) {
+      console.log('  recent:');
+      for (const a of s.activity.slice(0, 10)) console.log(`    ${a.ok ? '·' : '✗'} ${a.action.padEnd(18)} ${a.summary}${a.error ? ` — ${a.error}` : ''}  ${a.ms}ms`);
+    }
+  });
 }
 
 async function cmdPersonas(args: string[], flags: Flags): Promise<void> {
@@ -259,12 +278,43 @@ async function cmdPersonas(args: string[], flags: Flags): Promise<void> {
   const [sub, ...rest] = args;
 
   if (sub === 'new' || sub === 'create') {
+    const platformAlias: Record<string, 'Win32' | 'MacIntel' | 'Linux x86_64'> = {
+      win32: 'Win32', windows: 'Win32', win: 'Win32', macintel: 'MacIntel', mac: 'MacIntel', macos: 'MacIntel',
+      linux: 'Linux x86_64', 'linux x86_64': 'Linux x86_64',
+    };
+    const platformFlag = flagStr(flags, 'platform');
+    const prefs = {
+      ...(platformFlag ? { platform: platformAlias[platformFlag.toLowerCase()] || (platformFlag as never) } : {}),
+      ...(flagStr(flags, 'tz') ? { timezone: flagStr(flags, 'tz') } : {}),
+      ...(flagStr(flags, 'locale') ? { locale: flagStr(flags, 'locale') } : {}),
+    };
+    if (flags.preview) {
+      const fp = await oya.personas.preview(prefs);
+      return out(flags, fp, () => console.log(`${fp.platform} · ${fp.timezone} · ${fp.locale} · ${fp.screen} · ${fp.webgl}`));
+    }
     const created = await oya.personas.create({
       name: flagStr(flags, 'name') || rest[0],
-      proxy: flagStr(flags, 'proxy'),
+      prefs,
+      proxy: flagStr(flags, 'geo') ? { geo: flagStr(flags, 'geo') } : undefined,
       maxConcurrent: flagStr(flags, 'max') ? Number(flagStr(flags, 'max')) : undefined,
     });
-    return out(flags, created, () => console.log(`✅ ${created.id}  ${created.name}`));
+    return out(flags, created, () => console.log(`✅ ${created.id}  ${created.name}  ${created.fingerprint.platform} · ${created.fingerprint.timezone}`));
+  }
+
+  if (sub === 'edit') {
+    if (!rest[0]) throw new Error('Usage: oya personas edit <id> --name <n> --max <n> --geo <cc>');
+    const updated = await oya.personas.update(rest[0], {
+      ...(flagStr(flags, 'name') ? { name: flagStr(flags, 'name') } : {}),
+      ...(flagStr(flags, 'max') ? { maxConcurrent: flagStr(flags, 'max') === 'none' ? null : Number(flagStr(flags, 'max')) } : {}),
+      ...(flagStr(flags, 'geo') ? { proxy: { geo: flagStr(flags, 'geo') } } : {}),
+    });
+    return out(flags, updated, () => console.log(`✅ ${updated.id}  ${updated.name}  cap ${updated.maxConcurrent ?? '∞'}`));
+  }
+
+  if (sub === 'clone') {
+    if (!rest[0]) throw new Error('Usage: oya personas clone <id> [--name <n>]');
+    const c = await oya.personas.clone(rest[0], { name: flagStr(flags, 'name') });
+    return out(flags, c, () => console.log(`✅ ${c.id}  ${c.name}  ${c.fingerprint.platform} · ${c.fingerprint.timezone}  (new identity, same kind of device)`));
   }
 
   if (sub === 'rm' || sub === 'delete') {
@@ -278,8 +328,8 @@ async function cmdPersonas(args: string[], flags: Flags): Promise<void> {
     if (!all.length) return console.log('No personas yet — `oya personas new`.');
     for (const p of all) {
       const cap = p.maxConcurrent === null ? '∞' : String(p.maxConcurrent);
-      console.log(`${p.id}  ${p.name.padEnd(20)} ${p.activeBrowsers}/${cap} running`
-        + `${p.proxy?.geo ? `  via ${p.proxy.geo}` : ''}${p.isDefault ? '  (default)' : ''}`);
+      console.log(`${p.id}  ${p.name.padEnd(20)} ${p.activeBrowsers}/${cap} running  ${p.fingerprint.platform} · ${p.fingerprint.timezone}`
+        + `${p.exit ? `  via ${p.exit.label}` : p.proxy?.geo ? `  geo ${p.proxy.geo}` : ''}${p.mfa?.configured ? `  mfa:${p.mfa.type}` : ''}${p.isDefault ? '  (default)' : ''}`);
     }
   });
 }
@@ -341,6 +391,7 @@ try {
     case 'goto':         await cmdGoto(args, flags); break;
     case 'ask':          await cmdAsk(args, flags); break;
     case 'ls': case 'list': await cmdLs(flags); break;
+    case 'status':       await cmdStatus(flags); break;
     case 'rm': case 'stop': await cmdRm(args, flags); break;
     case 'personas':     await cmdPersonas(args, flags); break;
     case 'open':         await cmdOpen(flags); break;

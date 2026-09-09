@@ -431,7 +431,9 @@ export default function DocsPage() {
           {/* Title */}
           <h1 className="font-display text-3xl font-bold tracking-tight text-text mb-2">Documentation</h1>
           <p className="text-text-muted mb-10 text-base leading-relaxed">
-            Thousands of browsers, one API. Every one a different identity.
+            The OpenRouter for browsers: one API and one console in front of Oya Cloud, Browserbase,
+            Steel, Anchor, Browser Use and your own Chrome. Every browser runs as a persona — a stable
+            identity with its own logins and exit IP — with CAPTCHA and MFA handled.
           </p>
 
           {/* ============ QUICKSTART ============ */}
@@ -919,12 +921,36 @@ if (!r.completed) open(r.liveViewUrl);   // finish it by hand`}</CodeBlock>
           <p className="mb-3 text-[15px] leading-relaxed">
             The <InlineLink href="/dashboard">dashboard</InlineLink> at <InlineCode>/dashboard</InlineCode> is the control panel. It shows your connected browsers and lets you interact with them.
           </p>
-          <p className="mb-3 text-[15px] leading-relaxed">Three tabs, and a button that starts a browser:</p>
+          <p className="mb-3 text-[15px] leading-relaxed">Built to hold a thousand browsers and let you act on any one of them:</p>
           <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
-            <li><strong>Browsers</strong> — what is running, with a live view of whichever you select</li>
-            <li><strong>Personas</strong> — your identities, their fingerprints and how many browsers each is running</li>
-            <li><strong>Control</strong> — metrics, per-key usage, the audit trail, quotas and drain</li>
+            <li><strong>Browsers</strong> — a health strip (every number is a filter) over a dense table: health, persona, provider, current page, commands · errors, seen, uptime. Select a row to open the panel: URL bar, a bounded <em>interactive</em> live view, screenshot, elements, stats, and the activity log — what that browser has been doing, newest first.</li>
+            <li><strong>Personas</strong> — one identity each. Create with a chosen device and a live fingerprint preview; edit name, cap, proxy pin and MFA; the device itself is locked, with <em>Clone</em> for when you want a different one.</li>
+            <li><strong>Control</strong> — health, gateway sessions, providers and routing, per-key usage, the audit trail, recordings.</li>
           </ul>
+          <h3 className="text-base font-semibold mt-6 mb-2 text-text">Driving a browser from the live view</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Click to control. Clicks land at the page pixel under the cursor, a drag is a drag, the wheel
+            scrolls, typing is batched into <InlineCode>keyboard_type</InlineCode> and the named keys go
+            as <InlineCode>press_key</InlineCode>. <InlineCode>Esc</InlineCode> hands the keyboard back. What
+            was typed is never written to the activity log — it records <em>2 chars</em>, not the text.
+          </p>
+          <h3 className="text-base font-semibold mt-6 mb-2 text-text">Stop means stop</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            One button, one endpoint (<InlineCode>POST /browsers/:id/stop</InlineCode>). A cloud browser&apos;s
+            sandbox is destroyed so billing ends; a CDP browser is handed back to its provider; a desktop
+            browser disconnects. The confirm says which. Bulk stop takes <InlineCode>{`{ids: [...]}`}</InlineCode> or <InlineCode>{`{all: true}`}</InlineCode>.
+          </p>
+          <h3 className="text-base font-semibold mt-6 mb-2 text-text">Keyboard</h3>
+          <Table headers={['Key', 'Does']} rows={[
+            ['⌘/Ctrl 1 · 2 · 3', 'Browsers · Personas · Control'],
+            ['n', 'Start a browser'],
+            ['/', 'Filter the fleet'],
+            ['↑ ↓ or j k', 'Move the selection'],
+            ['x', 'Stop the selected browser(s)'],
+            ['l · r · s', 'URL bar · reload · screenshot'],
+            ['Esc', 'Close the panel, or release the keyboard from the live view'],
+            ['?', 'The full list'],
+          ]} />
           <p className="mb-3 text-[15px] leading-relaxed">
             You can sign in with an account, or by pasting an API key — a self-hosted deployment with{' '}
             <InlineCode>API_KEYS</InlineCode> and no database has no accounts, and still needs its own UI.
@@ -993,12 +1019,20 @@ if (!r.completed) open(r.liveViewUrl);   // finish it by hand`}</CodeBlock>
               [<InlineCode key="m2">POST</InlineCode>, <InlineCode key="e2">/register-key</InlineCode>, <span key="d2">Register a new API key (<InlineCode>{`{ "key": "..." }`}</InlineCode>)</span>],
               [<InlineCode key="m3">GET</InlineCode>, <InlineCode key="e3">/browsers</InlineCode>, 'List your connected browsers'],
               [<InlineCode key="ms">POST</InlineCode>, <InlineCode key="es">/browsers/start</InlineCode>, <span key="ds">Start one (<InlineCode>{`{ "persona": "auto" }`}</InlineCode>) — provider comes from your key</span>],
+              [<InlineCode key="mg">GET</InlineCode>, <InlineCode key="eg">/browsers/:id</InlineCode>, 'One browser with counters, health and its recent activity'],
+              [<InlineCode key="mst">POST</InlineCode>, <InlineCode key="est">/browsers/:id/stop</InlineCode>, 'Stop it — destroys a cloud sandbox, releases a CDP session'],
+              [<InlineCode key="msb">POST</InlineCode>, <InlineCode key="esb">/browsers/stop</InlineCode>, <span key="dsb">Bulk: <InlineCode>{`{ "ids": [...] }`}</InlineCode> or <InlineCode>{`{ "all": true }`}</InlineCode></span>],
+              [<InlineCode key="mf">GET</InlineCode>, <InlineCode key="ef">/fleet</InlineCode>, 'Totals by health, provider and persona; usage and limits'],
               [<InlineCode key="m4">POST</InlineCode>, <InlineCode key="e4">/browsers/:id/command</InlineCode>, <span key="d4">Send command (<InlineCode>{`{ "action": "...", "params": {} }`}</InlineCode>)</span>],
               [<InlineCode key="m5">POST</InlineCode>, <InlineCode key="e5">/browsers/:id/chat</InlineCode>, <span key="d5">Chat (<InlineCode>{`{ "messages": [...] }`}</InlineCode>)</span>],
               [<InlineCode key="m6">GET</InlineCode>, <InlineCode key="e6">/live/:id?key=...</InlineCode>, 'SSE live view frame stream'],
               [<InlineCode key="m7">GET/POST</InlineCode>, <InlineCode key="e7">/mcp/:id</InlineCode>, 'MCP Streamable HTTP endpoint'],
               [<InlineCode key="mp1">GET/POST</InlineCode>, <InlineCode key="ep1">/personas</InlineCode>, 'List or create personas'],
               [<InlineCode key="mp2">DELETE</InlineCode>, <InlineCode key="ep2">/personas/:id</InlineCode>, 'Delete a persona (409 while in use)'],
+              [<InlineCode key="mp4">PUT</InlineCode>, <InlineCode key="ep4">/personas/:id</InlineCode>, 'Rename, set the cap or the proxy hint — never the device'],
+              [<InlineCode key="mp5">POST</InlineCode>, <InlineCode key="ep5">/personas/:id/clone</InlineCode>, 'A new persona of the same kind of device'],
+              [<InlineCode key="mp6">POST</InlineCode>, <InlineCode key="ep6">/personas/preview</InlineCode>, 'The fingerprint a set of choices would produce'],
+              [<InlineCode key="mp7">GET</InlineCode>, <InlineCode key="ep7">/personas/options</InlineCode>, 'Platforms and their coherent timezones and locales'],
               [<InlineCode key="mp3">PUT</InlineCode>, <InlineCode key="ep3">/personas/:id/mfa</InlineCode>, 'Store a second factor'],
               [<InlineCode key="mc1">POST</InlineCode>, <InlineCode key="ec1">/browsers/:id/captcha</InlineCode>, 'Detect and clear a CAPTCHA'],
               [<InlineCode key="mc2">POST</InlineCode>, <InlineCode key="ec2">/browsers/:id/mfa</InlineCode>, 'Answer an MFA prompt'],

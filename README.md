@@ -1,6 +1,9 @@
 # Oya Browser
 
-Thousands of browsers. One API. Every one a different identity.
+**The OpenRouter for browsers.** One API and one console in front of Oya
+Cloud, Browserbase, Steel, Anchor, Browser Use and your own Chrome. Every
+browser runs as a persona — a stable identity with its own logins and exit IP
+— with CAPTCHA and MFA handled. The provider is a setting, not a rewrite.
 
 ```ts
 import { Oya } from "@oya/browser";
@@ -31,8 +34,10 @@ runs the browsers, and it owns the parts that are hard:
   `oya stealth-test` prints the number.
 - **Challenges.** CAPTCHA and MFA are two method calls, with provider-native
   solving used where it exists and a solver behind it where it does not.
-- **Control.** Metrics, per-key usage accounting, an append-only audit trail,
-  rate limits and quotas, live view of any running browser.
+- **Control.** A console built to hold a thousand browsers: health at a
+  glance, every number a filter, and any row opened into a live, interactive
+  view with its activity log and a Stop that actually stops it. Underneath:
+  metrics, per-key usage, an append-only audit trail, rate limits and quotas.
 
 Self-hostable, standalone. Everything is configured against an API key from the
 dashboard or `oya init` — no environment variables to hunt down.
@@ -140,8 +145,10 @@ oya init                        Model, browser provider, solver, desktop sign-in
 oya start [--persona auto]      Start a browser
 oya goto <url>                  Navigate
 oya ask "<prompt>"              Drive it in plain language
-oya ls / oya rm <id> | --all    What is running, and stop it
-oya personas [new|rm <id>]      Identities and their concurrency
+oya ls / oya status             What is running, and what one of them has been doing
+oya rm <id>… | --all            Stop — a cloud sandbox is destroyed, a CDP session released
+oya personas new [name]         --platform mac|win|linux --tz <zone> --locale <l> --max <n> [--preview]
+oya personas edit|clone|rm <id> Name, cap and proxy are editable; the device is cloned, never changed
 oya open                        Watch a browser work
 oya config [key=value ...]      This key's settings
 oya usage                       What this key has spent

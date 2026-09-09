@@ -1,5 +1,5 @@
 import type { Http } from './client.js';
-import type { Analysis, CaptchaResult, Element, MfaResult, StartResult } from './types.js';
+import type { Analysis, BrowserDetail, CaptchaResult, Element, MfaResult, StartResult, StopResult } from './types.js';
 
 /** Navigation is slow and the server disables its own timeout for it. */
 const NAVIGATE_TIMEOUT_MS = 120_000;
@@ -133,7 +133,19 @@ export class Browser {
     return `${this.http.baseUrl}/api/live/${this.id}?key=${encodeURIComponent(this.http.apiKey)}`;
   }
 
-  async close(): Promise<void> {
-    await this.http.request('POST', `/api/browsers/${this.id}/disconnect`, {});
+  /** Counters, health and the last 50 things this browser did. */
+  status(): Promise<BrowserDetail> {
+    return this.http.request<BrowserDetail>('GET', `/api/browsers/${this.id}`);
   }
+
+  /**
+   * Stop it, whatever it is: a cloud sandbox is destroyed so billing ends, a
+   * CDP session is handed back to its provider, a desktop browser disconnects.
+   */
+  stop(): Promise<StopResult> {
+    return this.http.request<StopResult>('POST', `/api/browsers/${this.id}/stop`, {}, 60_000);
+  }
+
+  /** @deprecated use stop() — close() only dropped the socket, and a cloud browser redialled. */
+  async close(): Promise<void> { await this.stop(); }
 }
