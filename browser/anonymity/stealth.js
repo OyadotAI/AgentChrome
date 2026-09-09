@@ -1,19 +1,53 @@
 /**
  * Anti-detection stealth — builds a JS string injected before page code runs.
- * Removes Electron markers, fixes window.chrome, plugins, permissions.
+ *
+ * The load-bearing piece is the Function.prototype.toString mask. Without it
+ * every override below reports its own source ("() => val") where a real
+ * browser reports "[native code]", which is the first thing any commercial
+ * detector checks — so the mask has to be installed before anything else and
+ * every patched function has to be registered with it.
  */
 
 function buildStealthScript() {
   return `(function() {
   'use strict';
 
-  // ── navigator.webdriver → undefined ──
-  Object.defineProperty(navigator, 'webdriver', {
-    get: () => undefined,
-    configurable: true,
+  // ── Native toString mask ──
+  // Registered functions report as native. The proxy registers itself, so
+  // Function.prototype.toString.toString() is native too.
+  const _origToString = Function.prototype.toString;
+  const _native = new WeakMap();
+  const _mark = (fn, name) => { try { _native.set(fn, name || fn.name || ''); } catch {} return fn; };
+
+  const _toStringProxy = new Proxy(_origToString, {
+    apply(target, thisArg, args) {
+      if (_native.has(thisArg)) {
+        return 'function ' + _native.get(thisArg) + '() { [native code] }';
+      }
+      return Reflect.apply(target, thisArg, args);
+    },
   });
+  _mark(_toStringProxy, 'toString');
+  try { Function.prototype.toString = _toStringProxy; } catch {}
+
+  /** defineProperty with a getter that reports as a native accessor. */
+  const _defineGetter = (target, prop, value) => {
+    const get = () => value;
+    _mark(get, 'get ' + prop);
+    try {
+      Object.defineProperty(target, prop, { get, configurable: true, enumerable: true });
+    } catch {}
+  };
+
+  // ── navigator.webdriver ──
+  // On the PROTOTYPE, not the instance: an own property named 'webdriver' on
+  // navigator never exists in real Chrome. And the value is false, not
+  // undefined — undefined is itself the tell.
+  _defineGetter(Navigator.prototype, 'webdriver', false);
 
   // ── Remove Electron globals ──
+  // Tabs run with contextIsolation and sandbox, so these should already be
+  // absent; harmless belt-and-braces for any surface that is not.
   try { delete window.process; } catch {}
   try { delete window.require; } catch {}
   try { delete window.module; } catch {}
@@ -21,112 +55,127 @@ function buildStealthScript() {
   try { delete window.__dirname; } catch {}
   try { delete window.__filename; } catch {}
 
-  // ── Fix window.chrome to match real Chrome ──
+  // ── window.chrome ──
+  // app/csi/loadTimes exist on a normal page in real Chrome. chrome.runtime
+  // does NOT — it is only present on extension pages, so defining it is
+  // positive evidence of automation rather than cover. Deliberately absent.
   if (!window.chrome) window.chrome = {};
   window.chrome.app = {
     isInstalled: false,
     InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
     RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
-    getDetails: function() { return null; },
-    getIsInstalled: function() { return false; },
-    installState: function(cb) { if (cb) cb('not_installed'); },
+    getDetails: _mark(function getDetails() { return null; }, 'getDetails'),
+    getIsInstalled: _mark(function getIsInstalled() { return false; }, 'getIsInstalled'),
+    installState: _mark(function installState(cb) { if (cb) cb('not_installed'); }, 'installState'),
   };
 
-  if (!window.chrome.runtime) {
-    window.chrome.runtime = {
-      OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
-      OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
-      PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-      PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-      PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
-      RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' },
-      connect: function() { return { onDisconnect: { addListener: function() {} }, onMessage: { addListener: function() {} }, postMessage: function() {} }; },
-      sendMessage: function() {},
-    };
-  }
+  window.chrome.csi = _mark(function csi() {
+    return { onloadT: Date.now(), startE: Date.now(), pageT: performance.now() };
+  }, 'csi');
 
-  window.chrome.csi = function() { return { onloadT: Date.now(), startE: Date.now(), pageT: Math.random() * 500 + 100 }; };
-  window.chrome.loadTimes = function() {
+  window.chrome.loadTimes = _mark(function loadTimes() {
+    const nav = performance.getEntriesByType('navigation')[0] || {};
+    const origin = performance.timeOrigin / 1000;
     return {
-      commitLoadTime: Date.now() / 1000,
+      commitLoadTime: origin + (nav.responseStart || 0) / 1000,
       connectionInfo: 'h2',
-      finishDocumentLoadTime: Date.now() / 1000,
-      finishLoadTime: Date.now() / 1000,
+      finishDocumentLoadTime: origin + (nav.domContentLoadedEventEnd || 0) / 1000,
+      finishLoadTime: origin + (nav.loadEventEnd || 0) / 1000,
       firstPaintAfterLoadTime: 0,
-      firstPaintTime: Date.now() / 1000,
+      firstPaintTime: origin + (nav.responseEnd || 0) / 1000,
       navigationType: 'Other',
       npnNegotiatedProtocol: 'h2',
-      requestTime: Date.now() / 1000 - Math.random() * 0.5,
-      startLoadTime: Date.now() / 1000 - Math.random() * 0.5,
+      requestTime: origin + (nav.startTime || 0) / 1000,
+      startLoadTime: origin + (nav.startTime || 0) / 1000,
       wasAlternateProtocolAvailable: false,
       wasFetchedViaSpdy: true,
       wasNpnNegotiated: true,
     };
-  };
+  }, 'loadTimes');
 
-  // ── Populate navigator.plugins (Electron has empty arrays) ──
-  const pluginData = [
-    { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format', mimeType: 'application/pdf' },
-    { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: '', mimeType: 'application/pdf' },
-    { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: '', mimeType: 'application/pdf' },
-    { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: '', mimeType: 'application/pdf' },
-    { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: '', mimeType: 'application/pdf' },
+  // ── navigator.plugins / mimeTypes ──
+  // Electron ships empty arrays. The values below match modern Chrome; the
+  // types matter as much as the data — a plain object reports
+  // "[object Object]" where a real one reports "[object PluginArray]".
+  const _pluginSpecs = [
+    { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+    { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+    { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+    { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+    { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
   ];
 
-  const fakePlugins = {
-    length: pluginData.length,
-    item: function(i) { return this[i] || null; },
-    namedItem: function(name) { return pluginData.find(p => p.name === name) || null; },
-    refresh: function() {},
+  const _mimeSpecs = [
+    { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+    { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+  ];
+
+  /**
+   * Borrow the real interface prototype so instanceof and Symbol.toStringTag
+   * are correct. If the interface is missing we leave the surface alone
+   * rather than install something that reads as a lie.
+   */
+  const _asInterface = (obj, Ctor) => {
+    if (typeof Ctor !== 'function' || !Ctor.prototype) return null;
+    try { Object.setPrototypeOf(obj, Ctor.prototype); return obj; } catch { return null; }
   };
-  pluginData.forEach((p, i) => { fakePlugins[i] = p; });
 
-  Object.defineProperty(navigator, 'plugins', {
-    get: () => fakePlugins,
-    configurable: true,
-  });
-
-  const fakeMimeTypes = {
-    length: 1,
-    item: function(i) { return i === 0 ? { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format', enabledPlugin: pluginData[0] } : null; },
-    namedItem: function(name) { return name === 'application/pdf' ? this.item(0) : null; },
+  const _buildArrayLike = (items, Ctor, namedKey) => {
+    const arr = Object.create(null);
+    const list = items.slice();
+    list.forEach((item, i) => { arr[i] = item; });
+    Object.defineProperty(arr, 'length', { value: list.length, enumerable: false });
+    arr.item = _mark(function item(i) { return list[i] || null; }, 'item');
+    arr.namedItem = _mark(function namedItem(n) {
+      return list.find((x) => x[namedKey] === n) || null;
+    }, 'namedItem');
+    if (Ctor === window.PluginArray) {
+      arr.refresh = _mark(function refresh() {}, 'refresh');
+    }
+    list.forEach((item) => { arr[item[namedKey]] = item; });
+    return _asInterface(arr, Ctor) || arr;
   };
-  fakeMimeTypes[0] = fakeMimeTypes.item(0);
 
-  Object.defineProperty(navigator, 'mimeTypes', {
-    get: () => fakeMimeTypes,
-    configurable: true,
-  });
+  if (typeof window.Plugin === 'function' && typeof window.PluginArray === 'function'
+      && typeof window.MimeType === 'function' && typeof window.MimeTypeArray === 'function') {
+    const mimes = _mimeSpecs.map((m) => _asInterface(Object.assign(Object.create(null), m), window.MimeType)
+      || Object.assign({}, m));
+    const plugins = _pluginSpecs.map((p) => {
+      const plugin = Object.assign(Object.create(null), p, {
+        length: mimes.length,
+        item: _mark(function item(i) { return mimes[i] || null; }, 'item'),
+        namedItem: _mark(function namedItem(t) { return mimes.find((m) => m.type === t) || null; }, 'namedItem'),
+      });
+      mimes.forEach((m, i) => { plugin[i] = m; });
+      return _asInterface(plugin, window.Plugin) || plugin;
+    });
+    mimes.forEach((m) => { try { m.enabledPlugin = plugins[0]; } catch {} });
 
-  // ── Fix navigator.permissions.query ──
-  const origQuery = navigator.permissions.query.bind(navigator.permissions);
-  navigator.permissions.query = function(params) {
-    if (params.name === 'notifications') {
+    _defineGetter(Navigator.prototype, 'plugins', _buildArrayLike(plugins, window.PluginArray, 'name'));
+    _defineGetter(Navigator.prototype, 'mimeTypes', _buildArrayLike(mimes, window.MimeTypeArray, 'type'));
+  }
+
+  // ── navigator.permissions.query ──
+  const _origQuery = navigator.permissions.query;
+  const query = function query(params) {
+    if (params && params.name === 'notifications') {
       return Promise.resolve({ state: Notification.permission, onchange: null });
     }
-    return origQuery(params);
+    return Reflect.apply(_origQuery, navigator.permissions, arguments);
   };
+  _mark(query, 'query');
+  try { navigator.permissions.query = query; } catch {}
 
-  // ── Ensure outerWidth/outerHeight have realistic chrome gap ──
-  Object.defineProperty(window, 'outerWidth', {
-    get: () => window.innerWidth + 16,
-    configurable: true,
-  });
-  Object.defineProperty(window, 'outerHeight', {
-    get: () => window.innerHeight + 88,
-    configurable: true,
-  });
+  // ── outerWidth / outerHeight ──
+  // A headless window can report 0, which no real window does.
+  if (!window.outerWidth || !window.outerHeight) {
+    _defineGetter(window, 'outerWidth', window.innerWidth);
+    _defineGetter(window, 'outerHeight', window.innerHeight + 88);
+  }
 
-  // ── Patch Error.stack to remove debugger frames ──
-  const origPrepareStackTrace = Error.prepareStackTrace;
-  Error.prepareStackTrace = function(error, stack) {
-    const filtered = stack.filter(frame => {
-      const fn = frame.getFileName() || '';
-      return !fn.includes('debugger') && !fn.includes('inspector');
-    });
-    if (origPrepareStackTrace) return origPrepareStackTrace(error, filtered);
-    return error.toString() + '\\n' + filtered.map(f => '    at ' + f.toString()).join('\\n');
-  };
+  // Error.prepareStackTrace is deliberately NOT patched. It is undefined on a
+  // real page, so defining it is a stronger signal than the debugger frames it
+  // was hiding.
 
 })();`;
 }
