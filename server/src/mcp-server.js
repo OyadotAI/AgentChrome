@@ -7,7 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
-import { isAdminKey, isFleetToken, validateApiKey } from './auth.js';
+import { isFleetToken, validateApiKey } from './auth.js';
 import { nextBrowser, poolStats } from './pool.js';
 
 /** Pool pinned browser state: apiKey → browserId */
@@ -522,7 +522,7 @@ export async function handleMcpRequest(req, res) {
 
   // Scope check — only the key that owns this browser (or admin) can access its MCP.
   // Return 404 (not 403) so non-owners can't probe for browser existence.
-  if (!isAdminKey(apiKey) && !registry.belongsTo(browserId, apiKey)) {
+  if (!registry.belongsTo(browserId, apiKey)) {
     res.status(404).json({ error: `Browser ${browserId} not connected` });
     return;
   }

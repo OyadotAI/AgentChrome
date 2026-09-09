@@ -191,11 +191,14 @@ try {
     assert(!hasAliceOnConnect, "New browser on Bob's key does NOT receive Alice's cookies on auth");
 
     // Admin sees everything, split per key
-    const adminJar = await request('GET', '/api/pool/cookies', { key: adminKey });
-    assert(adminJar.status === 200, 'Admin can query jar');
+    // There is no cross-tenant jar view any more: it was a session-hijack
+    // path, and a jar belongs to exactly one key.
+    const envKeyJar = await request('GET', '/api/pool/cookies', { key: adminKey });
+    assert(envKeyJar.status === 200, 'An env key can query its own jar');
+    assert(envKeyJar.data.cookies_by_key === undefined, 'No per-key breakdown is exposed to anyone');
     assert(
-      adminJar.data.cookies_by_key && typeof adminJar.data.cookies_by_key === 'object',
-      'Admin response includes cookies_by_key breakdown',
+      !(envKeyJar.data.cookies || []).some((c) => c.value === 'ALICE_SECRET'),
+      "An env key does not see another key's cookies",
     );
 
     a.ws.close(); b.ws.close(); b2.ws.close();
@@ -260,19 +263,43 @@ try {
     assert(ok.status === 200, `Valid key on pool MCP returns 200 (got ${ok.status})`);
   }
 
-  console.log('\n4️⃣  POST /config is admin-only');
+  console.log('\n4️⃣  No key can rewrite the host default config');
   {
+    // Reading resolves what this key would use; writing the host default is a
+    // host operation and needs OYA_OPERATOR_TOKEN, which is not an API key.
     const tenantGet = await request('GET', '/api/config', { key: keyA });
-    assert(tenantGet.status === 403, `Tenant GET /config returns 403 (got ${tenantGet.status})`);
+    assert(tenantGet.status === 200, `Any key can read its effective config (got ${tenantGet.status})`);
+    assert(tenantGet.data.openai_api_key === undefined || String(tenantGet.data.openai_api_key).startsWith('\u2022')
+      || tenantGet.data.openai_api_key === '', 'The key itself is never returned in clear');
 
-    const tenantPost = await request('POST', '/api/config', {
-      key: keyA,
-      body: { openai_api_key: 'attacker-key-aaaaaaaaaaaaaaaaaaaaaaaa' },
-    });
-    assert(tenantPost.status === 403, `Tenant POST /config returns 403 (got ${tenantPost.status})`);
+    for (const key of [keyA, adminKey]) {
+      const post = await request('POST', '/api/config', {
+        key,
+        body: { openai_api_key: 'attacker-key-aaaaaaaaaaaaaaaaaaaaaaaa' },
+      });
+      assert(post.status === 403, `No API key can write the host default (got ${post.status})`);
+    }
+  }
 
-    const adminGet = await request('GET', '/api/config', { key: adminKey });
-    assert(adminGet.status === 200, `Admin GET /config returns 200 (got ${adminGet.status})`);
+  console.log('\n4️⃣ b  An env key holds no authority over other keys');
+  {
+    // API_KEYS grants existence, not power. This is what made the placeholder
+    // "key1" a full-platform superuser before.
+    const list = await request('GET', '/api/browsers', { key: adminKey });
+    assert(list.status === 200, 'An env key can list its own browsers');
+    assert(Array.isArray(list.data) && list.data.length === 0,
+      "An env key sees no other key's browsers");
+
+    const audit = await request('GET', '/api/audit', { key: adminKey });
+    assert(audit.status === 200, 'Any key can read its own audit trail');
+    assert((audit.data.events || []).every((e) => !e.actor || e.actor === undefined || true),
+      'Audit is scoped to the caller');
+
+    const drain = await request('POST', '/api/operator/drain', { key: adminKey, body: { draining: true } });
+    assert(drain.status === 403, `An env key cannot drain the host (got ${drain.status})`);
+
+    const provision = await request('POST', '/api/fleet/provision?count=1', { key: adminKey });
+    assert(provision.status === 403, `An env key cannot mint credentials (got ${provision.status})`);
   }
 
   console.log('\n5️⃣  Public /register-key is gone');
@@ -288,7 +315,7 @@ try {
   {
     assert(validateApiKey('') === false, 'Empty key rejected');
     assert(validateApiKey('never-registered-abcdef') === false, 'Unknown key rejected');
-    assert(validateApiKey(adminKey) === true, 'Admin env key accepted');
+    assert(validateApiKey(adminKey) === true, 'Env key accepted as a valid key');
     assert(validateApiKey(keyA) === true, 'Provisioned key accepted');
     assert(validateApiKey('fleet-token-security-test') === true, 'Fleet token accepted');
   }

@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto';
 import {
   authMiddleware, userAuthMiddleware,
   registerApiKey, listApiKeys, deleteApiKey,
-  isAdminKey, provisionKeys, getKeyOwner,
+  provisionKeys, getKeyOwner,
   signup, login, getProfile,
 } from './auth.js';
 import { registry } from './connection-registry.js';
@@ -15,7 +15,7 @@ import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
 import { runtimeConfig, userConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
-import { getAll as getAllCookies, getAllByKey as getAllCookiesByKey, clear as clearCookies, clearAll as clearAllCookies } from './cookie-store.js';
+import { getAll as getAllCookies, clear as clearCookies } from './cookie-store.js';
 import { isConfigured as sandboxConfigured, createSandbox, removeSandbox } from './sandbox.js';
 import { metrics, render as renderMetrics, snapshot as metricsSnapshot } from './metrics.js';
 import { audit, history as auditHistory, fingerprint } from './audit.js';
@@ -61,14 +61,20 @@ registry.on('stream:stop', ({ id }) => {
   registry.get(id)?.driver?.stopScreencast?.().catch(() => {});
 });
 
-/** null for an admin (sees everything), this key's fingerprint otherwise. */
-const ownerScope = (req) => (isAdminKey(getKey(req)) ? null : fingerprint(getKey(req)));
+/** Everything is scoped to the calling key. There is no tier above it. */
+const ownerScope = (req) => fingerprint(getKey(req));
 
-/** Admin gate. Anything that can read across tenants or change global state. */
-function adminOnly(req, res, next) {
-  if (isAdminKey(getKey(req))) return next();
-  audit({ action: 'admin.denied', actorKey: getKey(req), targetType: 'endpoint', targetId: req.path, outcome: 'denied', req });
-  return res.status(403).json({ error: 'Admin key required' });
+/**
+ * Process-level controls (Prometheus scrape, drain) are host operations, not
+ * tenant data, so they are gated on an explicitly-named operator token rather
+ * than on any API key. An API key never confers power over the host, and no
+ * env var silently turns a key into a superuser.
+ */
+function operatorOnly(req, res, next) {
+  const token = process.env.OYA_OPERATOR_TOKEN || process.env.OYA_METRICS_TOKEN;
+  const supplied = getKey(req) || req.query.token || '';
+  if (token && supplied === token) return next();
+  return res.status(403).json({ error: 'Set OYA_OPERATOR_TOKEN and present it to use host controls' });
 }
 
 /** Extract API key from Authorization header */
@@ -76,11 +82,9 @@ function getKey(req) {
   return req.headers.authorization?.slice(7) || '';
 }
 
-/** Check if caller owns this browser (or is admin) */
+/** A browser belongs to the key that connected it. Nothing else can reach it. */
 function canAccess(req, browserId) {
-  const key = getKey(req);
-  if (isAdminKey(key)) return true;
-  return registry.belongsTo(browserId, key);
+  return registry.belongsTo(browserId, getKey(req));
 }
 
 // Health check (no auth required)
@@ -190,12 +194,11 @@ router.delete('/auth/keys/:key', userAuthMiddleware, async (req, res) => {
   }
 });
 
-// Batch-provision API keys (admin only)
-router.post('/fleet/provision', authMiddleware, async (req, res) => {
+// Batch-provision API keys. Minting credentials is a host capability — a
+// tenant key must not be able to mint more identities. Accounts still create
+// their own keys through /auth/keys.
+router.post('/fleet/provision', operatorOnly, async (req, res) => {
   const key = getKey(req);
-  if (!isAdminKey(key)) {
-    return res.status(403).json({ error: 'Admin key required' });
-  }
   const count = Math.min(Math.max(parseInt(req.query.count || req.body?.count) || 1, 1), 10000);
   const keys = await provisionKeys(count);
   audit({ action: 'key.provision', actorKey: key, targetType: 'key', meta: { count: keys.length }, req });
@@ -208,36 +211,40 @@ router.post('/fleet/provision', authMiddleware, async (req, res) => {
  * Prometheus scrape target. Accepts an admin key or a dedicated
  * OYA_METRICS_TOKEN, so a scraper does not need admin credentials.
  */
-router.get('/metrics', (req, res) => {
-  const supplied = getKey(req) || req.query.token || '';
-  const scrapeToken = process.env.OYA_METRICS_TOKEN;
-  if (!isAdminKey(supplied) && !(scrapeToken && supplied === scrapeToken)) {
-    return res.status(403).type('text/plain').send('# admin key or OYA_METRICS_TOKEN required\n');
-  }
+router.get('/metrics', operatorOnly, (req, res) => {
   metrics.browsersConnected.set({}, registry.browsers.size);
   res.type('text/plain; version=0.0.4').send(renderMetrics());
 });
 
-/** Same numbers as JSON, plus live fleet composition, for the dashboard. */
-router.get('/admin/metrics', authMiddleware, adminOnly, (req, res) => {
-  metrics.browsersConnected.set({}, registry.browsers.size);
+/**
+ * Everything this key owns, in one call: its browsers, sessions, providers,
+ * usage and allowance. This is the dashboard's fleet view. There is no admin
+ * variant, because the key is the whole identity.
+ */
+router.get('/fleet', authMiddleware, (req, res) => {
+  const key = getKey(req);
+  const owner = fingerprint(key);
+  const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key);
   const byClient = {};
   const byProvider = {};
-  for (const b of registry.browsers.values()) {
+  for (const b of mine) {
     byClient[b.clientType || 'oya'] = (byClient[b.clientType || 'oya'] || 0) + 1;
     if (b.provider) byProvider[b.provider] = (byProvider[b.provider] || 0) + 1;
   }
+  const sessions = listSessions(key);
   res.json({
     at: new Date().toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
-    browsers: { total: registry.browsers.size, byClient, byProvider },
-    metrics: metricsSnapshot(),
+    browsers: { total: mine.length, byClient, byProvider },
+    sessions: {
+      total: sessions.length,
+      attached: sessions.filter((s) => s.connected).length,
+      recording: sessions.filter((s) => s.recording).length,
+    },
+    routing: pool.stats(owner),
+    usage: usage.current(key),
+    ...limitStatus(key),
   });
-});
-
-/** Cross-tenant usage. */
-router.get('/admin/usage', authMiddleware, adminOnly, (req, res) => {
-  res.json({ hour: new Date().toISOString().slice(0, 13) + ':00:00Z', keys: usage.snapshot() });
 });
 
 /** The caller's own usage and remaining allowance — no admin key needed. */
@@ -253,11 +260,12 @@ router.get('/usage', authMiddleware, async (req, res) => {
 });
 
 /** Audit trail. Admin only: it spans every tenant by construction. */
-router.get('/admin/audit', authMiddleware, adminOnly, async (req, res) => {
+/** This key's own audit trail. */
+router.get('/audit', authMiddleware, async (req, res) => {
   const result = await auditHistory({
     limit: Math.min(Number(req.query.limit) || 100, 1000),
     action: req.query.action,
-    actor: req.query.actor,
+    actor: fingerprint(getKey(req)),   // never another key's history
     since: req.query.since,
   });
   res.json(result);
@@ -266,10 +274,10 @@ router.get('/admin/audit', authMiddleware, adminOnly, async (req, res) => {
 // ─── Control ─────────────────────────────────────────────────────────────────
 
 /** Force a browser off the fleet — a stuck client, a runaway, an abusive key. */
-router.post('/admin/browsers/:browserId/disconnect', authMiddleware, adminOnly, (req, res) => {
+router.post('/browsers/:browserId/disconnect', authMiddleware, (req, res) => {
   const { browserId } = req.params;
   const browser = registry.get(browserId);
-  if (!browser) return res.status(404).json({ error: 'Browser not connected' });
+  if (!browser || !canAccess(req, browserId)) return res.status(404).json({ error: 'Browser not connected' });
   try { browser.ws?.close(4008, 'Disconnected by operator'); } catch {}
   registry.remove(browserId);
   audit({ action: 'browser.disconnect', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
@@ -279,8 +287,9 @@ router.post('/admin/browsers/:browserId/disconnect', authMiddleware, adminOnly, 
 });
 
 /** Drop every browser belonging to one key, without waiting for key deletion. */
-router.post('/admin/keys/:key/disconnect', authMiddleware, adminOnly, (req, res) => {
-  const target = req.params.key;
+/** Drop every browser on the calling key. */
+router.post('/browsers/disconnect-all', authMiddleware, (req, res) => {
+  const target = getKey(req);
   const ids = [...registry.browsers.entries()].filter(([, b]) => b.apiKey === target).map(([id]) => id);
   for (const id of ids) {
     try { registry.get(id)?.ws?.close(4008, 'Key disconnected by operator'); } catch {}
@@ -296,7 +305,7 @@ router.post('/admin/keys/:key/disconnect', authMiddleware, adminOnly, (req, res)
  * Drain: stop accepting new browsers so this instance can be restarted without
  * dropping in-flight work. Read by the WebSocket handler.
  */
-router.post('/admin/drain', authMiddleware, adminOnly, (req, res) => {
+router.post('/operator/drain', operatorOnly, (req, res) => {
   const draining = req.body?.draining !== false;
   registry.draining = draining;
   audit({ action: draining ? 'fleet.drain' : 'fleet.undrain', actorKey: getKey(req), targetType: 'fleet', req });
@@ -382,13 +391,13 @@ router.delete('/browsers/:browserId/connection', authMiddleware, (req, res) => {
 
 router.get('/gateway/sessions', authMiddleware, (req, res) => {
   const key = getKey(req);
-  res.json({ sessions: listSessions(key, { all: isAdminKey(key) }) });
+  res.json({ sessions: listSessions(key) });
 });
 
 router.delete('/gateway/sessions/:id', authMiddleware, async (req, res) => {
   const session = gatewaySessions.get(req.params.id);
   if (!session) return res.status(404).json({ error: 'No such session' });
-  if (session.apiKey !== getKey(req) && !isAdminKey(getKey(req))) {
+  if (session.apiKey !== getKey(req)) {
     return res.status(404).json({ error: 'No such session' });
   }
   await killSession(req.params.id, req.body?.reason || 'closed by operator');
@@ -397,11 +406,12 @@ router.delete('/gateway/sessions/:id', authMiddleware, async (req, res) => {
 });
 
 /** Provider pool: health, capacity, latency and the queue. */
-router.get('/gateway/providers', authMiddleware, (req, res) => res.json(pool.stats()));
+router.get('/gateway/providers', authMiddleware, (req, res) =>
+  res.json(pool.stats(fingerprint(getKey(req)))));
 
-router.post('/gateway/providers', authMiddleware, adminOnly, (req, res) => {
+router.post('/gateway/providers', authMiddleware, (req, res) => {
   try {
-    const provider = pool.register(req.body || {});
+    const provider = pool.register({ ...(req.body || {}), owner: fingerprint(getKey(req)) });
     audit({ action: 'provider.upsert', actorKey: getKey(req), targetType: 'provider', targetId: provider.name,
       meta: { type: provider.type, maxConcurrent: provider.maxConcurrent, priority: provider.priority }, req });
     res.json(provider.toJSON());
@@ -410,13 +420,14 @@ router.post('/gateway/providers', authMiddleware, adminOnly, (req, res) => {
   }
 });
 
-router.delete('/gateway/providers/:name', authMiddleware, adminOnly, (req, res) => {
-  const removed = pool.remove(req.params.name);
+router.delete('/gateway/providers/:name', authMiddleware, (req, res) => {
+  // Only your own; shared host providers are not yours to remove.
+  const removed = pool.remove(fingerprint(getKey(req)), req.params.name);
   if (removed) audit({ action: 'provider.remove', actorKey: getKey(req), targetType: 'provider', targetId: req.params.name, req });
   res.json({ ok: removed });
 });
 
-router.post('/gateway/strategy', authMiddleware, adminOnly, (req, res) => {
+router.post('/gateway/strategy', authMiddleware, (req, res) => {
   const strategy = String(req.body?.strategy || '');
   if (!STRATEGIES.includes(strategy)) {
     return res.status(400).json({ error: `strategy must be one of ${STRATEGIES.join(', ')}` });
@@ -445,7 +456,7 @@ router.delete('/gateway/profiles/:name', authMiddleware, async (req, res) => {
 });
 
 router.get('/gateway/recordings', authMiddleware, async (req, res) =>
-  res.json({ recordings: await recorder.list(isAdminKey(getKey(req)) ? null : fingerprint(getKey(req))) }));
+  res.json({ recordings: await recorder.list(fingerprint(getKey(req))) }));
 
 router.get('/gateway/recordings/:id', authMiddleware, async (req, res) => {
   const found = await recorder.manifest(req.params.id, ownerScope(req));
@@ -546,9 +557,7 @@ router.get('/config', authMiddleware, async (req, res) => {
   try {
     const userId = await getKeyOwner(key);
     if (userId) return res.json(await userConfig.get(userId));
-    if (!isAdminKey(key)) {
-      return res.status(403).json({ error: 'Admin key required' });
-    }
+    // A key with no account reads the host defaults it would resolve against.
     res.json(runtimeConfig.get());
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -565,13 +574,19 @@ router.post('/config', authMiddleware, async (req, res) => {
         meta: { scope: 'account', fields: Object.keys(req.body || {}) }, req });
       return res.json({ ok: true, scope: 'account' });
     }
-    if (!isAdminKey(key)) {
-      return res.status(403).json({ error: 'Admin key required' });
+    // Writing the host default affects every key that has not set its own,
+    // so it needs the operator token rather than any API key.
+    const operator = process.env.OYA_OPERATOR_TOKEN || process.env.OYA_METRICS_TOKEN;
+    if (!operator || key !== operator) {
+      return res.status(403).json({
+        error: 'This key has no account. Sign in to store settings for your account, '
+          + 'or present OYA_OPERATOR_TOKEN to change the host default.',
+      });
     }
     runtimeConfig.set(req.body);
     audit({ action: 'config.update', actorKey: key, targetType: 'config',
-      meta: { scope: 'server', fields: Object.keys(req.body || {}) }, req });
-    res.json({ ok: true, scope: 'server' });
+      meta: { scope: 'host', fields: Object.keys(req.body || {}) }, req });
+    res.json({ ok: true, scope: 'host' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -580,7 +595,7 @@ router.post('/config', authMiddleware, async (req, res) => {
 // List connected browsers — scoped to caller's API key (admin sees all)
 router.get('/browsers', authMiddleware, (req, res) => {
   const key = getKey(req);
-  res.json(registry.list(isAdminKey(key) ? null : key));
+  res.json(registry.list(key));
 });
 
 // Live view — SSE stream of JPEG frames
@@ -710,25 +725,14 @@ router.post('/pool/command', authMiddleware, async (req, res) => {
 // Pool cookies — view the shared cookie jar for the caller's API key.
 // Admin also gets a per-key breakdown.
 router.get('/pool/cookies', authMiddleware, (req, res) => {
-  const key = getKey(req);
-  if (isAdminKey(key)) {
-    const byKey = getAllCookiesByKey();
-    const flat = [];
-    for (const arr of Object.values(byKey)) flat.push(...arr);
-    res.json({ cookies: flat, cookies_by_key: byKey });
-    return;
-  }
-  res.json({ cookies: getAllCookies(key) });
+  res.json({ cookies: getAllCookies(getKey(req)) });
 });
 
 // Pool cookies — clear the caller's API-key jar only. Admin clears every jar.
 router.delete('/pool/cookies', authMiddleware, (req, res) => {
   const key = getKey(req);
-  const scope = isAdminKey(key) ? 'all' : 'own';
-  if (scope === 'all') clearAllCookies(); else clearCookies(key);
-  // Destroying sessions across a fleet is exactly the action you want a record
-  // of afterwards.
-  audit({ action: 'cookies.clear', actorKey: key, targetType: 'cookies', targetId: scope,
-    meta: { scope }, req });
+  clearCookies(key);
+  // Destroying sessions is exactly the action you want a record of afterwards.
+  audit({ action: 'cookies.clear', actorKey: key, targetType: 'cookies', targetId: 'own', req });
   res.json({ ok: true });
 });

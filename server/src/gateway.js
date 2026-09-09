@@ -20,7 +20,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
-import { validateApiKey, isAdminKey } from './auth.js';
+import { validateApiKey } from './auth.js';
 import { pool } from './routing.js';
 import { acquire as acquireProvider } from './providers.js';
 import { metrics } from './metrics.js';
@@ -205,7 +205,7 @@ export async function handleUpgrade(req, socket, head) {
   if (resumeId) {
     const existing = sessions.get(resumeId);
     if (!existing) { metrics.gatewayConnects.inc({ outcome: 'unknown_session' }); return deny(404, 'Not Found'); }
-    if (existing.apiKey !== token && !isAdminKey(token)) {
+    if (existing.apiKey !== token) {
       metrics.gatewayConnects.inc({ outcome: 'forbidden' });
       return deny(403, 'Forbidden');
     }
@@ -243,6 +243,8 @@ export async function handleUpgrade(req, socket, head) {
   let acquired;
   try {
     acquired = await pool.acquire({
+      // This key's own providers plus whatever the host shares.
+      owner,
       strategy: url.searchParams.get('strategy') || undefined,
       connect: async (provider) => {
         const target = provider.type === 'cdp' && provider.wsUrl

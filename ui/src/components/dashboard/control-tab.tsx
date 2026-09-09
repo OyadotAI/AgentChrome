@@ -9,13 +9,18 @@ import { apiUrl, apiKeyHeaders } from '@/lib/api';
 
 type View = 'health' | 'sessions' | 'providers' | 'usage' | 'audit' | 'recordings';
 
-type Series = { labels: Record<string, string>; value?: number; count?: number; sum?: number; avg?: number; p50?: number | null; p95?: number | null; p99?: number | null };
-type Metrics = Record<string, Series[]>;
-type Health = { at: string; uptimeSeconds: number; browsers: { total: number; byClient: Record<string, number>; byProvider: Record<string, number> }; metrics: Metrics };
+type Fleet = {
+  at: string; uptimeSeconds: number;
+  browsers: { total: number; byClient: Record<string, number>; byProvider: Record<string, number> };
+  sessions: { total: number; attached: number; recording: number };
+  routing: Routing;
+  usage: Record<string, number> & { hour: string; openBrowsers: number };
+  limits: Record<string, { limit: number; burst?: number; remaining: number; disabled?: boolean }>;
+  quotas: Record<string, number>;
+};
 type Session = { id: string; provider: string; profile: string | null; connected: boolean; seconds: number; bytesUp: number; bytesDown: number; recording: boolean };
 type Provider = { name: string; type: string; active: number; maxConcurrent: number; priority: number; weight: number; healthy: boolean; available: boolean; latencyMs: number | null; cooldownMsRemaining: number; totalSessions: number; totalFailures: number };
 type Routing = { strategy: string; queueDepth: number; capacity: number; active: number; healthy: number; providers: Provider[] };
-type UsageRow = { actor: string; hour: string; openBrowsers: number; commands: number; command_errors: number; chat_requests: number; chat_input_tokens: number; chat_output_tokens: number; browser_seconds: number; rate_limited: number; quota_denied: number };
 type AuditEvent = { ts: string; action: string; actor: string | null; target_type: string | null; target_id: string | null; outcome: string; ip: string | null; meta: Record<string, unknown> | null };
 type Recording = { sessionId: string; provider?: string; profile?: string | null; startedAt?: string; durationMs?: number; frameCount?: number; bytes?: number; live?: boolean; truncated?: boolean };
 
@@ -36,12 +41,6 @@ const duration = (s: number) => {
   if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 };
-
-/** Sum one metric across its label sets. */
-const total = (m: Metrics | undefined, name: string, match?: (l: Record<string, string>) => boolean) =>
-  (m?.[name] || []).filter((s) => !match || match(s.labels)).reduce((n, s) => n + (s.value ?? s.count ?? 0), 0);
-
-const single = (m: Metrics | undefined, name: string) => m?.[name]?.[0]?.value ?? null;
 
 function Stat({ label, value, sub, tone = 'normal', icon: Icon }: {
   label: string; value: string; sub?: string; tone?: 'normal' | 'warn' | 'bad' | 'good'; icon?: typeof Activity;
@@ -71,10 +70,9 @@ function Bar({ used, capacity }: { used: number; capacity: number }) {
 
 export default function ControlTab({ apiKey }: { apiKey: string }) {
   const [view, setView] = useState<View>('health');
-  const [health, setHealth] = useState<Health | null>(null);
+  const [fleet, setFleet] = useState<Fleet | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [routing, setRouting] = useState<Routing | null>(null);
-  const [usageRows, setUsageRows] = useState<UsageRow[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [error, setError] = useState('');
@@ -95,19 +93,16 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
     if (polling.current) return;
     polling.current = true;
     try {
-      // Session and provider views are useful to any key; the rest are admin.
-      const [s, r] = await Promise.all([get('/gateway/sessions'), get('/gateway/providers')]);
+      // Everything here is scoped to the connected API key. There is no admin
+      // tier: the key is the identity.
+      const [f, s, a, rec] = await Promise.all([
+        get('/fleet'), get('/gateway/sessions'), get('/audit?limit=200'), get('/gateway/recordings'),
+      ]);
+      setFleet(f);
+      setRouting(f.routing);
       setSessions(s.sessions || []);
-      setRouting(r);
-      try {
-        const [h, u, a, rec] = await Promise.all([
-          get('/admin/metrics'), get('/admin/usage'), get('/admin/audit?limit=200'), get('/gateway/recordings'),
-        ]);
-        setHealth(h); setUsageRows(u.keys || []); setAudit(a.events || []); setRecordings(rec.recordings || []);
-      } catch {
-        // Not an admin key — the operator views stay empty rather than erroring.
-        setHealth(null);
-      }
+      setAudit(a.events || []);
+      setRecordings(rec.recordings || []);
       setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load control plane data');
@@ -138,13 +133,11 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
     fetch(apiUrl(path), { method: 'DELETE', headers })
       .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `${r.status}`); return r.json(); });
 
-  const m = health?.metrics;
-  const commandsOk = total(m, 'oya_commands_total', (l) => l.outcome === 'ok');
-  const commandsBad = total(m, 'oya_commands_total', (l) => l.outcome !== 'ok');
-  const errorRate = commandsOk + commandsBad ? (commandsBad / (commandsOk + commandsBad)) * 100 : 0;
-  const loopLag = single(m, 'oya_event_loop_lag_p99_ms');
-  const cmdLatency = (m?.oya_command_duration_ms || []).reduce<{ p95: number | null; n: number }>(
-    (acc, s) => ({ p95: Math.max(acc.p95 ?? 0, s.p95 ?? 0), n: acc.n + (s.count || 0) }), { p95: null, n: 0 });
+  const u = fleet?.usage;
+  const commands = u?.commands ?? 0;
+  const errors = u?.command_errors ?? 0;
+  const errorRate = commands ? (errors / commands) * 100 : 0;
+  const throttled = (u?.rate_limited ?? 0) + (u?.quota_denied ?? 0);
 
   const views: { key: View; label: string; icon: typeof Activity }[] = [
     { key: 'health', label: 'Health', icon: Activity },
@@ -187,59 +180,62 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
 
       <div className="flex-1 overflow-y-auto p-4 lg:p-6">
         {view === 'health' && (
-          !health ? (
-            <p className="text-text-dim text-sm">Fleet health needs an admin key.</p>
+          !fleet ? (
+            <p className="text-text-dim text-sm">Loading…</p>
           ) : (
             <div className="space-y-6">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Stat label="Browsers" value={num(health.browsers.total)} icon={Users}
-                  sub={Object.entries(health.browsers.byClient).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none connected'} />
-                <Stat label="Gateway sessions" value={num(single(m, 'oya_gateway_sessions') ?? 0)} icon={Zap}
-                  sub={`${routing?.queueDepth ?? 0} queued`} />
+                <Stat label="Your browsers" value={num(fleet.browsers.total)} icon={Users}
+                  sub={Object.entries(fleet.browsers.byClient).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none connected'} />
+                <Stat label="Gateway sessions" value={num(fleet.sessions.total)} icon={Zap}
+                  sub={`${fleet.sessions.attached} attached · ${fleet.sessions.recording} recording`} />
                 <Stat label="Command errors" value={`${errorRate.toFixed(1)}%`} icon={AlertTriangle}
                   tone={errorRate > 10 ? 'bad' : errorRate > 2 ? 'warn' : 'good'}
-                  sub={`${num(commandsBad)} of ${num(commandsOk + commandsBad)}`} />
-                <Stat label="Event loop p99" value={loopLag == null ? '—' : `${loopLag.toFixed(1)} ms`} icon={Activity}
-                  tone={(loopLag ?? 0) > 100 ? 'bad' : (loopLag ?? 0) > 30 ? 'warn' : 'good'}
-                  sub="above ~100ms means saturated" />
+                  sub={`${num(errors)} of ${num(commands)} this hour`} />
+                <Stat label="Throttled" value={num(throttled)} icon={ShieldCheck}
+                  tone={throttled > 0 ? 'warn' : 'good'}
+                  sub={`${num(u?.rate_limited)} rate · ${num(u?.quota_denied)} quota`} />
               </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Stat label="Command p95" value={cmdLatency.p95 ? `${num(cmdLatency.p95)} ms` : '—'} icon={Clock}
-                  sub={`${num(cmdLatency.n)} sampled`} />
-                <Stat label="Memory" value={bytes(single(m, 'oya_process_rss_bytes') ?? 0)} icon={HardDrive}
-                  sub={`heap ${bytes(single(m, 'oya_process_heap_used_bytes') ?? 0)}`} />
-                <Stat label="Rate limited" value={num(total(m, 'oya_rate_limited_total'))} icon={ShieldCheck}
-                  tone={total(m, 'oya_rate_limited_total') > 0 ? 'warn' : 'normal'}
-                  sub={`${num(total(m, 'oya_quota_exceeded_total'))} quota denials`} />
-                <Stat label="Uptime" value={duration(health.uptimeSeconds)} icon={Clock}
-                  sub={new Date(health.at).toLocaleTimeString()} />
+                <Stat label="Browser time" value={duration(u?.browser_seconds ?? 0)} icon={Clock}
+                  sub={`${num(u?.browsers_started)} started this hour`} />
+                <Stat label="Model tokens" value={num((u?.chat_input_tokens ?? 0) + (u?.chat_output_tokens ?? 0))} icon={Gauge}
+                  sub={`quota ${num(fleet.quotas.chatTokensPerHour)}/hr`} />
+                <Stat label="Provider capacity" value={`${num(fleet.routing.active)}/${num(fleet.routing.capacity)}`} icon={Server}
+                  tone={fleet.routing.healthy ? 'normal' : 'bad'}
+                  sub={`${fleet.routing.healthy} healthy · queue ${fleet.routing.queueDepth}`} />
+                <Stat label="Host uptime" value={duration(fleet.uptimeSeconds)} icon={Activity}
+                  sub={new Date(fleet.at).toLocaleTimeString()} />
               </div>
 
               <div>
-                <h3 className="text-xs uppercase tracking-wider text-text-dim mb-2">Command latency by action</h3>
+                <h3 className="text-xs uppercase tracking-wider text-text-dim mb-2">Your remaining allowance</h3>
                 <div className="border border-border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-bg-elevated/60 text-text-dim text-xs">
-                      <tr><th className="text-left px-3 py-2">Action</th><th className="text-right px-3 py-2">Count</th>
-                        <th className="text-right px-3 py-2">p50</th><th className="text-right px-3 py-2">p95</th><th className="text-right px-3 py-2">p99</th></tr>
+                      <tr><th className="text-left px-3 py-2">Limit</th><th className="text-right px-3 py-2">Per minute</th>
+                        <th className="text-right px-3 py-2">Burst</th><th className="text-right px-3 py-2">Remaining</th></tr>
                     </thead>
                     <tbody>
-                      {(m?.oya_command_duration_ms || []).filter((s) => s.count).sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 12).map((s, i) => (
-                        <tr key={i} className="border-t border-border">
-                          <td className="px-3 py-2 font-mono text-xs">{s.labels.action}</td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(s.count)}</td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(s.p50)}</td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(s.p95)}</td>
-                          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(s.p99)}</td>
+                      {Object.entries(fleet.limits).map(([name, l]) => (
+                        <tr key={name} className="border-t border-border">
+                          <td className="px-3 py-2 font-mono text-xs">{name}</td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{l.disabled ? 'off' : num(l.limit)}</td>
+                          <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(l.burst)}</td>
+                          <td className={`px-3 py-2 text-right font-mono tabular-nums text-xs ${
+                            !l.disabled && l.remaining < (l.burst ?? 0) * 0.2 ? 'text-amber-400' : ''}`}>
+                            {l.disabled ? '∞' : num(l.remaining)}
+                          </td>
                         </tr>
                       ))}
-                      {!(m?.oya_command_duration_ms || []).some((s) => s.count) && (
-                        <tr><td colSpan={5} className="px-3 py-6 text-center text-text-dim text-xs">No commands yet</td></tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
+                <p className="text-text-dim text-xs mt-2">
+                  Everything here is scoped to the API key you are connected with — its browsers, sessions,
+                  providers, usage and audit trail.
+                </p>
               </div>
             </div>
           )
@@ -337,32 +333,40 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
         )}
 
         {view === 'usage' && (
-          <div className="border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-bg-elevated/60 text-text-dim text-xs">
-                <tr>
-                  <th className="text-left px-3 py-2">Key</th><th className="text-right px-3 py-2">Browsers</th>
-                  <th className="text-right px-3 py-2">Commands</th><th className="text-right px-3 py-2">Errors</th>
-                  <th className="text-right px-3 py-2">Browser time</th><th className="text-right px-3 py-2">Tokens</th>
-                  <th className="text-right px-3 py-2">Throttled</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usageRows.map((u) => (
-                  <tr key={u.actor} className="border-t border-border">
-                    <td className="px-3 py-2 font-mono text-xs">{u.actor}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(u.openBrowsers)}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(u.commands)}</td>
-                    <td className={`px-3 py-2 text-right font-mono tabular-nums text-xs ${u.command_errors ? 'text-amber-400' : ''}`}>{num(u.command_errors)}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{duration(u.browser_seconds)}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(u.chat_input_tokens + u.chat_output_tokens)}</td>
-                    <td className={`px-3 py-2 text-right font-mono tabular-nums text-xs ${u.rate_limited + u.quota_denied ? 'text-red-400' : ''}`}>{num(u.rate_limited + u.quota_denied)}</td>
-                  </tr>
-                ))}
-                {!usageRows.length && <tr><td colSpan={7} className="px-3 py-8 text-center text-text-dim text-xs">No usage recorded this hour (admin key required).</td></tr>}
-              </tbody>
-            </table>
-          </div>
+          !u ? <p className="text-text-dim text-sm">Loading…</p> : (
+            <div className="space-y-4">
+              <p className="text-text-dim text-xs">Hour beginning {new Date(u.hour).toLocaleString()}</p>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-bg-elevated/60 text-text-dim text-xs">
+                    <tr><th className="text-left px-3 py-2">Metric</th><th className="text-right px-3 py-2">This hour</th></tr>
+                  </thead>
+                  <tbody>
+                    {([
+                      ['Browsers started', u.browsers_started], ['Browsers open now', u.openBrowsers],
+                      ['Browser time', null], ['Commands', u.commands], ['Command errors', u.command_errors],
+                      ['Chat requests', u.chat_requests],
+                      ['Model tokens in', u.chat_input_tokens], ['Model tokens out', u.chat_output_tokens],
+                      ['Cookie pulls', u.cookie_pulls], ['Frames', u.frames],
+                      ['Sandboxes created', u.sandboxes_created],
+                      ['Rate limited', u.rate_limited], ['Quota denied', u.quota_denied],
+                      ['Bytes out', null],
+                    ] as [string, number | null][]).map(([label, value]) => (
+                      <tr key={label} className="border-t border-border">
+                        <td className="px-3 py-2 text-xs">{label}</td>
+                        <td className={`px-3 py-2 text-right font-mono tabular-nums text-xs ${
+                          /limited|denied|errors/.test(label) && (value ?? 0) > 0 ? 'text-amber-400' : ''}`}>
+                          {label === 'Browser time' ? duration(u.browser_seconds ?? 0)
+                            : label === 'Bytes out' ? bytes(u.bytes_out ?? 0)
+                            : num(value)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
         )}
 
         {view === 'audit' && (

@@ -23,6 +23,7 @@ import { join as joinPath } from 'path';
 // Never write through to the deployment's real data/ directory.
 process.env.OYA_DATA_DIR = mkdtempSync(joinPath(tmpdir(), 'oya-test-'));
 process.env.API_KEYS = 'admin-key-for-testing';
+process.env.OYA_OPERATOR_TOKEN = 'operator-token-for-testing';
 
 const { router: apiRouter } = await import('./src/api.js');
 const { handleConnection } = await import('./src/ws-handler.js');
@@ -312,7 +313,10 @@ try {
 
   // 7. Fleet provision
   console.log('\n7️⃣  Fleet provision...');
-  const prov = await httpPost('/fleet/provision?count=5', {}, 'admin-key-for-testing');
+  // Minting credentials is a host operation now, not something an API key can do.
+  const denied = await httpPost('/fleet/provision?count=5', {}, 'admin-key-for-testing');
+  assert(denied.status === 403, `An API key cannot mint keys (got ${denied.status})`);
+  const prov = await httpPost('/fleet/provision?count=5', {}, 'operator-token-for-testing');
   assert(prov.status === 200, 'Provision returns 200');
   assert(prov.data.keys?.length === 5, `Provisioned 5 keys (got ${prov.data.keys?.length})`);
   assert(prov.data.keys[0].length > 20, 'Keys are sufficiently long');

@@ -143,7 +143,7 @@ try {
   const shot = await c1.conn.send('Page.captureScreenshot', { format: 'jpeg', quality: 40 }, c1.sessionId);
   assert(shot.data?.length > 1000, 'binary-ish payloads survive the pipe (screenshot)');
 
-  const routed = pool.get('local-chrome');
+  const routed = pool.get(null, 'local-chrome');  // shared host provider
   assert(routed.active === 1, 'the provider shows one active session');
   assert(routed.totalSessions === 1, 'the routing pool counted it');
 
@@ -262,14 +262,34 @@ try {
   await wait(200);
   await sessions.get(backId)?.destroy('isolation done');
 
-  console.log('\n🔟  Routing and capacity...');
+  console.log('\n🔟  Providers belong to the key that registered them...');
+  const fpOf = (k) => createHash('sha256').update(k).digest('hex').slice(0, 16);
+  pool.register({ name: 'mine', type: 'cdp', wsUrl: chromeWs, owner: fpOf('tenant-key'), maxConcurrent: 2, priority: 5 });
+
+  const tenantSees = pool.list(fpOf('tenant-key')).map((p) => p.name);
+  const otherSees = pool.list(fpOf('admin-key')).map((p) => p.name);
+  assert(tenantSees.includes('mine'), 'the registering key sees its own provider');
+  assert(!otherSees.includes('mine'), "another key does not see it");
+  assert(tenantSees.includes('local-chrome') && otherSees.includes('local-chrome'),
+    'both still see the shared host provider');
+
+  // Two keys can use the same provider name without colliding.
+  pool.register({ name: 'mine', type: 'cdp', wsUrl: 'ws://127.0.0.1:1/x', owner: fpOf('admin-key'), maxConcurrent: 1 });
+  assert(pool.get(fpOf('tenant-key'), 'mine').wsUrl === chromeWs, 'same name, different owner, different provider');
+  assert(pool.get(fpOf('admin-key'), 'mine').wsUrl !== chromeWs, 'the other key has its own');
+
+  pool.remove(fpOf('tenant-key'), 'mine');
+  pool.remove(fpOf('admin-key'), 'mine');
+  assert(pool.get(fpOf('tenant-key'), 'mine') === undefined, 'removing one does not touch the other owner');
+
+  console.log('\n1️⃣1️⃣  Routing and capacity...');
   const before = pool.stats();
   assert(before.capacity === 4, 'pool reports configured capacity');
   pool.register({ name: 'broken', type: 'cdp', wsUrl: 'ws://127.0.0.1:1/nope', priority: 0, maxConcurrent: 5 });
   const c2 = await client();   // priority 0 is tried first, fails, fails over
   assert(c2.conn, 'a dead provider is failed over rather than failing the client');
-  assert(pool.get('broken').healthy === false, 'the dead provider is put in cooldown');
-  assert(pool.get('local-chrome').active >= 1, 'the session landed on the healthy provider');
+  assert(pool.get(null, 'broken').healthy === false, 'the dead provider is put in cooldown');
+  assert(pool.get(null, 'local-chrome').active >= 1, 'the session landed on the healthy provider');
   c2.conn.close();
   c1.conn.close();
 } catch (e) {

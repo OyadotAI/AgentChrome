@@ -18,6 +18,7 @@ process.env.FLEET_TOKEN = 'tenant-key';
 process.env.OYA_LIMIT_COMMANDS_PER_MIN = '60';
 process.env.OYA_LIMIT_COMMANDS_BURST = '3';
 process.env.OYA_METRICS_TOKEN = 'scrape-token';
+process.env.OYA_OPERATOR_TOKEN = 'operator-token';
 
 const { router } = await import('./src/api.js');
 const { registry } = await import('./src/connection-registry.js');
@@ -55,16 +56,19 @@ try {
 
   const anon = await fetch(`${base}/metrics`);
   assert(anon.status === 403, `unauthenticated scrape is refused (got ${anon.status})`);
-  const scraped = await call('/metrics', { key: 'scrape-token', raw: true });
-  assert(scraped.status === 200, 'OYA_METRICS_TOKEN can scrape without admin rights');
+  const byApiKey = await call('/metrics', { key: 'admin-key', raw: true });
+  assert(byApiKey.status === 403, 'an API key cannot scrape host metrics');
+  const scraped = await call('/metrics', { key: 'operator-token', raw: true });
+  assert(scraped.status === 200, 'the operator token can scrape');
   assert(/^# HELP /m.test(scraped.body), 'output is Prometheus text exposition');
   assert(/oya_commands_total\{action="navigate",outcome="ok"\} \d+/.test(scraped.body), 'counters carry their labels');
   assert(/oya_command_duration_ms_bucket\{.*le="50"\}/.test(scraped.body), 'histogram emits cumulative buckets');
   assert(/oya_event_loop_lag_p99_ms/.test(scraped.body), 'event loop health is exported');
 
-  const json = await call('/api/admin/metrics');
-  assert(json.status === 200 && json.body.metrics, 'admin JSON metrics mirror the same registry');
-  assert(typeof json.body.browsers.total === 'number', 'fleet composition is reported');
+  const fleet = await call('/api/fleet', { key: 'tenant-key' });
+  assert(fleet.status === 200, 'any key can read its own fleet view — no admin tier');
+  assert(typeof fleet.body.browsers.total === 'number', 'its browser count is reported');
+  assert(fleet.body.routing && fleet.body.usage, 'routing and usage come with it');
 
   console.log('\n2️⃣  Cardinality is bounded...');
   // A per-browser label would be one series per browser at 5k. Prove the
@@ -102,34 +106,37 @@ try {
   assert(mine.body.limits.command.limit === 60, 'remaining allowance is reported back');
   assert(mine.body.current.rate_limited > 0, 'rate-limited requests are recorded against the key');
 
-  const across = await call('/api/admin/usage');
-  assert(across.body.keys.some((k) => k.commands >= 5), 'admin sees usage across keys');
-  assert(across.body.keys.every((k) => !k.actor.includes('tenant-key')), 'raw API keys are not echoed back');
+  const otherView = await call('/api/usage', { key: 'admin-key' });
+  assert(otherView.body.current.commands === 0, "one key cannot see another key's usage");
 
   console.log('\n5️⃣  Audit trail...');
   await call('/api/pool/cookies', { method: 'DELETE', key: 'tenant-key' });
-  const trail = await call('/api/admin/audit');
-  assert(trail.status === 200, 'admin can read the audit trail');
+  const trail = await call('/api/audit', { key: 'tenant-key' });
+  assert(trail.status === 200, 'any key can read its own audit trail');
   const clear = trail.body.events.find((e) => e.action === 'cookies.clear');
   assert(clear != null, 'clearing cookies is audited');
   assert(clear.actor && clear.actor !== 'tenant-key', 'the actor is a fingerprint, not the key');
   assert(clear.ip != null, 'the source address is recorded');
 
-  const denied = await call('/api/admin/audit', { key: 'tenant-key' });
-  assert(denied.status === 403, 'a tenant cannot read the audit trail');
-  assert(recent({ action: 'admin.denied' }).length > 0, 'the refused attempt is itself audited');
+  const otherTrail = await call('/api/audit', { key: 'admin-key' });
+  assert(!(otherTrail.body.events || []).some((e) => e.action === 'cookies.clear'),
+    "one key does not see another key's audit events");
 
   console.log('\n6️⃣  Operator control...');
-  assert((await call('/api/admin/browsers/b-1/disconnect', { method: 'POST' })).status === 200, 'admin can force-disconnect a browser');
+  assert((await call('/api/browsers/b-1/disconnect', { method: 'POST', key: 'admin-key' })).status === 404,
+    "a key cannot disconnect another key's browser");
+  assert((await call('/api/browsers/b-1/disconnect', { method: 'POST', key: 'tenant-key' })).status === 200,
+    'a key can disconnect its own browser');
   assert(!registry.isConnected('b-1'), 'the browser is gone from the registry');
   assert(recent({ action: 'browser.disconnect' }).length > 0, 'the disconnect is audited');
 
-  const drain = await call('/api/admin/drain', { method: 'POST', body: { draining: true } });
-  assert(drain.body.draining === true, 'drain mode can be turned on');
+  const drain = await call('/api/operator/drain', { method: 'POST', body: { draining: true }, key: 'operator-token' });
+  assert(drain.body.draining === true, 'the operator token can drain the host');
   assert(registry.draining === true, 'the WebSocket handler will see it');
-  await call('/api/admin/drain', { method: 'POST', body: { draining: false } });
+  await call('/api/operator/drain', { method: 'POST', body: { draining: false }, key: 'operator-token' });
 
-  assert((await call('/api/admin/drain', { method: 'POST', key: 'tenant-key' })).status === 403, 'a tenant cannot drain the fleet');
+  assert((await call('/api/operator/drain', { method: 'POST', key: 'tenant-key' })).status === 403,
+    'an API key cannot drain the host');
 
   console.log('\n7️⃣  Providers...');
   const providers = await call('/api/providers', { key: 'tenant-key' });

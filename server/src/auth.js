@@ -182,9 +182,11 @@ export async function getProfile(userId) {
 
 // ── Admin / fleet helpers ──
 
-export function isAdminKey(key) {
-  return envKeys.has(key);
-}
+/**
+ * Keys listed in API_KEYS exist for self-hosting without a database. They are
+ * ordinary keys: env grants existence, never authority. Host-level operations
+ * use OYA_OPERATOR_TOKEN, which is not an API key at all.
+ */
 
 export function isFleetToken(key) {
   return fleetToken !== null && key === fleetToken;
