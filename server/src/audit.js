@@ -12,7 +12,7 @@ import { createHash } from 'crypto';
 import { appendFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createClient } from '@supabase/supabase-js';
+import { db } from './db.js';
 import { metrics } from './metrics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -20,9 +20,6 @@ const AUDIT_PATH = process.env.OYA_DATA_DIR
   ? join(process.env.OYA_DATA_DIR, 'audit.log')
   : join(__dirname, '..', 'data', 'audit.log');
 
-const db = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-  : null;
 
 /** Stable, non-reversible actor id. Same shape used for sandbox owner labels. */
 export const fingerprint = (key) => (key ? createHash('sha256').update(key).digest('hex').slice(0, 16) : null);
@@ -39,22 +36,34 @@ function scheduleFlush() {
   flushTimer = setTimeout(() => { flushTimer = null; flush().catch(() => {}); }, FLUSH_DELAY);
 }
 
+async function toFile(batch) {
+  await mkdir(dirname(AUDIT_PATH), { recursive: true });
+  await appendFile(AUDIT_PATH, batch.map((e) => JSON.stringify(e)).join('\n') + '\n');
+}
+
+let warnedFallback = false;
+
 async function flush() {
   if (!pending.length) return;
   const batch = pending.splice(0, pending.length);
   try {
-    if (db) {
-      for (let i = 0; i < batch.length; i += 500) {
-        const { error } = await db.from('audit_log').insert(batch.slice(i, i + 500));
-        if (error) throw new Error(error.message);
-      }
-    } else {
-      await mkdir(dirname(AUDIT_PATH), { recursive: true });
-      await appendFile(AUDIT_PATH, batch.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    if (!db) return await toFile(batch);
+    for (let i = 0; i < batch.length; i += 500) {
+      const { error } = await db.from('audit_log').insert(batch.slice(i, i + 500));
+      if (error) throw new Error(error.message);
     }
   } catch (e) {
-    // An audit trail that silently drops is worse than a noisy one.
-    console.error(`[audit] flush failed, ${batch.length} events not persisted:`, e.message);
+    // Losing an audit trail because a table is missing or the database is
+    // briefly unreachable is the wrong failure. Fall back to the file rather
+    // than drop, and say so once instead of on every flush.
+    if (!warnedFallback) {
+      console.error(`[audit] database write failed (${e.message}) — falling back to ${AUDIT_PATH}`);
+      warnedFallback = true;
+    }
+    try { await toFile(batch); }
+    catch (fileErr) {
+      console.error(`[audit] ${batch.length} events lost, file fallback also failed:`, fileErr.message);
+    }
   }
 }
 

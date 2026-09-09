@@ -96,7 +96,15 @@ app.get('*', (req, res, next) => {
     return next();
   }
   res.sendFile(join(uiDir, '404.html'), (err) => {
-    if (err) res.sendFile(join(uiDir, 'index.html'), () => {});
+    if (!err) return;
+    res.sendFile(join(uiDir, 'index.html'), (fallbackErr) => {
+      // Both are missing — usually the UI has not been built into ui-static.
+      // Swallowing this left the request hanging forever, because the server's
+      // own timeouts are disabled for long-running commands.
+      if (!fallbackErr || res.headersSent) return;
+      res.status(404).type('text/plain').send(
+        'UI not built. Run `npm run build` in ui/ and copy ui/out to server/ui-static.\n');
+    });
   });
 });
 

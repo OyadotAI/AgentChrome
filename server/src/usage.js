@@ -13,16 +13,13 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createClient } from '@supabase/supabase-js';
+import { db } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const USAGE_PATH = process.env.OYA_DATA_DIR
   ? join(process.env.OYA_DATA_DIR, 'usage.json')
   : join(__dirname, '..', 'data', 'usage.json');
 
-const db = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-  : null;
 
 export const FIELDS = [
   'commands', 'command_errors', 'chat_requests', 'chat_input_tokens', 'chat_output_tokens',
@@ -38,6 +35,7 @@ const buckets = new Map();
 /** apiKey -> Map<browserId, connectedAtMs>, for browser_seconds. */
 const live = new Map();
 let dirty = false;
+let warnedFallback = false;
 
 function bucket(apiKey) {
   const hour = hourOf();
@@ -121,19 +119,25 @@ async function flush() {
     api_key: apiKey, hour: b.hour, ...b.counters, updated_at: new Date().toISOString(),
   }));
   if (!rows.length) return;
+  const toFile = async () => {
+    await mkdir(dirname(USAGE_PATH), { recursive: true });
+    await writeFile(USAGE_PATH, JSON.stringify(rows, null, 2));
+  };
   try {
-    if (db) {
-      for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await db.from('usage').upsert(rows.slice(i, i + 500), { onConflict: 'api_key,hour' });
-        if (error) throw new Error(error.message);
-      }
-    } else {
-      await mkdir(dirname(USAGE_PATH), { recursive: true });
-      await writeFile(USAGE_PATH, JSON.stringify(rows, null, 2));
+    if (!db) return await toFile();
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await db.from('usage').upsert(rows.slice(i, i + 500), { onConflict: 'api_key,hour' });
+      if (error) throw new Error(error.message);
     }
   } catch (e) {
-    dirty = true; // retry on the next tick rather than lose the interval
-    console.error('[usage] flush failed:', e.message);
+    // Counters live in memory and are rewritten whole each flush, so a failed
+    // write is not lost data — but retrying a permanently broken table every
+    // minute forever is noise. Mirror to the file and say so once.
+    if (!warnedFallback) {
+      console.error(`[usage] database write failed (${e.message}) — falling back to ${USAGE_PATH}`);
+      warnedFallback = true;
+    }
+    await toFile().catch((fileErr) => console.error('[usage] file fallback failed:', fileErr.message));
   }
 }
 
