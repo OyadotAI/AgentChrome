@@ -1,0 +1,370 @@
+/**
+ * Outbound CDP driver.
+ *
+ * Drives any browser that exposes a Chrome DevTools Protocol endpoint: Anchor,
+ * Browserbase, Steel, Hyperbrowser, or a plain Chrome started with
+ * --remote-debugging-port. The control plane dials out, which is the opposite
+ * direction to the Oya client that dials in.
+ *
+ * Capability parity with the Oya client comes from injecting the same
+ * scripts/analyzer.js into the page, so analyze and click-by-element_id behave
+ * identically rather than degrading to raw coordinates.
+ */
+
+import WebSocket from 'ws';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+let analyzerScript = null;
+let analyzerMissing = false;
+function getAnalyzer() {
+  if (analyzerScript || analyzerMissing) return analyzerScript;
+  try {
+    analyzerScript = readFileSync(join(__dirname, '..', '..', '..', 'browser', 'scripts', 'analyzer.js'), 'utf8');
+  } catch {
+    analyzerMissing = true;
+    console.warn('[cdp] analyzer.js not found — analyze/click-by-id unavailable for CDP browsers');
+  }
+  return analyzerScript;
+}
+
+const FIND_ELEMENT_JS = (selector) => `(() => {
+  window.__oyaInternalCall = true;
+  try {
+    const f = window.__acFindElement || ((s) => document.querySelector(s));
+    const el = f(${JSON.stringify(selector)});
+    if (!el) return { ok: false, error: 'Element not found' };
+    el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    let r = el.getBoundingClientRect();
+    if (r.top < 80) { window.scrollBy(0, r.top - 100); r = el.getBoundingClientRect(); }
+    return { ok: true, data: { x: r.left + r.width / 2, y: r.top + r.height / 2 } };
+  } finally { window.__oyaInternalCall = false; }
+})()`;
+
+/** Minimal CDP JSON-RPC transport over the ws dependency we already have. */
+class CDPConnection {
+  constructor(url) {
+    this.url = url;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.listeners = new Map();
+    this.closed = false;
+  }
+
+  connect(timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        err ? reject(err) : resolve(this);
+      };
+      const timer = setTimeout(() => finish(new Error('CDP connect timed out')), timeoutMs);
+
+      this.ws = new WebSocket(this.url, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: timeoutMs });
+      this.ws.on('open', () => finish());
+      this.ws.on('error', (e) => { this.failAll(e); finish(e); });
+      this.ws.on('close', () => { this.closed = true; this.failAll(new Error('CDP connection closed')); });
+      this.ws.on('message', (raw) => this.onMessage(raw));
+    });
+  }
+
+  onMessage(raw) {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+    if (msg.id != null) {
+      const p = this.pending.get(msg.id);
+      if (!p) return;
+      clearTimeout(p.timer);
+      this.pending.delete(msg.id);
+      if (msg.error) p.reject(new Error(msg.error.message || 'CDP error'));
+      else p.resolve(msg.result);
+      return;
+    }
+    if (msg.method) {
+      for (const fn of this.listeners.get(msg.method) || []) {
+        try { fn(msg.params, msg.sessionId); } catch {}
+      }
+    }
+  }
+
+  failAll(err) {
+    for (const [, p] of this.pending) { clearTimeout(p.timer); p.reject(err); }
+    this.pending.clear();
+  }
+
+  on(method, fn) {
+    if (!this.listeners.has(method)) this.listeners.set(method, new Set());
+    this.listeners.get(method).add(fn);
+    return () => this.listeners.get(method)?.delete(fn);
+  }
+
+  /** Wait for one occurrence of a CDP event, or resolve null on timeout. */
+  once(method, timeoutMs) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { off(); resolve(null); }, timeoutMs);
+      const off = this.on(method, (params) => { clearTimeout(timer); off(); resolve(params); });
+    });
+  }
+
+  send(method, params = {}, sessionId, timeoutMs = 30000) {
+    if (this.closed || this.ws?.readyState !== 1) return Promise.reject(new Error('CDP connection closed'));
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP ${method} timed out`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
+      try {
+        this.ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
+      } catch (e) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(e);
+      }
+    });
+  }
+
+  close() {
+    this.closed = true;
+    try { this.ws?.close(); } catch {}
+  }
+}
+
+const KEY_CODES = {
+  Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
+  Tab: { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+  Backspace: { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
+  Delete: { key: 'Delete', code: 'Delete', windowsVirtualKeyCode: 46 },
+  Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 },
+  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 },
+};
+
+export const CDP_CAPABILITIES = new Set([
+  'navigate', 'reload', 'back', 'forward', 'screenshot', 'analyze', 'read_page',
+  'click', 'click-coords', 'hover', 'type', 'press-key', 'scroll-up', 'scroll-down',
+  'select', 'wait', 'list-tabs', 'new-tab', 'close-tab', 'evaluate', 'cookies',
+]);
+
+export class CDPDriver {
+  clientType = 'cdp';
+  capabilities = CDP_CAPABILITIES;
+
+  constructor({ wsUrl, provider = 'cdp', onClose } = {}) {
+    Object.assign(this, { wsUrl, provider, onClose });
+  }
+
+  async connect() {
+    this.conn = await new CDPConnection(this.wsUrl).connect();
+    this.conn.ws.on('close', () => { try { this.onClose?.(); } catch {} });
+
+    // Attach to a page target, creating one if the browser has none.
+    const { targetInfos = [] } = await this.conn.send('Target.getTargets');
+    let page = targetInfos.find((t) => t.type === 'page');
+    if (!page) {
+      const { targetId } = await this.conn.send('Target.createTarget', { url: 'about:blank' });
+      page = { targetId };
+    }
+    await this.attach(page.targetId);
+    return this;
+  }
+
+  async attach(targetId) {
+    const { sessionId } = await this.conn.send('Target.attachToTarget', { targetId, flatten: true });
+    this.sessionId = sessionId;
+    this.targetId = targetId;
+    this.analyzerLoaded = false;
+    for (const domain of ['Page', 'Runtime', 'DOM', 'Network']) {
+      await this.conn.send(`${domain}.enable`, {}, sessionId).catch(() => {});
+    }
+    // Re-inject on every navigation so analyze works on the new document.
+    const analyzer = getAnalyzer();
+    if (analyzer) {
+      await this.conn.send('Page.addScriptToEvaluateOnNewDocument', { source: analyzer }, sessionId).catch(() => {});
+    }
+  }
+
+  isAlive() { return !!this.conn && !this.conn.closed; }
+
+  async evaluate(expression, { awaitPromise = true } = {}) {
+    const res = await this.conn.send('Runtime.evaluate', {
+      expression, returnByValue: true, awaitPromise, userGesture: true,
+    }, this.sessionId);
+    if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description || 'Evaluation failed');
+    return res.result?.value;
+  }
+
+  async ensureAnalyzer() {
+    const analyzer = getAnalyzer();
+    if (!analyzer) throw new Error('Analyzer unavailable for this client');
+    const loaded = await this.evaluate('!!window.__acAnalyzerLoaded').catch(() => false);
+    if (!loaded) await this.evaluate(analyzer, { awaitPromise: false });
+  }
+
+  async mouse(type, x, y, button = 'left', clickCount = 1) {
+    await this.conn.send('Input.dispatchMouseEvent', { type, x, y, button, clickCount }, this.sessionId);
+  }
+
+  async clickAt(x, y) {
+    await this.mouse('mousePressed', x, y);
+    await this.mouse('mouseReleased', x, y);
+  }
+
+  async locate(selector) {
+    await this.ensureAnalyzer();
+    const found = await this.evaluate(FIND_ELEMENT_JS(selector));
+    if (!found?.ok) throw new Error(found?.error || 'Element not found');
+    return found.data;
+  }
+
+  async viewport() {
+    return (await this.evaluate('({width: innerWidth, height: innerHeight})')) || { width: 1280, height: 800 };
+  }
+
+  /** Same action vocabulary as the Oya client, so callers never branch on client type. */
+  async send(action, params = {}, timeoutMs = 30000) {
+    if (!this.isAlive()) throw new Error('Browser not connected');
+    const deadline = Date.now() + timeoutMs;
+    const remaining = () => Math.max(1000, deadline - Date.now());
+
+    switch (action) {
+      case 'navigate': {
+        if (!params.url) return { ok: false, error: 'URL required' };
+        const url = /^https?:\/\//i.test(params.url) ? params.url : `https://${params.url}`;
+        const loaded = this.conn.once('Page.loadEventFired', Math.min(remaining(), 60000));
+        await this.conn.send('Page.navigate', { url }, this.sessionId, remaining());
+        await loaded;
+        return { ok: true, data: await this.pageInfo() };
+      }
+      case 'reload':
+        await this.conn.send('Page.reload', {}, this.sessionId, remaining());
+        return { ok: true };
+      case 'back':
+      case 'forward': {
+        const { currentIndex, entries } = await this.conn.send('Page.getNavigationHistory', {}, this.sessionId);
+        const target = entries[currentIndex + (action === 'back' ? -1 : 1)];
+        if (!target) return { ok: false, error: `Cannot go ${action}` };
+        await this.conn.send('Page.navigateToHistoryEntry', { entryId: target.id }, this.sessionId);
+        return { ok: true };
+      }
+      case 'screenshot': {
+        const { data } = await this.conn.send('Page.captureScreenshot',
+          { format: 'jpeg', quality: params.quality || 60 }, this.sessionId, remaining());
+        return { ok: true, data: { screenshot: `data:image/jpeg;base64,${data}` } };
+      }
+      case 'analyze': {
+        await this.ensureAnalyzer();
+        const result = await this.evaluate(
+          `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params || {})}) : { ok: false, error: 'Analyzer not loaded' }`);
+        return result;
+      }
+      case 'read_page':
+        return { ok: true, data: await this.pageInfo() };
+      case 'click': {
+        if (!params.element_id) return { ok: false, error: 'element_id required' };
+        const { x, y } = await this.locate(`[data-ac-id="${params.element_id}"]`);
+        await this.clickAt(x, y);
+        return { ok: true, data: { clicked: true, url: await this.evaluate('location.href') } };
+      }
+      case 'click-coords':
+        await this.clickAt(Number(params.x) || 0, Number(params.y) || 0);
+        return { ok: true, data: { clicked: true } };
+      case 'hover': {
+        const { x, y } = params.element_id
+          ? await this.locate(`[data-ac-id="${params.element_id}"]`)
+          : { x: Number(params.x) || 0, y: Number(params.y) || 0 };
+        await this.mouse('mouseMoved', x, y);
+        return { ok: true };
+      }
+      case 'type': {
+        if (params.element_id) {
+          const { x, y } = await this.locate(`[data-ac-id="${params.element_id}"]`);
+          await this.clickAt(x, y);
+        }
+        await this.conn.send('Input.insertText', { text: String(params.text ?? '') }, this.sessionId);
+        return { ok: true };
+      }
+      case 'press-key': {
+        const spec = KEY_CODES[params.key];
+        if (!spec) return { ok: false, error: `Unsupported key: ${params.key}` };
+        await this.conn.send('Input.dispatchKeyEvent', { type: 'keyDown', ...spec }, this.sessionId);
+        if (spec.text) await this.conn.send('Input.dispatchKeyEvent', { type: 'char', ...spec }, this.sessionId);
+        await this.conn.send('Input.dispatchKeyEvent', { type: 'keyUp', ...spec }, this.sessionId);
+        return { ok: true };
+      }
+      case 'scroll-up':
+      case 'scroll-down': {
+        const { height } = await this.viewport();
+        const delta = (params.amount || height * 0.8) * (action === 'scroll-up' ? -1 : 1);
+        await this.conn.send('Input.dispatchMouseEvent',
+          { type: 'mouseWheel', x: 10, y: 10, deltaX: 0, deltaY: delta }, this.sessionId);
+        return { ok: true };
+      }
+      case 'select': {
+        if (!params.element_id) return { ok: false, error: 'element_id required' };
+        await this.ensureAnalyzer();
+        const ok = await this.evaluate(`(() => {
+          const f = window.__acFindElement || ((s) => document.querySelector(s));
+          const el = f('[data-ac-id="${params.element_id}"]');
+          if (!el) return false;
+          el.value = ${JSON.stringify(params.value ?? '')};
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()`);
+        return ok ? { ok: true } : { ok: false, error: 'Element not found' };
+      }
+      case 'wait': {
+        const until = Date.now() + Math.min(params.timeout || 10000, remaining());
+        await this.ensureAnalyzer();
+        while (Date.now() < until) {
+          const found = await this.evaluate(
+            `!!(window.__acFindElement || ((s)=>document.querySelector(s)))(${JSON.stringify(params.selector || '')})`).catch(() => false);
+          if (found) return { ok: true, data: { found: true } };
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        return { ok: false, error: 'Timeout' };
+      }
+      case 'list-tabs': {
+        const { targetInfos = [] } = await this.conn.send('Target.getTargets');
+        return { ok: true, data: { tabs: targetInfos.filter((t) => t.type === 'page')
+          .map((t) => ({ id: t.targetId, url: t.url, title: t.title, active: t.targetId === this.targetId })) } };
+      }
+      case 'new-tab': {
+        const { targetId } = await this.conn.send('Target.createTarget', { url: params.url || 'about:blank' });
+        await this.attach(targetId);
+        return { ok: true, data: { id: targetId } };
+      }
+      case 'close-tab': {
+        const id = params.id || this.targetId;
+        await this.conn.send('Target.closeTarget', { targetId: id });
+        if (id === this.targetId) {
+          const { targetInfos = [] } = await this.conn.send('Target.getTargets');
+          const next = targetInfos.find((t) => t.type === 'page');
+          if (next) await this.attach(next.targetId);
+        }
+        return { ok: true };
+      }
+      case 'evaluate':
+        return { ok: true, data: { result: await this.evaluate(String(params.expression || '')) } };
+      case 'cookies':
+        return { ok: true, data: (await this.conn.send('Network.getAllCookies', {}, this.sessionId)) };
+      default:
+        return { ok: false, error: `Unsupported action for a CDP browser: ${action}` };
+    }
+  }
+
+  async pageInfo() {
+    const info = await this.evaluate('({ url: location.href, title: document.title })').catch(() => null);
+    return info || { url: '', title: '' };
+  }
+
+  close() { this.conn?.close(); }
+}
