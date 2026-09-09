@@ -176,6 +176,7 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
     }
 
     const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+      redirect: 'error', // a 30x into an internal address would bypass validateBaseUrl
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiKey}`,

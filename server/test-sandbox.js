@@ -109,6 +109,30 @@ try {
   assert(shown.openai_base_url === 'https://server-wide.test/v1', 'a blank own base URL is ignored by get()');
   assert(used.baseUrl === 'https://server-wide.test/v1', 'a blank own base URL is ignored by resolve()');
 
+  console.log('\n4.  An account base URL cannot point the control plane inward (SSRF)...');
+  const blocked = [
+    'http://169.254.169.254/latest/meta-data',   // cloud metadata
+    'https://127.0.0.1/v1', 'https://localhost/v1', 'https://[::1]/v1',
+    'https://10.1.2.3/v1', 'https://192.168.1.1/v1', 'https://172.16.0.1/v1',
+    'https://redis.internal/v1',
+    'http://api.openai.com/v1',                   // plaintext
+    'https://user:pass@api.openai.com/v1',        // embedded credentials
+    'not-a-url',
+  ];
+  let blockedCount = 0;
+  for (const bad of blocked) {
+    try { await userConfig.set('acct-ssrf', { openai_base_url: bad }); }
+    catch (e) { if (e.status === 400) blockedCount++; else console.log('    unexpected:', bad, e.message); }
+  }
+  assert(blockedCount === blocked.length, `all ${blocked.length} hostile base URLs rejected (got ${blockedCount})`);
+
+  await userConfig.set('acct-ok', { openai_api_key: 'sk-x', openai_base_url: 'https://api.groq.com/openai/v1' });
+  const good = await userConfig.resolve('acct-ok');
+  assert(good.baseUrl === 'https://api.groq.com/openai/v1', 'a legitimate https endpoint is still accepted');
+
+  const src = (await import('fs')).readFileSync('./src/chat-service.js', 'utf8');
+  assert(/redirect:\s*'error'/.test(src), "the chat fetch refuses redirects (no 30x bypass)");
+
 } finally {
   await new Promise((r) => server.close(r));
 }
