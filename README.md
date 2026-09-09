@@ -180,9 +180,29 @@ Optional environment:
 | `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Persist across restarts. Without it, state lives in `server/data/`. |
 | `OYA_PROFILE_SECRET` | The KEK for credentials at rest. Generated into `server/data/.secret` if unset — back it up. |
 | `OYA_OPERATOR_TOKEN` | Host-wide controls: metrics scrape, drain, deployment defaults. |
-| `DAYTONA_API_KEY`, `DAYTONA_SNAPSHOT`, `OYA_PUBLIC_WS_URL` | Cloud browsers. |
+| `DAYTONA_API_KEY`, `DAYTONA_SNAPSHOT`, `OYA_PUBLIC_WS_URL` | Cloud browsers. See below. |
 
 Migrations live in `server/migrations/`; apply them in order.
+
+### Cloud browsers
+
+`DAYTONA_SNAPSHOT` must name an image built from `browser/Dockerfile` — one that
+carries `/docker-entrypoint.sh`. Point it at anything else and sandboxes start,
+fail to launch a browser, and bill until their TTL; the server checks for that
+entrypoint and refuses up front rather than letting you wait it out.
+
+```bash
+docker build --platform linux/amd64 --provenance=false --sbom=false \
+  -t <registry>/oya-browser:<version> browser/
+docker push <registry>/oya-browser:<version>
+```
+
+Then register it as a Daytona snapshot (Daytona rejects `:latest` — pin a real
+tag) and set `DAYTONA_SNAPSHOT` to that name.
+
+`OYA_PUBLIC_WS_URL` is where the sandbox dials back, so it has to be reachable
+from a cloud VM. A server on localhost needs a tunnel; `ws://localhost` will
+create sandboxes that never enrol.
 
 ## Layout
 
