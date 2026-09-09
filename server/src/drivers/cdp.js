@@ -388,6 +388,11 @@ export class CDPDriver {
         }
         return { ok: true };
       }
+      // Server-internal only: challenge handling needs to run its own scripts.
+      // Not reachable from the public command API, which is why arbitrary
+      // evaluate was removed from that surface.
+      case 'evaluate_raw':
+        return { ok: true, data: { result: await this.evaluate(String(params.expression || '')) } };
       case 'cookies':
         return { ok: true, data: (await this.conn.send('Network.getAllCookies', {}, this.sessionId)) };
       default:

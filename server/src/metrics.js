@@ -168,6 +168,11 @@ export const metrics = {
   proxyFailures: counter('oya_proxy_failures_total', 'Proxy health check failures'),
   proxyIncoherent: counter('oya_proxy_incoherent_total', 'Personas whose timezone contradicts their exit country'),
 
+  // Challenges
+  captchaSeen: counter('oya_captcha_seen_total', 'CAPTCHA challenges detected by type'),
+  captchaSolved: counter('oya_captcha_solved_total', 'CAPTCHA solve attempts by type and outcome'),
+  mfaCompleted: counter('oya_mfa_completed_total', 'MFA challenges completed by method and outcome'),
+
   // Enforcement
   rateLimited: counter('oya_rate_limited_total', 'Requests rejected by a rate limit'),
   quotaExceeded: counter('oya_quota_exceeded_total', 'Requests rejected by a quota'),

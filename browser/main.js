@@ -1144,6 +1144,11 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         return await worldEval(view,
           '(typeof analyzePage === "function") ? analyzePage({}) : { ok: false, error: "Analyzer not loaded" }');
       }
+      // Server-internal: CAPTCHA and MFA handling run their own scripts in the
+      // isolated world. Not exposed as a public command.
+      case 'evaluate_raw': {
+        return { ok: true, data: { result: await worldEval(view, String(params?.expression || '')) } };
+      }
       case 'screenshot': {
         const r = await cdp(view, 'Page.captureScreenshot', { format: 'png' });
         return { ok: true, data: { screenshot: 'data:image/png;base64,' + r.data } };

@@ -31,6 +31,8 @@ import * as profiles from './profiles.js';
 import * as recorder from './recorder.js';
 import * as personas from './personas.js';
 import * as proxies from './proxies.js';
+import * as captcha from './captcha.js';
+import * as mfa from './mfa.js';
 
 export const router = Router();
 
@@ -435,6 +437,80 @@ router.delete('/personas/:id', authMiddleware, (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// ─── Challenges: CAPTCHA and MFA ─────────────────────────────────────────────
+
+/** Run a script in a browser we control, whichever kind it is. */
+async function evaluateIn(browserId, expression) {
+  const result = await sendCommand(browserId, 'evaluate_raw', { expression });
+  return result?.data?.result ?? result?.data ?? null;
+}
+
+router.post('/browsers/:browserId/captcha', authMiddleware, enforce('command'), async (req, res) => {
+  const { browserId } = req.params;
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    return res.status(404).json({ error: `Browser ${browserId} not connected` });
+  }
+  const browser = registry.get(browserId);
+  try {
+    const result = await captcha.handle((expr) => evaluateIn(browserId, expr), {
+      solve: req.body?.solve !== false,
+      // Anchor, Browserbase and Steel solve natively; solving again pays twice
+      // and can race their own attempt.
+      providerSolves: ['anchor', 'browserbase', 'steel', 'browseruse'].includes(browser.provider),
+    });
+    if (result.present) {
+      audit({ action: 'captcha.handle', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
+        outcome: result.solved ? 'ok' : 'error', meta: { type: result.type, method: result.method }, req });
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/browsers/:browserId/mfa', authMiddleware, enforce('command'), async (req, res) => {
+  const { browserId } = req.params;
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    return res.status(404).json({ error: `Browser ${browserId} not connected` });
+  }
+  const browser = registry.get(browserId);
+  const personaId = browser.persona?.id || personas.defaultFor(getKey(req)).id;
+  try {
+    const result = await mfa.complete((expr) => evaluateIn(browserId, expr), personaId, {
+      liveViewUrl: `/api/live/${browserId}`,
+    });
+    if (result.present) {
+      audit({ action: 'mfa.complete', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
+        outcome: result.completed ? 'ok' : 'error', meta: { method: result.method }, req });
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/** Configure a persona's second factor. The secret is write-only. */
+router.put('/personas/:id/mfa', authMiddleware, (req, res) => {
+  const p = personas.get(getKey(req), req.params.id);
+  if (!p) return res.status(404).json({ error: 'No such persona' });
+  try {
+    const described = mfa.set(p.id, req.body);
+    audit({ action: 'mfa.configure', actorKey: getKey(req), targetType: 'persona', targetId: p.id,
+      meta: { type: described.type }, req });
+    res.json(described);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.delete('/personas/:id/mfa', authMiddleware, (req, res) => {
+  const p = personas.get(getKey(req), req.params.id);
+  if (!p) return res.status(404).json({ error: 'No such persona' });
+  mfa.clear(p.id);
+  audit({ action: 'mfa.clear', actorKey: getKey(req), targetType: 'persona', targetId: p.id, req });
+  res.json({ ok: true });
 });
 
 // ─── Proxies ─────────────────────────────────────────────────────────────────
