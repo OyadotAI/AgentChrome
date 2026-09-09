@@ -27,6 +27,7 @@ import { metrics } from './metrics.js';
 import { audit } from './audit.js';
 import * as usage from './usage.js';
 import { consume, checkQuota, QUOTAS } from './limits.js';
+import { fingerprint } from './audit.js';
 import * as profiles from './profiles.js';
 import * as recorder from './recorder.js';
 
@@ -83,6 +84,8 @@ export const wss = new WebSocketServer({ noServer: true, perMessageDeflate: fals
 class Session {
   constructor({ id, apiKey, provider, release, upstream, profile }) {
     Object.assign(this, { id, apiKey, provider, release, upstream, profile });
+    // Profiles and recordings are namespaced by this, never by the raw key.
+    this.owner = fingerprint(apiKey);
     this.client = null;
     this.startedAt = Date.now();
     this.bytesUp = 0;
@@ -143,7 +146,7 @@ class Session {
 
     await recorder.stop(this.id).catch(() => {});
     if (this.profile) {
-      await profiles.capture(this.profile, this)
+      await profiles.capture(this.owner, this.profile, this)
         .catch((e) => console.error(`[gateway] profile capture failed for ${this.profile}:`, e.message));
     }
     // Held open since restore so its on-new-document hook stays registered.
@@ -216,8 +219,9 @@ export async function handleUpgrade(req, socket, head) {
 
   // ── New session ──
   const profileName = url.searchParams.get('profile');
+  const owner = fingerprint(token);
   if (profileName) {
-    const lock = profiles.tryLock(profileName, token);
+    const lock = profiles.tryLock(owner, profileName);
     if (!lock.ok) {
       // Two browsers sharing one jar corrupts it, so the second is refused
       // rather than silently racing.
@@ -231,7 +235,7 @@ export async function handleUpgrade(req, socket, head) {
   const mine = [...sessions.values()].filter((s) => s.apiKey === token).length;
   const quota = checkQuota('browsers', token, mine);
   if (!quota.allowed) {
-    if (profileName) profiles.unlock(profileName);
+    if (profileName) profiles.unlock(owner, profileName);
     metrics.gatewayConnects.inc({ outcome: 'quota' });
     return deny(429, `Browser quota reached (${quota.quota})`);
   }
@@ -254,7 +258,7 @@ export async function handleUpgrade(req, socket, head) {
       },
     });
   } catch (err) {
-    if (profileName) profiles.unlock(profileName);
+    if (profileName) profiles.unlock(owner, profileName);
     metrics.gatewayConnects.inc({ outcome: 'no_provider' });
     audit({ action: 'gateway.connect', actorKey: token, outcome: 'error', meta: { error: err.message }, req });
     return deny(err.status === 503 ? 503 : 502, err.status === 503 ? 'Service Unavailable' : 'Bad Gateway');
@@ -268,7 +272,7 @@ export async function handleUpgrade(req, socket, head) {
     release: () => {
       release();
       target.release?.().catch(() => {});
-      if (profileName) profiles.unlock(profileName);
+      if (profileName) profiles.unlock(owner, profileName);
     },
   });
   session.upstreamUrl = target.wsUrl;
@@ -277,7 +281,7 @@ export async function handleUpgrade(req, socket, head) {
 
   // Restore before the client can navigate, so the first page load already has
   // the profile's cookies.
-  if (profileName) await profiles.restore(profileName, session).catch((e) => console.error('[gateway] profile restore:', e.message));
+  if (profileName) await profiles.restore(owner, profileName, session).catch((e) => console.error('[gateway] profile restore:', e.message));
   if (url.searchParams.get('record') === '1') await recorder.start(session).catch((e) => console.error('[gateway] record:', e.message));
 
   wss.handleUpgrade(req, socket, head, (client) => {

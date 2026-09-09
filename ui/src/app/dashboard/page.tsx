@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Monitor, Zap, MessageSquare, Server, Wrench, LayoutGrid,
-  Cookie
+  Cookie, Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiUrl, apiKeyHeaders } from '@/lib/api';
@@ -17,6 +17,7 @@ import CommandsTab, { type ResultEntry } from '@/components/dashboard/commands-t
 import ChatTab, { type ChatMessage } from '@/components/dashboard/chat-tab';
 import McpTab from '@/components/dashboard/mcp-tab';
 import PoolTab, { type PoolData, type CookieEntry } from '@/components/dashboard/pool-tab';
+import ControlTab from '@/components/dashboard/control-tab';
 import SettingsDialog from '@/components/dashboard/settings-dialog';
 
 // ── Utility ──
@@ -50,7 +51,7 @@ function syntaxHighlightJson(json: string): string {
     .replace(/:\s*(null)/g, ': <span style="color:#71717a">$1</span>');
 }
 
-type MainTab = 'overview' | 'commands' | 'chat' | 'mcp' | 'pool';
+type MainTab = 'overview' | 'commands' | 'chat' | 'mcp' | 'pool' | 'control';
 
 let nextEntryId = 0;
 
@@ -550,7 +551,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-        const tabs: MainTab[] = ['overview', 'commands', 'chat', 'mcp', 'pool'];
+        const tabs: MainTab[] = ['overview', 'commands', 'chat', 'mcp', 'pool', 'control'];
         const num = parseInt(e.key, 10);
         if (num >= 1 && num <= 5) {
           e.preventDefault();
@@ -569,6 +570,7 @@ export default function DashboardPage() {
     { key: 'chat', label: 'Chat', icon: MessageSquare },
     { key: 'mcp', label: 'MCP', icon: Wrench },
     { key: 'pool', label: 'Pool', icon: Server },
+    { key: 'control', label: 'Control', icon: Activity },
   ];
 
   return (
@@ -608,8 +610,8 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Browser Sidebar (desktop only, not on pool tab) */}
-        {currentTab !== 'pool' && (
+        {/* Browser Sidebar (desktop only; fleet-wide tabs do not select one) */}
+        {currentTab !== 'pool' && currentTab !== 'control' && (
           <div className="hidden lg:flex w-60 border-r border-border bg-bg-card shrink-0">
             <BrowserList
               browsers={browsers}
@@ -620,7 +622,7 @@ export default function DashboardPage() {
         )}
 
         {/* Mobile browser pills */}
-        {currentTab !== 'pool' && (
+        {currentTab !== 'pool' && currentTab !== 'control' && (
           <div className="lg:hidden absolute top-auto z-10">
             {/* Rendered inside the tab content area on mobile */}
           </div>
@@ -629,7 +631,7 @@ export default function DashboardPage() {
         {/* Tab Content */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {/* Mobile browser pills (rendered at top of content area) */}
-          {currentTab !== 'pool' && (
+          {currentTab !== 'pool' && currentTab !== 'control' && (
             <div className="lg:hidden border-b border-border px-3 py-1.5 bg-bg-card">
               <BrowserList
                 browsers={browsers}
@@ -686,6 +688,11 @@ export default function DashboardPage() {
                     selectedBrowser={selectedBrowser}
                     apiKey={apiKey}
                   />
+                </motion.div>
+              )}
+              {currentTab === 'control' && (
+                <motion.div key="control" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="h-full">
+                  <ControlTab apiKey={apiKey} />
                 </motion.div>
               )}
               {currentTab === 'pool' && (

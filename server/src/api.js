@@ -61,6 +61,9 @@ registry.on('stream:stop', ({ id }) => {
   registry.get(id)?.driver?.stopScreencast?.().catch(() => {});
 });
 
+/** null for an admin (sees everything), this key's fingerprint otherwise. */
+const ownerScope = (req) => (isAdminKey(getKey(req)) ? null : fingerprint(getKey(req)));
+
 /** Admin gate. Anything that can read across tenants or change global state. */
 function adminOnly(req, res, next) {
   if (isAdminKey(getKey(req))) return next();
@@ -425,11 +428,14 @@ router.post('/gateway/strategy', authMiddleware, adminOnly, (req, res) => {
   res.json({ ok: true, strategy });
 });
 
-router.get('/gateway/profiles', authMiddleware, async (req, res) => res.json({ profiles: await profiles.list() }));
+// Profiles and recordings are per-key. Names and session ids are caller-chosen
+// or guessable, so they are scoped by owner rather than treated as secrets.
+router.get('/gateway/profiles', authMiddleware, async (req, res) =>
+  res.json({ profiles: await profiles.list(fingerprint(getKey(req))) }));
 
 router.delete('/gateway/profiles/:name', authMiddleware, async (req, res) => {
   try {
-    const removed = await profiles.remove(req.params.name);
+    const removed = await profiles.remove(fingerprint(getKey(req)), req.params.name);
     audit({ action: 'profile.delete', actorKey: getKey(req), targetType: 'profile', targetId: req.params.name,
       outcome: removed ? 'ok' : 'error', req });
     res.json({ ok: removed });
@@ -438,23 +444,24 @@ router.delete('/gateway/profiles/:name', authMiddleware, async (req, res) => {
   }
 });
 
-router.get('/gateway/recordings', authMiddleware, async (req, res) => res.json({ recordings: await recorder.list() }));
+router.get('/gateway/recordings', authMiddleware, async (req, res) =>
+  res.json({ recordings: await recorder.list(isAdminKey(getKey(req)) ? null : fingerprint(getKey(req))) }));
 
 router.get('/gateway/recordings/:id', authMiddleware, async (req, res) => {
-  const found = await recorder.manifest(req.params.id);
+  const found = await recorder.manifest(req.params.id, ownerScope(req));
   if (!found) return res.status(404).json({ error: 'No such recording' });
   res.json(found);
 });
 
 /** One frame of a recording, for the dashboard player to scrub through. */
 router.get('/gateway/recordings/:id/frames/:index', authMiddleware, async (req, res) => {
-  const buf = await recorder.frame(req.params.id, req.params.index);
+  const buf = await recorder.frame(req.params.id, req.params.index, ownerScope(req));
   if (!buf) return res.status(404).json({ error: 'No such frame' });
   res.type('image/jpeg').set('Cache-Control', 'private, max-age=3600').send(buf);
 });
 
 router.delete('/gateway/recordings/:id', authMiddleware, async (req, res) => {
-  const removed = await recorder.remove(req.params.id);
+  const removed = await recorder.remove(req.params.id, ownerScope(req));
   audit({ action: 'recording.delete', actorKey: getKey(req), targetType: 'recording', targetId: req.params.id, req });
   res.json({ ok: removed });
 });

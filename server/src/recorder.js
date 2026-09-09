@@ -45,7 +45,7 @@ export async function start(session) {
   const state = {
     conn, sessionId, dir, frames: [], bytes: 0,
     startedAt: Date.now(),
-    provider: session.provider, apiKey: session.apiKey, profile: session.profile,
+    provider: session.provider, owner: session.owner, profile: session.profile,
   };
   active.set(session.id, state);
 
@@ -85,6 +85,8 @@ export async function stop(sessionId) {
 
   const manifest = {
     sessionId,
+    // A recording is a picture of someone's browser. Ownership travels with it.
+    owner: state.owner,
     provider: state.provider,
     profile: state.profile || null,
     startedAt: new Date(state.startedAt).toISOString(),
@@ -99,44 +101,58 @@ export async function stop(sessionId) {
   return true;
 }
 
-export async function list() {
+/** `owner` null means an operator listing everything. */
+export async function list(owner) {
   try {
     const dirs = await readdir(DIR);
     const out = [];
     for (const id of dirs) {
       try {
-        const manifest = JSON.parse(await readFile(join(DIR, id, 'manifest.json'), 'utf8'));
-        out.push({ ...manifest, frames: undefined, live: active.has(id) });
+        const m = JSON.parse(await readFile(join(DIR, id, 'manifest.json'), 'utf8'));
+        if (owner && m.owner !== owner) continue;
+        out.push({ ...m, frames: undefined, live: active.has(id) });
       } catch {
-        if (active.has(id)) out.push({ sessionId: id, live: true, frameCount: active.get(id).frames.length });
+        const live = active.get(id);
+        if (live && (!owner || live.owner === owner)) {
+          out.push({ sessionId: id, owner: live.owner, live: true, frameCount: live.frames.length });
+        }
       }
     }
     return out.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
   } catch { return []; }
 }
 
-export async function manifest(sessionId) {
+/** Returns null rather than 403 for someone else's recording: its existence is not their business. */
+export async function manifest(sessionId, owner) {
   const live = active.get(sessionId);
   if (live) {
+    if (owner && live.owner !== owner) return null;
     return {
-      sessionId, live: true, frameCount: live.frames.length, bytes: live.bytes,
+      sessionId, owner: live.owner, live: true, frameCount: live.frames.length, bytes: live.bytes,
       durationMs: Date.now() - live.startedAt, frames: live.frames,
     };
   }
-  try { return JSON.parse(await readFile(join(DIR, sessionId, 'manifest.json'), 'utf8')); }
-  catch { return null; }
+  try {
+    const m = JSON.parse(await readFile(join(DIR, sessionId, 'manifest.json'), 'utf8'));
+    if (owner && m.owner !== owner) return null;
+    return m;
+  } catch { return null; }
 }
 
-export async function frame(sessionId, index) {
+export async function frame(sessionId, index, owner) {
   const i = Number(index);
   if (!Number.isInteger(i) || i < 0 || i > MAX_FRAMES) return null;
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return null;
+  // A frame is a screenshot of a browser, so the same check as the manifest.
+  if (!(await manifest(sessionId, owner))) return null;
   try { return await readFile(join(DIR, sessionId, `${String(i).padStart(6, '0')}.jpg`)); }
   catch { return null; }
 }
 
-export async function remove(sessionId) {
-  if (active.has(sessionId)) await stop(sessionId);
+export async function remove(sessionId, owner) {
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return false;
+  if (!(await manifest(sessionId, owner))) return false;
+  if (active.has(sessionId)) await stop(sessionId);
   try { await rm(join(DIR, sessionId), { recursive: true, force: true }); return true; }
   catch { return false; }
 }

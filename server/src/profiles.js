@@ -48,11 +48,26 @@ const safeName = (name) => {
   return name;
 };
 
-const fileFor = (name) => join(DIR, `${safeName(name)}.enc`);
+/**
+ * Profiles are namespaced by owner. Without this, naming another tenant's
+ * profile on connect would hand over their cookies and localStorage — the
+ * names are chosen by callers and are not secrets.
+ */
+const safeOwner = (owner) => {
+  if (typeof owner !== 'string' || !/^[0-9a-f]{8,64}$/.test(owner)) {
+    throw Object.assign(new Error('A profile owner fingerprint is required'), { status: 400 });
+  }
+  return owner;
+};
 
-function seal(name, value) {
+const scopeOf = (owner, name) => `${safeOwner(owner)}__${safeName(name)}`;
+const fileFor = (owner, name) => join(DIR, `${scopeOf(owner, name)}.enc`);
+
+function seal(scope, value) {
   const dek = randomBytes(32);
-  const aad = Buffer.from(`profile:${name}`);
+  // The owner is inside the AAD, so a ciphertext copied into another tenant's
+  // namespace fails to open instead of decrypting.
+  const aad = Buffer.from(`profile:${scope}`);
 
   const nonce = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', dek, nonce);
@@ -71,9 +86,9 @@ function seal(name, value) {
   ]);
 }
 
-function open(name, buf) {
+function open(scope, buf) {
   if (buf[0] !== 1) throw new Error('Unsupported profile format');
-  const aad = Buffer.from(`profile:${name}`);
+  const aad = Buffer.from(`profile:${scope}`);
   let o = 1;
   const wrapNonce = buf.subarray(o, o += 12);
   const wrapTag = buf.subarray(o, o += 16);
@@ -96,16 +111,16 @@ function open(name, buf) {
 // corrupt it, so the second connect is refused rather than allowed to race.
 const locks = new Map(); // name -> { apiKey, since }
 
-export function tryLock(name, apiKey) {
-  safeName(name);
-  const held = locks.get(name);
+export function tryLock(owner, name) {
+  const scope = scopeOf(owner, name);
+  const held = locks.get(scope);
   if (held) return { ok: false, since: held.since };
-  locks.set(name, { apiKey, since: Date.now() });
+  locks.set(scope, { owner, since: Date.now() });
   return { ok: true };
 }
 
-export function unlock(name) { locks.delete(name); }
-export function isLocked(name) { return locks.has(name); }
+export function unlock(owner, name) { locks.delete(scopeOf(owner, name)); }
+export function isLocked(owner, name) { return locks.has(scopeOf(owner, name)); }
 
 /** A second CDP connection, so the client's own wire is never touched. */
 async function attach(session) {
@@ -134,8 +149,8 @@ const restoreStorageJS = (data) => `(() => {
 })()`;
 
 /** Read the live browser state and persist it under this profile. */
-export async function capture(name, session) {
-  safeName(name);
+export async function capture(owner, name, session) {
+  const scope = scopeOf(owner, name);
   const attached = await attach(session);
   if (!attached) return false;
   const { conn, sessionId } = attached;
@@ -150,7 +165,7 @@ export async function capture(name, session) {
       storage: storage?.result?.value || null,
     };
     await mkdir(DIR, { recursive: true, mode: 0o700 });
-    await writeFile(fileFor(name), seal(name, payload), { mode: 0o600 });
+    await writeFile(fileFor(owner, name), seal(scope, payload), { mode: 0o600 });
     return true;
   } finally {
     conn.close();
@@ -158,10 +173,10 @@ export async function capture(name, session) {
 }
 
 /** Replay a stored profile into a fresh browser before the client uses it. */
-export async function restore(name, session) {
-  safeName(name);
+export async function restore(owner, name, session) {
+  const scope = scopeOf(owner, name);
   let payload;
-  try { payload = open(name, await readFile(fileFor(name))); }
+  try { payload = open(scope, await readFile(fileFor(owner, name))); }
   catch (e) {
     if (e.code === 'ENOENT') return false;   // first use of this profile
     throw e;
@@ -191,20 +206,24 @@ export async function restore(name, session) {
   return true;
 }
 
-export async function list() {
+/** Only this owner's profiles. Names are caller-chosen and must not leak. */
+export async function list(owner) {
+  const prefix = `${safeOwner(owner)}__`;
   try {
     const files = await readdir(DIR);
-    return files.filter((f) => f.endsWith('.enc')).map((f) => {
-      const name = f.slice(0, -4);
-      return { name, locked: isLocked(name), lockedSince: locks.get(name)?.since || null };
-    });
+    return files
+      .filter((f) => f.endsWith('.enc') && f.startsWith(prefix))
+      .map((f) => {
+        const name = f.slice(prefix.length, -4);
+        const scope = `${prefix}${name}`;
+        return { name, locked: locks.has(scope), lockedSince: locks.get(scope)?.since || null };
+      });
   } catch { return []; }
 }
 
-export async function remove(name) {
-  safeName(name);
-  if (isLocked(name)) throw Object.assign(new Error('Profile is in use'), { status: 409 });
-  try { await unlink(fileFor(name)); return true; } catch { return false; }
+export async function remove(owner, name) {
+  if (isLocked(owner, name)) throw Object.assign(new Error('Profile is in use'), { status: 409 });
+  try { await unlink(fileFor(owner, name)); return true; } catch { return false; }
 }
 
 /** Exposed for tests: prove a profile cannot be opened under another name. */

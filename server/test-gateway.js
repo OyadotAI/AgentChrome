@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { WebSocket } from 'ws';
+import { createHash } from 'crypto';
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -96,6 +97,24 @@ async function client(qs = '') {
 const evaluate = (c, expr) => c.conn.send('Runtime.evaluate',
   { expression: expr, returnByValue: true, awaitPromise: true }, c.sessionId).then((r) => r.result?.value);
 
+/**
+ * All sessions in this test share one Chrome, so browser state carries over
+ * between them. Any assertion about what a profile restored has to start from
+ * a clean browser or it passes for the wrong reason.
+ */
+async function wipeBrowser() {
+  const c = await client();
+  await c.conn.send('Network.clearBrowserCookies', {}, c.sessionId);
+  await c.conn.send('Page.navigate', { url: siteUrl }, c.sessionId);
+  await wait(500);
+  await evaluate(c, 'localStorage.clear(); sessionStorage.clear(); true');
+  const id = [...sessions.values()].filter((s) => s.client).slice(-1)[0].id;
+  c.conn.close();
+  await wait(200);
+  await sessions.get(id)?.destroy('wipe');
+  await wait(200);
+}
+
 try {
   console.log('\n1️⃣  CDP discovery — this is what makes clients work unchanged...');
   const version = await (await fetch(`http://${origin}/json/version`)).json();
@@ -140,20 +159,7 @@ try {
   await sessions.get(sessionId)?.destroy('test');   // capture on end
   await wait(400);
 
-  // The same Chrome would keep this cookie by itself, which would make the
-  // assertion below pass without the profile system doing anything. Wipe the
-  // browser so the only way it can come back is a successful restore.
-  const wipe = await client();
-  await wipe.conn.send('Network.clearBrowserCookies', {}, wipe.sessionId);
-  await wipe.conn.send('Page.navigate', { url: siteUrl }, wipe.sessionId);
-  await wait(500);
-  await evaluate(wipe, 'localStorage.clear(); sessionStorage.clear(); true');
-  assert(await evaluate(wipe, 'document.cookie') === '', 'browser state is wiped before the restore check');
-  const wipeId = [...sessions.values()].filter((s) => s.client).slice(-1)[0].id;
-  wipe.conn.close();
-  await wait(200);
-  await sessions.get(wipeId)?.destroy('wipe done');
-
+  await wipeBrowser();
   const p2 = await client('&profile=acme');
   await p2.conn.send('Page.navigate', { url: siteUrl }, p2.sessionId);
   await wait(800);
@@ -169,7 +175,12 @@ try {
     w.on('open', () => { w.close(); resolve('opened'); });
   });
   assert(conflict === 409, `a concurrent connect to the same profile is refused with 409 (got ${conflict})`);
+  // Release the lock properly: closing the client only holds the session for
+  // resume, and the profile stays locked for that whole grace window.
+  const p2Id = [...sessions.values()].find((s) => s.profile === 'acme')?.id;
   p2.conn.close();
+  await wait(200);
+  if (p2Id) await sessions.get(p2Id)?.destroy('profile test done');
   await wait(200);
 
   console.log('\n6️⃣  Encryption is bound to the profile name...');
@@ -215,7 +226,43 @@ try {
   assert(man.frames[0].t >= 0 && man.frames.every((f, i) => i === 0 || f.t >= man.frames[i - 1].t),
     'frame timestamps are monotonic, so a player can scrub');
 
-  console.log('\n9️⃣  Routing and capacity...');
+  console.log('\n9️⃣  Tenant isolation...');
+  // Profile names are chosen by callers and are not secrets. Naming another
+  // tenant's profile must not hand over their session.
+  await wipeBrowser();
+  const other = `ws://${origin}/connect?token=admin-key&profile=acme`;
+  const thief = await new CDPConnection(other).connect();
+  const tTargets = await thief.send('Target.getTargets');
+  let tPage = tTargets.targetInfos.find((t) => t.type === 'page');
+  const { sessionId: tSid } = await thief.send('Target.attachToTarget', { targetId: tPage.targetId, flatten: true });
+  await thief.send('Page.enable', {}, tSid).catch(() => {});
+  await thief.send('Page.navigate', { url: siteUrl }, tSid);
+  await wait(700);
+  const stolen = (await thief.send('Runtime.evaluate',
+    { expression: 'document.cookie', returnByValue: true }, tSid)).result?.value;
+  assert(!/profile-value/.test(stolen || ''),
+    `another key naming the same profile gets nothing (saw "${stolen}")`);
+  const thiefId = [...sessions.values()].filter((s) => s.client).slice(-1)[0].id;
+  thief.close();
+  await wait(200);
+  await sessions.get(thiefId)?.destroy('isolation test');
+
+  // Both keys now have a profile called "acme"; they must be separate stores.
+  const fp = (k) => createHash('sha256').update(k).digest('hex').slice(0, 16);
+  assert((await profiles.list(fp('tenant-key'))).some((p) => p.name === 'acme'), 'the owner still lists its own profile');
+
+  await wipeBrowser();
+  const back = await client('&profile=acme');
+  await back.conn.send('Page.navigate', { url: siteUrl }, back.sessionId);
+  await wait(700);
+  assert(/sid=profile-value/.test(await evaluate(back, 'document.cookie') || ''),
+    "the owner's profile is intact after another key used the same name");
+  const backId = [...sessions.values()].filter((s) => s.client).slice(-1)[0].id;
+  back.conn.close();
+  await wait(200);
+  await sessions.get(backId)?.destroy('isolation done');
+
+  console.log('\n🔟  Routing and capacity...');
   const before = pool.stats();
   assert(before.capacity === 4, 'pool reports configured capacity');
   pool.register({ name: 'broken', type: 'cdp', wsUrl: 'ws://127.0.0.1:1/nope', priority: 0, maxConcurrent: 5 });
