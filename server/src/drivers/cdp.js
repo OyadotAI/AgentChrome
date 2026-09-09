@@ -191,7 +191,7 @@ export const CDP_CAPABILITIES = new Set([
   'click', 'click-coords', 'hover', 'type', 'select', 'wait', 'cookies',
   // Both spellings, because normalise() accepts both. A caller checking this
   // set must not conclude that press_key is unsupported when it is.
-  'press-key', 'press_key',
+  'press-key', 'press_key', 'click_coordinates', 'mouse_move', 'double_click', 'drag', 'keyboard_type',
   'scroll', 'scroll-up', 'scroll-down', 'scroll-top', 'scroll-bottom',
   'list-tabs', 'list_tabs', 'new-tab', 'open_tab', 'switch-tab', 'switch_tab',
   'close-tab', 'close_tab',
@@ -202,6 +202,7 @@ export const CDP_CAPABILITIES = new Set([
  * client and the agent tools; hyphenated ones are this driver's own.
  */
 const ACTION_ALIASES = {
+  click_coordinates: 'click-coords',
   press_key: 'press-key',
   list_tabs: 'list-tabs',
   open_tab: 'new-tab',
@@ -457,6 +458,38 @@ export class CDPDriver {
       case 'click-coords':
         await this.clickAt(Number(params.x) || 0, Number(params.y) || 0);
         return { ok: true, data: { clicked: true } };
+      // The pointer/keyboard vocabulary the Oya client has always had, so a
+      // dashboard driving a browser never has to ask which kind it is.
+      case 'mouse_move':
+        await this.mouse('mouseMoved', Number(params.x) || 0, Number(params.y) || 0);
+        return { ok: true };
+      case 'double_click': {
+        const { x, y } = params.selector || params.element_id
+          ? await this.locate(params.selector || elementSelector(params.element_id))
+          : { x: Number(params.x) || 0, y: Number(params.y) || 0 };
+        await this.mouse('mousePressed', x, y, 'left', 1);
+        await this.mouse('mouseReleased', x, y, 'left', 1);
+        await this.mouse('mousePressed', x, y, 'left', 2);
+        await this.mouse('mouseReleased', x, y, 'left', 2);
+        return { ok: true };
+      }
+      case 'drag': {
+        const fx = Number(params.from_x) || 0, fy = Number(params.from_y) || 0;
+        const tx = Number(params.to_x) || 0, ty = Number(params.to_y) || 0;
+        await this.mouse('mouseMoved', fx, fy);
+        await this.mouse('mousePressed', fx, fy);
+        // A few intermediate moves, or drag handlers that watch for movement
+        // thresholds never fire.
+        for (let i = 1; i <= 4; i++) {
+          await this.mouse('mouseMoved', fx + (tx - fx) * (i / 4), fy + (ty - fy) * (i / 4));
+        }
+        await this.mouse('mouseReleased', tx, ty);
+        return { ok: true };
+      }
+      case 'keyboard_type':
+        // Into whatever is focused, like a person typing.
+        await this.conn.send('Input.insertText', { text: String(params.text || '') }, this.sessionId);
+        return { ok: true };
       case 'hover': {
         const { x, y } = params.element_id
           ? await this.locate(elementSelector(params.element_id))
@@ -474,7 +507,16 @@ export class CDPDriver {
       }
       case 'press-key': {
         const spec = KEY_CODES[params.key];
-        if (!spec) return { ok: false, error: `Unsupported key: ${params.key}` };
+        if (!spec) {
+          // A single printable character is a keypress too; the table only
+          // lists the keys that have no text of their own.
+          const key = String(params.key ?? '');
+          if ([...key].length === 1) {
+            await this.conn.send('Input.insertText', { text: key }, this.sessionId);
+            return { ok: true };
+          }
+          return { ok: false, error: `Unsupported key: ${params.key}` };
+        }
         await this.conn.send('Input.dispatchKeyEvent', { type: 'keyDown', ...spec }, this.sessionId);
         if (spec.text) await this.conn.send('Input.dispatchKeyEvent', { type: 'char', ...spec }, this.sessionId);
         await this.conn.send('Input.dispatchKeyEvent', { type: 'keyUp', ...spec }, this.sessionId);

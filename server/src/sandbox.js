@@ -108,6 +108,8 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
       OYA_AUTO_CONNECT: 'true',
       // Which identity it runs as: fingerprint, cookie jar and proxy together.
       ...(persona ? { OYA_PERSONA: persona } : {}),
+      // So the control plane knows a Stop must destroy this sandbox.
+      OYA_PROVIDER: 'oya-cloud',
     },
     autoStopInterval: config.ttlMinutes,
     autoDeleteInterval: 0,

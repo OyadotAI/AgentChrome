@@ -52,6 +52,10 @@ export const FIELDS = {
   captcha_api_key:        { secret: true, envVar: 'OYA_CAPTCHA_API_KEY' },
 
   onboarded:              {},
+  // When a desktop Oya browser last enrolled or paired with this key. Cloud
+  // browsers inherit that browser's logins, so until this is set the
+  // dashboard tells the user to install it and sign in.
+  desktop_seen_at:        {},
 };
 
 /** What onboarding offers, in the order it offers it. */

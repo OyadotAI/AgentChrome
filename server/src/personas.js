@@ -22,9 +22,11 @@ import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { fingerprint as ownerOf } from './audit.js';
 import {
-  getFingerprintForPersona, defaultPersonaSeed, newPersonaSeed,
+  getFingerprintForPersona, previewProfile, defaultPersonaSeed, newPersonaSeed,
 } from './fingerprint.js';
 import { metrics } from './metrics.js';
+import * as mfa from './mfa.js';
+import * as proxies from './proxies.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STORE = process.env.OYA_DATA_DIR
@@ -59,6 +61,9 @@ const shape = (p) => ({
   owner: p.owner,
   name: p.name,
   seed: p.seed,
+  // Device choices made at creation. Immutable with the seed: together they
+  // are the fingerprint, and the fingerprint is what must not change.
+  prefs: p.prefs && typeof p.prefs === 'object' ? { ...p.prefs } : null,
   proxy: p.proxy || null,
   maxConcurrent: p.maxConcurrent === null ? Infinity : (p.maxConcurrent ?? DEFAULT_MAX_CONCURRENT),
   isDefault: !!p.isDefault,
@@ -68,7 +73,7 @@ const shape = (p) => ({
 
 /** Public view: fingerprint included, seed and raw proxy credentials not. */
 export function describe(p) {
-  const fp = getFingerprintForPersona({ id: p.id, seed: p.seed, proxy: p.proxy });
+  const exit = proxies.assigned(p.id);
   return {
     id: p.id,
     name: p.name,
@@ -78,14 +83,25 @@ export function describe(p) {
     activeBrowsers: active.get(p.id)?.size || 0,
     maxConcurrent: p.maxConcurrent === null ? Infinity : (p.maxConcurrent ?? DEFAULT_MAX_CONCURRENT),
     proxy: p.proxy ? { host: p.proxy.host, port: p.proxy.port, geo: p.proxy.geo || null } : null,
-    fingerprint: {
-      platform: fp.navigator.platform,
-      timezone: fp.timezone,
-      locale: fp.locale,
-      screen: `${fp.screen.width}x${fp.screen.height}`,
-      webgl: fp.webgl.unmaskedRenderer,
-      canvasSeed: fp.canvas.noiseSeed,
-    },
+    // The proxy it is actually on, when one has been assigned or pinned.
+    exit: exit ? { id: exit.id, label: exit.label, geo: exit.geo, healthy: exit.available } : null,
+    prefs: p.prefs || null,
+    fingerprint: describeProfile(fingerprintFor(p)),
+    mfa: mfa.describe(p.id),
+  };
+}
+
+/** The public view of a fingerprint: enough to recognise the device, no seeds. */
+export function describeProfile(fp) {
+  return {
+    platform: fp.navigator.platform,
+    timezone: fp.timezone,
+    locale: fp.locale,
+    screen: `${fp.screen.width}x${fp.screen.height}`,
+    webgl: fp.webgl.unmaskedRenderer,
+    hardwareConcurrency: fp.navigator.hardwareConcurrency,
+    deviceMemory: fp.navigator.deviceMemory,
+    canvasSeed: fp.canvas.noiseSeed,
   };
 }
 
@@ -108,11 +124,12 @@ export function defaultFor(apiKey) {
   return p;
 }
 
-export function create(apiKey, { name, proxy, maxConcurrent } = {}) {
+export function create(apiKey, { name, proxy, maxConcurrent, prefs } = {}) {
   const { id, seed } = newPersonaSeed();
   const p = shape({
     id, seed, owner: ownerOf(apiKey),
     name: (name || id).slice(0, 100),
+    prefs: cleanPrefs(prefs),
     proxy: proxy || null,
     maxConcurrent: Number(maxConcurrent) > 0 ? Number(maxConcurrent) : DEFAULT_MAX_CONCURRENT,
     createdAt: new Date().toISOString(),
@@ -120,6 +137,58 @@ export function create(apiKey, { name, proxy, maxConcurrent } = {}) {
   personas.set(id, p);
   dirty = true;
   return p;
+}
+
+/** Only the three device choices, only as strings. Anything else is dropped. */
+function cleanPrefs(prefs) {
+  if (!prefs || typeof prefs !== 'object') return null;
+  const out = {};
+  for (const k of ['platform', 'timezone', 'locale']) {
+    if (typeof prefs[k] === 'string' && prefs[k] && prefs[k] !== 'auto') out[k] = prefs[k].slice(0, 64);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * What a persona may change after creation: its label, its concurrency cap,
+ * its proxy geo hint. Never seed or prefs — those are the device, and a
+ * device that changes under an existing cookie jar is the tell this whole
+ * model exists to avoid. Callers wanting a different device clone instead.
+ */
+export function update(apiKey, id, { name, maxConcurrent, proxy } = {}) {
+  const p = get(apiKey, id);
+  if (!p) return null;
+  if (name !== undefined) p.name = String(name || p.id).slice(0, 100);
+  if (maxConcurrent !== undefined) {
+    if (p.isDefault && maxConcurrent !== null) {
+      // The default persona's cap is a deployment decision, not a per-key one.
+      p.maxConcurrent = Number(maxConcurrent) > 0 ? Number(maxConcurrent) : DEFAULT_PERSONA_MAX_CONCURRENT;
+    } else {
+      p.maxConcurrent = maxConcurrent === null || maxConcurrent === Infinity ? Infinity
+        : (Number(maxConcurrent) > 0 ? Number(maxConcurrent) : DEFAULT_MAX_CONCURRENT);
+    }
+  }
+  if (proxy !== undefined) p.proxy = proxy && typeof proxy === 'object' ? proxy : null;
+  dirty = true;
+  return p;
+}
+
+/** Same device choices, a fresh seed: a new machine of the same kind. */
+export function clone(apiKey, id, { name } = {}) {
+  const src = get(apiKey, id);
+  if (!src) return null;
+  return create(apiKey, {
+    name: name || `${src.name} (copy)`,
+    prefs: src.prefs,
+    proxy: src.proxy,
+    maxConcurrent: Number.isFinite(src.maxConcurrent) ? src.maxConcurrent : undefined,
+  });
+}
+
+/** The fingerprint a persona created with these prefs would get. Persists nothing. */
+export function preview(prefs) {
+  const { id, seed } = newPersonaSeed();
+  return previewProfile({ id: `preview-${id}`, seed, prefs: cleanPrefs(prefs) });
 }
 
 export function list(apiKey) {
@@ -162,7 +231,7 @@ export function resolve(apiKey, personaId) {
 }
 
 export function fingerprintFor(persona) {
-  return getFingerprintForPersona({ id: persona.id, seed: persona.seed, proxy: persona.proxy });
+  return getFingerprintForPersona({ id: persona.id, seed: persona.seed, prefs: persona.prefs, proxy: persona.proxy });
 }
 
 /**

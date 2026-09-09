@@ -105,11 +105,37 @@ function pick(arr, rng) {
  *   browser id would give one account a new device on every restart. Neither is
  *   what a persona needs.
  */
+/** What a persona may choose about its device. Everything else follows the seed. */
+export const PLATFORMS = ['Win32', 'MacIntel', 'Linux x86_64'];
+export const PREF_OPTIONS = {
+  platforms: PLATFORMS,
+  timezones: TIMEZONES,
+  locales: Object.fromEntries(Object.entries(LOCALES).map(([k, v]) => [k, [...new Set(v)]])),
+};
+
+/**
+ * Preferences are honoured only where they are coherent with each other: a
+ * timezone or locale that the chosen platform's table does not carry is
+ * ignored rather than producing a Windows machine in a timezone Windows never
+ * reports here. Unknown values fall back to the seeded pick.
+ */
+function prefsFor(identity) {
+  const p = identity?.prefs || {};
+  const platform = PLATFORMS.includes(p.platform) ? p.platform : null;
+  return { platform, timezone: p.timezone || null, locale: p.locale || null };
+}
+
 function generateProfile(identity) {
   const { id, seed } = identity;
   const rng = createPRNG(seed);
+  const prefs = prefsFor(identity);
 
-  const platform = pick(['Win32', 'MacIntel', 'Linux x86_64'], rng);
+  // The seeded picks still happen even when a preference overrides them, so
+  // the rest of the stream — GPU, screen, noise seeds — is identical whether
+  // or not a preference was given. A persona's fingerprint must depend on its
+  // seed and its prefs only, never on the order they were applied.
+  const platform = prefs.platform || pick(PLATFORMS, rng);
+  if (prefs.platform) pick(PLATFORMS, rng);
   const gpu = pick(GPU_DB[platform] || GPU_DB.Win32, rng);
   const screen = pick(SCREEN_RESOLUTIONS[platform] || SCREEN_RESOLUTIONS.Win32, rng);
   const fonts = FONT_SETS[platform] || FONT_SETS.Win32;
@@ -118,8 +144,10 @@ function generateProfile(identity) {
   const canvasNoise = rng() * 0.01;
   const audioNoise = rng() * 0.01;
   const rectsNoise = rng() * 0.001;
-  const timezone = pick(TIMEZONES[platform] || TIMEZONES.Win32, rng);
-  const locale = pick(LOCALES[platform] || LOCALES.Win32, rng);
+  const tzPick = pick(TIMEZONES[platform] || TIMEZONES.Win32, rng);
+  const timezone = (TIMEZONES[platform] || []).includes(prefs.timezone) ? prefs.timezone : tzPick;
+  const locPick = pick(LOCALES[platform] || LOCALES.Win32, rng);
+  const locale = (LOCALES[platform] || []).includes(prefs.locale) ? prefs.locale : locPick;
   const lang = locale.split('-')[0];
 
   return {
@@ -175,6 +203,11 @@ export function newPersonaSeed() {
  * for the life of the persona — that stability is what keeps the fingerprint
  * coherent with the cookies it is paired with.
  */
+/** Unmemoised: for previews, which must not accumulate in the cache. */
+export function previewProfile(identity) {
+  return generateProfile(identity);
+}
+
 export function getFingerprintForPersona(identity) {
   if (!identity?.id) return null;
   let profile = cache.get(identity.id);

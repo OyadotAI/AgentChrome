@@ -34,6 +34,7 @@ import * as proxies from './proxies.js';
 import * as captcha from './captcha.js';
 import * as mfa from './mfa.js';
 import * as keyConfig from './key-config.js';
+import { PREF_OPTIONS } from './fingerprint.js';
 import * as pairing from './pairing.js';
 
 export const router = Router();
@@ -242,15 +243,24 @@ router.get('/fleet', authMiddleware, (req, res) => {
   const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key);
   const byClient = {};
   const byProvider = {};
-  for (const b of mine) {
+  const byHealth = { ok: 0, stale: 0, errors: 0, dead: 0 };
+  const byPersona = {};
+  let commands = 0, errors = 0, pending = 0;
+  for (const [id, b] of registry.browsers) {
+    if (b.apiKey !== key) continue;
+    const row = registry.row(id, b);
     byClient[b.clientType || 'oya'] = (byClient[b.clientType || 'oya'] || 0) + 1;
     if (b.provider) byProvider[b.provider] = (byProvider[b.provider] || 0) + 1;
+    byHealth[row.health] = (byHealth[row.health] || 0) + 1;
+    const p = row.personaName || row.persona || '—';
+    byPersona[p] = (byPersona[p] || 0) + 1;
+    commands += b.commands; errors += b.errors; pending += b.pending;
   }
   const sessions = listSessions(key);
   res.json({
     at: new Date().toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
-    browsers: { total: mine.length, byClient, byProvider },
+    browsers: { total: mine.length, byClient, byProvider, byHealth, byPersona, commands, errors, pending },
     sessions: {
       total: sessions.length,
       attached: sessions.filter((s) => s.connected).length,
@@ -287,6 +297,72 @@ router.get('/audit', authMiddleware, async (req, res) => {
 });
 
 // ─── Control ─────────────────────────────────────────────────────────────────
+
+/**
+ * Stop one browser, whatever it is. This is what the dashboard's Stop does.
+ *
+ *   oya-cloud   destroy the Daytona sandbox (or it redials and keeps billing),
+ *               then drop the socket and the registry entry
+ *   cdp         registry.remove(), which closes the driver and releases the
+ *               vendor session
+ *   desktop     close the socket
+ *
+ * Returns what actually happened, so a Stop that could not reach Daytona is
+ * visible rather than reported as done.
+ */
+async function stopBrowser(req, browserId, { sandbox } = {}) {
+  const key = getKey(req);
+  const browser = registry.get(browserId);
+  if (!browser || !canAccess(req, browserId)) return { id: browserId, ok: false, error: 'Browser not connected' };
+
+  let sandboxRemoved = null;
+  const isCloud = browser.provider === 'oya-cloud' || sandbox === true;
+  if (isCloud && browser.clientType === 'oya') {
+    try {
+      sandboxRemoved = await removeSandbox(browserId, key);
+    } catch (err) {
+      sandboxRemoved = false;
+      console.warn(`[stop] sandbox for ${browserId} not removed: ${err.message}`);
+    }
+  }
+  try { browser.ws?.close(4008, 'Stopped by operator'); } catch {}
+  registry.remove(browserId);
+  usage.browserDisconnected(key, browserId);
+  audit({ action: 'browser.stop', actorKey: key, targetType: 'browser', targetId: browserId,
+    meta: { clientType: browser.clientType, provider: browser.provider, sandboxRemoved }, req });
+  metrics.browsersConnected.set({}, registry.browsers.size);
+  return { id: browserId, ok: true, provider: browser.provider, sandboxRemoved };
+}
+
+router.post('/browsers/:browserId/stop', authMiddleware, async (req, res) => {
+  const result = await stopBrowser(req, req.params.browserId, { sandbox: req.body?.sandbox });
+  res.status(result.ok ? 200 : 404).json(result);
+});
+
+/** Bulk stop: `{ids: [...]}` or `{all: true}`. Each id reports separately. */
+router.post('/browsers/stop', authMiddleware, async (req, res) => {
+  const key = getKey(req);
+  const ids = req.body?.all === true
+    ? [...registry.browsers.entries()].filter(([, b]) => b.apiKey === key).map(([id]) => id)
+    : (Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 5000) : []);
+  if (!ids.length) return res.status(400).json({ error: 'Pass ids: [...] or all: true' });
+  // Sandboxes are deleted over the network; a few at a time keeps a 1k-browser
+  // "stop all" from opening a thousand connections to Daytona at once.
+  const results = [];
+  for (let i = 0; i < ids.length; i += 8) {
+    results.push(...await Promise.all(ids.slice(i, i + 8).map((id) => stopBrowser(req, id))));
+  }
+  res.json({ ok: true, stopped: results.filter((r) => r.ok).length, results });
+});
+
+/** One browser with its recent activity — what the detail panel polls. */
+router.get('/browsers/:browserId', authMiddleware, (req, res) => {
+  const { browserId } = req.params;
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    return res.status(404).json({ error: `Browser ${browserId} not connected` });
+  }
+  res.json(registry.describe(browserId));
+});
 
 /** Force a browser off the fleet — a stuck client, a runaway, an abusive key. */
 router.post('/browsers/:browserId/disconnect', authMiddleware, (req, res) => {
@@ -413,15 +489,70 @@ router.get('/personas', authMiddleware, (req, res) => {
   res.json({ personas: personas.list(getKey(req)).map(personas.describe) });
 });
 
+/** What the creation form may choose, so it never offers a timezone a platform cannot have. */
+router.get('/personas/options', authMiddleware, (req, res) => {
+  res.json(PREF_OPTIONS);
+});
+
+/** The fingerprint these choices would produce. Persists nothing. */
+router.post('/personas/preview', authMiddleware, (req, res) => {
+  res.json({ fingerprint: personas.describeProfile(personas.preview(req.body?.prefs)) });
+});
+
 router.post('/personas', authMiddleware, (req, res) => {
   const created = personas.create(getKey(req), {
     name: req.body?.name,
     proxy: req.body?.proxy,
     maxConcurrent: req.body?.maxConcurrent,
+    prefs: req.body?.prefs,
   });
   audit({ action: 'persona.create', actorKey: getKey(req), targetType: 'persona', targetId: created.id,
-    meta: { name: created.name }, req });
+    meta: { name: created.name, prefs: created.prefs }, req });
   res.status(201).json(personas.describe(created));
+});
+
+/**
+ * Name, cap and proxy hint only. The device itself — seed and prefs — is not
+ * editable, and a body that tries is refused rather than silently trimmed.
+ */
+router.put('/personas/:id', authMiddleware, (req, res) => {
+  const body = req.body || {};
+  const frozen = ['seed', 'prefs', 'id', 'owner', 'isDefault', 'fingerprint'].filter((k) => k in body);
+  if (frozen.length) {
+    return res.status(400).json({
+      error: `${frozen.join(', ')} cannot change after creation — a persona's device is stable for its life. Clone it for a different device.`,
+    });
+  }
+  const updated = personas.update(getKey(req), req.params.id, {
+    name: body.name, maxConcurrent: body.maxConcurrent, proxy: body.proxy,
+  });
+  if (!updated) return res.status(404).json({ error: 'No such persona' });
+  audit({ action: 'persona.update', actorKey: getKey(req), targetType: 'persona', targetId: updated.id,
+    meta: { fields: Object.keys(body) }, req });
+  res.json(personas.describe(updated));
+});
+
+router.post('/personas/:id/clone', authMiddleware, (req, res) => {
+  const created = personas.clone(getKey(req), req.params.id, { name: req.body?.name });
+  if (!created) return res.status(404).json({ error: 'No such persona' });
+  audit({ action: 'persona.create', actorKey: getKey(req), targetType: 'persona', targetId: created.id,
+    meta: { name: created.name, clonedFrom: req.params.id }, req });
+  res.status(201).json(personas.describe(created));
+});
+
+/** Pin a persona to one proxy (`{proxyId}`), or unpin it (`{proxyId: null}`). */
+router.put('/personas/:id/proxy', authMiddleware, (req, res) => {
+  const p = personas.get(getKey(req), req.params.id);
+  if (!p) return res.status(404).json({ error: 'No such persona' });
+  const proxyId = req.body?.proxyId ?? null;
+  if (proxyId === null) {
+    proxies.unassign(p.id);
+  } else if (!proxies.assign(ownerScope(req), p.id, String(proxyId))) {
+    return res.status(404).json({ error: 'No such proxy' });
+  }
+  audit({ action: 'persona.proxy', actorKey: getKey(req), targetType: 'persona', targetId: p.id,
+    meta: { proxyId }, req });
+  res.json({ ok: true, proxy: proxies.assigned(p.id)?.toJSON() ?? null });
 });
 
 router.get('/personas/:id', authMiddleware, (req, res) => {
@@ -469,6 +600,7 @@ router.post('/pairing/claim', (req, res) => {
   }
   const apiKey = pairing.claim(req.body?.code);
   if (!apiKey) return res.status(404).json({ error: 'That pairing code is invalid, used or expired' });
+  keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
   audit({ action: 'pairing.claim', actorKey: apiKey, targetType: 'key', targetId: fingerprint(apiKey), req });
   res.json({ apiKey });
 });

@@ -172,6 +172,20 @@ export function forPersona(owner, persona, { geo } = {}) {
 
 export function unassign(personaId) { assignments.delete(personaId); }
 
+/** Pin a persona to one proxy. The owner check is the tenant boundary. */
+export function assign(owner, personaId, proxyId) {
+  const p = proxies.get(proxyId);
+  if (!p || (p.owner !== null && p.owner !== owner)) return null;
+  assignments.set(personaId, proxyId);
+  return p;
+}
+
+/** Which proxy a persona is currently on, without assigning one. */
+export function assigned(personaId) {
+  const id = assignments.get(personaId);
+  return id ? proxies.get(id) || null : null;
+}
+
 /**
  * Verify a proxy works and learn its exit IP, so a customer is not told an
  * identity is in Denver when its traffic leaves Frankfurt.

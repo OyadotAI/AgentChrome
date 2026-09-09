@@ -5,6 +5,43 @@
 
 import { EventEmitter } from 'events';
 
+/** How many recent commands each browser remembers. Enough to see what it is doing. */
+const ACTIVITY_SIZE = 50;
+
+/**
+ * Health is derived, never stored: a browser that has not been heard from in
+ * 15s is stale, in 60s dead, and one that failed 3 of its last 10 commands
+ * is in trouble regardless of heartbeat.
+ */
+function healthOf(b, now = Date.now()) {
+  const silent = now - b.lastSeen.getTime();
+  if (silent > 60_000) return 'dead';
+  if (silent > 15_000) return 'stale';
+  const recent = b.activity.slice(0, 10);
+  if (recent.length >= 3 && recent.filter((a) => !a.ok).length >= 3) return 'errors';
+  return 'ok';
+}
+
+/**
+ * What an activity entry may say about a command. Never the text that was
+ * typed — this log is shown to whoever can see the dashboard.
+ */
+export function summarise(action, params = {}) {
+  if (!params || typeof params !== 'object') return '';
+  switch (action) {
+    case 'navigate': case 'open_tab': return String(params.url || '').slice(0, 200);
+    case 'type': case 'keyboard_type': return `${String(params.text || '').length} chars`;
+    case 'press_key': return String(params.key || '');
+    case 'click_coordinates': case 'mouse_move': case 'double_click': case 'hover':
+      return params.x !== undefined ? `${Math.round(params.x)},${Math.round(params.y)}` : String(params.selector || params.element_id || '');
+    case 'drag': return `${Math.round(params.from_x)},${Math.round(params.from_y)} → ${Math.round(params.to_x)},${Math.round(params.to_y)}`;
+    case 'click': case 'select': case 'wait': return String(params.selector || params.element_id || '');
+    case 'scroll': return `${params.direction || 'down'} ${params.amount || ''}`.trim();
+    case 'switch_tab': case 'close_tab': return String(params.tab_id || '');
+    default: return '';
+  }
+}
+
 class ConnectionRegistry extends EventEmitter {
   constructor() {
     super();
@@ -36,6 +73,13 @@ class ConnectionRegistry extends EventEmitter {
       lastFrame: null,
       lastFrameAt: null,
       streamViewers: new Set(),
+      // What this browser has been doing. Bounded; newest first.
+      activity: [],
+      commands: 0,
+      errors: 0,
+      pending: 0,
+      lastCommandAt: null,
+      lastError: null,
     });
     this.emit('browser:connected', { id: browserId, name, clientType, provider });
   }
@@ -58,6 +102,55 @@ class ConnectionRegistry extends EventEmitter {
 
   get(browserId) {
     return this.browsers.get(browserId);
+  }
+
+  /** A command was sent. Paired with recordActivity when it settles. */
+  commandStarted(browserId) {
+    const b = this.browsers.get(browserId);
+    if (b) b.pending++;
+  }
+
+  /**
+   * A command settled. `summary` is already reduced by summarise() — the log
+   * never holds what was typed.
+   */
+  recordActivity(browserId, { action, summary = '', ok, ms = 0, error = null }) {
+    const b = this.browsers.get(browserId);
+    if (!b) return;
+    b.pending = Math.max(0, b.pending - 1);
+    b.commands++;
+    if (!ok) { b.errors++; b.lastError = String(error || 'failed').slice(0, 200); }
+    b.lastCommandAt = new Date();
+    b.activity.unshift({ ts: b.lastCommandAt.toISOString(), action, summary, ok: !!ok, ms: Math.round(ms), ...(ok ? {} : { error: b.lastError }) });
+    if (b.activity.length > ACTIVITY_SIZE) b.activity.length = ACTIVITY_SIZE;
+  }
+
+  /** One browser, shaped for the API, with its activity. */
+  describe(browserId) {
+    const b = this.browsers.get(browserId);
+    if (!b) return null;
+    return { ...this.row(browserId, b), activity: b.activity };
+  }
+
+  row(id, b) {
+    return {
+      id,
+      name: b.name,
+      clientType: b.clientType,
+      provider: b.provider,
+      persona: b.persona?.id || null,
+      personaName: b.persona?.name || null,
+      health: healthOf(b),
+      connectedAt: b.connectedAt.toISOString(),
+      lastSeen: b.lastSeen.toISOString(),
+      currentUrl: b.currentUrl,
+      commands: b.commands,
+      errors: b.errors,
+      pending: b.pending,
+      lastCommandAt: b.lastCommandAt ? b.lastCommandAt.toISOString() : null,
+      lastError: b.lastError,
+      streaming: b.streamViewers.size > 0,
+    };
   }
 
   isConnected(browserId) {
@@ -116,16 +209,7 @@ class ConnectionRegistry extends EventEmitter {
     const result = [];
     for (const [id, b] of this.browsers) {
       if (apiKey && b.apiKey !== apiKey) continue;
-      result.push({
-        id,
-        name: b.name,
-        clientType: b.clientType,
-        provider: b.provider,
-        persona: b.persona?.id || null,
-        connectedAt: b.connectedAt.toISOString(),
-        lastSeen: b.lastSeen.toISOString(),
-        currentUrl: b.currentUrl,
-      });
+      result.push(this.row(id, b));
     }
     return result;
   }

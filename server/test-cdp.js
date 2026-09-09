@@ -148,6 +148,33 @@ try {
   assert(evalAttempt.ok === false, 'arbitrary evaluate is not exposed as a command');
   assert(await driver.evaluate('window.__pwned === undefined'), 'the evaluate attempt changed nothing');
 
+  console.log('\n7\ufe0f\u20e3b  Pointer and keyboard parity with the Oya client...');
+  {
+    // The dashboard drives a browser with the Oya client's vocabulary and
+    // must never have to ask which kind it is talking to.
+    await driver.send('navigate', { url: siteUrl });
+    const cc = await driver.send('click_coordinates', { x: 5, y: 5 });
+    assert(cc.ok, 'click_coordinates is accepted (aliased to click-coords)');
+    const mm = await driver.send('mouse_move', { x: 10, y: 10 });
+    assert(mm.ok, 'mouse_move is accepted');
+    // Focus the input by clicking it, then type like a person.
+    const a = await driver.send('analyze');
+    const input = (a.data?.elements || []).find((e) => e.type === 'input');
+    if (input) {
+      await driver.send('click', { element_id: input.id });
+      const kt = await driver.send('keyboard_type', { text: 'hello' });
+      assert(kt.ok, 'keyboard_type is accepted');
+      const pk = await driver.send('press_key', { key: '!' });
+      assert(pk.ok, 'press_key with a printable character is accepted');
+      const val = await driver.evaluateMain(`document.querySelector('input')?.value`);
+      assert(val === 'hello!', `typed text landed in the focused input (got "${val}")`);
+    }
+    const dc = await driver.send('double_click', { x: 5, y: 5 });
+    assert(dc.ok, 'double_click is accepted');
+    const dr = await driver.send('drag', { from_x: 5, from_y: 5, to_x: 50, to_y: 50 });
+    assert(dr.ok, 'drag is accepted');
+  }
+
   console.log('\n\u0038\ufe0f\u20e3  The page carries no trace of this product...');
   {
     // `typeof window.analyzePage === 'function'` is a one-line, 100%-precision

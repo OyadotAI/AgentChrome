@@ -72,6 +72,7 @@ function loadConfig() {
   // correlate the sandbox it created with the browser that enrolls.
   if (process.env.OYA_BROWSER_ID) browserId = process.env.OYA_BROWSER_ID;
   if (process.env.OYA_PERSONA) config.persona = process.env.OYA_PERSONA;
+  if (process.env.OYA_PROVIDER) config.provider = process.env.OYA_PROVIDER;
 }
 
 function saveConfig() {
@@ -1407,6 +1408,7 @@ function connect() {
         type: 'auth', api_key: config.apiKey,
         browser_id: browserId, browser_name: config.browserName,
         persona: config.persona,
+        provider: config.provider || (process.env.OYA_DOCKER ? 'oya-selfhosted' : 'oya-desktop'),
       }));
     });
 

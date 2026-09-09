@@ -4,13 +4,14 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { validateApiKey } from './auth.js';
-import { registry } from './connection-registry.js';
+import { registry, summarise } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
 import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from './cookie-store.js';
 import { metrics } from './metrics.js';
 import * as usage from './usage.js';
 import * as personas from './personas.js';
 import * as proxies from './proxies.js';
+import * as keyConfig from './key-config.js';
 import { fingerprint as personaOwner } from './audit.js';
 
 /** One place both client types report through, so the numbers are comparable. */
@@ -131,9 +132,14 @@ export function handleConnection(ws, req) {
 
       // No release callback here: the socket's close handler already releases
       // the slot, and every path that removes this browser closes the socket.
+      // A cloud sandbox says so at enrol time (OYA_PROVIDER in its env); the
+      // dashboard's Stop needs to know, because for a cloud browser stopping
+      // means destroying the sandbox, not just dropping the socket.
+      const provider = ['oya-cloud', 'oya-selfhosted', 'oya-desktop'].includes(msg.provider) ? msg.provider : 'oya-desktop';
       registry.add(browserId, {
-        ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona,
+        ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona, provider,
       });
+      if (provider === 'oya-desktop') keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
       metrics.wsConnections.inc({ outcome: 'ok' });
       metrics.browsersConnected.set({}, registry.browsers.size);
       usage.browserConnected(apiKey, browserId);
@@ -241,6 +247,12 @@ export function handleConnection(ws, req) {
         pendingCommands.delete(msg.id);
         metrics.pendingCommands.set({}, pendingCommands.size);
         recordCommand(pending.action, msg.ok ? 'ok' : 'error', Date.now() - pending.startedAt);
+        if (pending.visible) {
+          registry.recordActivity(browserId, {
+            action: pending.action, summary: pending.summary, ok: !!msg.ok,
+            ms: Date.now() - pending.startedAt, error: msg.error,
+          });
+        }
         pending.resolve({
           ok: msg.ok,
           data: msg.data,
@@ -346,11 +358,26 @@ export function sendCommand(browserId, action, params = {}, timeoutMs) {
   // Outbound clients (CDP: Anchor, Browserbase, Steel, plain Chrome) are driven
   // directly rather than by handing a command to a socket and awaiting a
   // cmd_result. Same action vocabulary either way, so callers never branch.
+  // Server-internal actions are not what the browser is "doing"; keep them
+  // out of the activity log so it reads as the agent's own steps.
+  const visible = action !== 'evaluate_raw';
+  const summary = summarise(action, params);
+  if (visible) registry.commandStarted(browserId);
+
   if (browser.driver) {
     const started = Date.now();
     return browser.driver.send(action, params, timeout).then(
-      (result) => { recordCommand(action, result?.ok === false ? 'error' : 'ok', Date.now() - started); return result; },
-      (err) => { recordCommand(action, 'error', Date.now() - started); throw err; },
+      (result) => {
+        const ok = result?.ok !== false;
+        recordCommand(action, ok ? 'ok' : 'error', Date.now() - started);
+        if (visible) registry.recordActivity(browserId, { action, summary, ok, ms: Date.now() - started, error: result?.error });
+        return result;
+      },
+      (err) => {
+        recordCommand(action, 'error', Date.now() - started);
+        if (visible) registry.recordActivity(browserId, { action, summary, ok: false, ms: Date.now() - started, error: err.message });
+        throw err;
+      },
     );
   }
 
@@ -359,10 +386,11 @@ export function sendCommand(browserId, action, params = {}, timeoutMs) {
       pendingCommands.delete(id);
       metrics.pendingCommands.set({}, pendingCommands.size);
       recordCommand(action, 'timeout', timeout);
+      if (visible) registry.recordActivity(browserId, { action, summary, ok: false, ms: timeout, error: 'timed out' });
       reject(new Error(`Command ${action} timed out after ${timeout / 1000}s`));
     }, timeout);
 
-    pendingCommands.set(id, { resolve, reject, timer, browserId, action, startedAt: Date.now() });
+    pendingCommands.set(id, { resolve, reject, timer, browserId, action, startedAt: Date.now(), summary: visible ? summary : null, visible });
     metrics.pendingCommands.set({}, pendingCommands.size);
 
     console.log(`[ws] → cmd to ${browserId}: id=${id} action=${action}`);

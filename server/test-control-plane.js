@@ -358,6 +358,107 @@ try {
     assert(unknownPersona.status === 404, `an unowned persona is refused (got ${unknownPersona.status})`);
   }
 
+  console.log('\n17. The fleet console: activity, health, stop...');
+  {
+    let released = 0;
+    registry.add('fc-1', {
+      apiKey: 'tenant-key', name: 'Console 1', clientType: 'cdp', provider: 'cdp',
+      driver: { send: async (action) => (action === 'boom' ? { ok: false, error: 'nope' } : { ok: true, data: {} }), close() {} },
+      release: () => { released++; },
+    });
+    // Rate limits from section 3 are per key; use the admin key for volume.
+    registry.add('fc-2', {
+      apiKey: 'admin-key', name: 'Console 2', clientType: 'cdp', provider: 'cdp',
+      driver: { send: async (action) => (action === 'boom' ? { ok: false, error: 'nope' } : { ok: true, data: {} }), close() {} },
+    });
+    const { sendCommand } = await import('./src/ws-handler.js');
+    await sendCommand('fc-2', 'navigate', { url: 'https://example.com/a' });
+    await sendCommand('fc-2', 'type', { selector: '#q', text: 'my secret password' });
+    await sendCommand('fc-2', 'boom', {});
+
+    const one = await call('/api/browsers/fc-2', { key: 'admin-key' });
+    assert(one.status === 200, `GET /browsers/:id answers (got ${one.status})`);
+    assert(one.body.commands === 3 && one.body.errors === 1, `counters: ${one.body.commands} commands, ${one.body.errors} errors`);
+    assert(Array.isArray(one.body.activity) && one.body.activity.length === 3, 'activity holds the three commands');
+    assert(one.body.activity[0].action === 'boom' && one.body.activity[0].ok === false, 'newest first, failure marked');
+    assert(one.body.activity[2].summary === 'https://example.com/a', 'navigate summary is the url');
+    assert(!JSON.stringify(one.body.activity).includes('my secret password'), 'typed text never enters the log');
+    assert(one.body.health === 'ok', `health is derived (${one.body.health})`);
+    const other = await call('/api/browsers/fc-2', { key: 'tenant-key' });
+    assert(other.status === 404, "another key cannot read a browser's activity");
+
+    const listed = await call('/api/browsers', { key: 'admin-key' });
+    const row = listed.body.find((b) => b.id === 'fc-2');
+    assert(row && row.health === 'ok' && row.commands === 3, 'the list carries health and counters');
+    const fleet = await call('/api/fleet', { key: 'admin-key' });
+    assert(fleet.body.browsers.byHealth.ok >= 1 && fleet.body.browsers.commands >= 3, 'fleet rolls up health and command counts');
+
+    const stop = await call('/api/browsers/fc-1/stop', { method: 'POST', key: 'tenant-key' });
+    assert(stop.status === 200 && stop.body.ok, `stop answers (got ${stop.status})`);
+    assert(released === 1, 'stopping a CDP browser releases its vendor session');
+    assert(!registry.isConnected('fc-1'), 'and removes it from the registry');
+    const gone = await call('/api/browsers/fc-1/stop', { method: 'POST', key: 'tenant-key' });
+    assert(gone.status === 404, 'stopping it again is a 404, not a silent ok');
+
+    registry.add('fc-3', { apiKey: 'admin-key', name: 'C3', clientType: 'cdp', provider: 'cdp', driver: { send: async () => ({ ok: true }), close() {} } });
+    registry.add('fc-4', { apiKey: 'admin-key', name: 'C4', clientType: 'cdp', provider: 'cdp', driver: { send: async () => ({ ok: true }), close() {} } });
+    registry.add('fc-5', { apiKey: 'tenant-key', name: 'C5', clientType: 'cdp', provider: 'cdp', driver: { send: async () => ({ ok: true }), close() {} } });
+    const bulk = await call('/api/browsers/stop', { method: 'POST', key: 'admin-key', body: { ids: ['fc-3', 'fc-4', 'fc-5'] } });
+    assert(bulk.body.stopped === 2, `bulk stop stops only the caller's browsers (${bulk.body.stopped} of 3)`);
+    assert(registry.isConnected('fc-5'), "another key's browser survives a bulk stop by id");
+    const all = await call('/api/browsers/stop', { method: 'POST', key: 'tenant-key', body: { all: true } });
+    assert(all.body.stopped >= 1 && !registry.isConnected('fc-5'), 'all: true stops everything on that key');
+    const empty = await call('/api/browsers/stop', { method: 'POST', key: 'tenant-key', body: {} });
+    assert(empty.status === 400, 'stop without ids or all is a 400');
+  }
+
+  console.log('\n18. Personas choose a device at creation, and keep it...');
+  {
+    const opts = await call('/api/personas/options', { key: 'tenant-key' });
+    assert(Array.isArray(opts.body.platforms) && opts.body.timezones.MacIntel, 'options list platforms and per-platform timezones');
+
+    const before = P.list('tenant-key').length;
+    const pv = await call('/api/personas/preview', { method: 'POST', key: 'tenant-key', body: { prefs: { platform: 'MacIntel', timezone: 'Pacific/Honolulu' } } });
+    assert(pv.body.fingerprint?.platform === 'MacIntel' && pv.body.fingerprint?.timezone === 'Pacific/Honolulu', 'preview honours the choices');
+    assert(P.list('tenant-key').length === before, 'preview persists nothing');
+
+    const created = await call('/api/personas', { method: 'POST', key: 'tenant-key',
+      body: { name: 'Mac in Hawaii', prefs: { platform: 'MacIntel', timezone: 'Pacific/Honolulu', locale: 'en-GB' }, maxConcurrent: 3 } });
+    assert(created.status === 201, `create with prefs (got ${created.status})`);
+    assert(created.body.fingerprint.platform === 'MacIntel' && created.body.fingerprint.timezone === 'Pacific/Honolulu'
+      && created.body.fingerprint.locale === 'en-GB', 'the created persona is the previewed device');
+    assert(created.body.prefs?.platform === 'MacIntel', 'prefs are returned');
+    assert(created.body.mfa && created.body.mfa.configured === false, 'describe includes MFA state');
+    const pid = created.body.id;
+
+    // The device must survive a restart: prefs are stored with the seed.
+    const seedBefore = P.get('tenant-key', pid).seed;
+    await P.drain(); P.reset(); await P.restore();
+    const back = P.get('tenant-key', pid);
+    assert(back && back.seed === seedBefore && back.prefs?.timezone === 'Pacific/Honolulu', 'seed and prefs survive drain/restore');
+
+    const bad = await call('/api/personas/' + pid, { method: 'PUT', key: 'tenant-key', body: { prefs: { platform: 'Win32' } } });
+    assert(bad.status === 400 && /clone/i.test(bad.body.error), 'changing prefs after creation is refused, with the way out named');
+    const badSeed = await call('/api/personas/' + pid, { method: 'PUT', key: 'tenant-key', body: { seed: 1 } });
+    assert(badSeed.status === 400, 'so is changing the seed');
+
+    const renamed = await call('/api/personas/' + pid, { method: 'PUT', key: 'tenant-key', body: { name: 'Renamed', maxConcurrent: 5 } });
+    assert(renamed.status === 200 && renamed.body.name === 'Renamed' && renamed.body.maxConcurrent === 5, 'name and cap are editable');
+    assert(renamed.body.fingerprint.timezone === 'Pacific/Honolulu', 'and the device did not move');
+    const foreign = await call('/api/personas/' + pid, { method: 'PUT', key: 'admin-key', body: { name: 'x' } });
+    assert(foreign.status === 404, "another key cannot edit it");
+
+    const cloned = await call('/api/personas/' + pid + '/clone', { method: 'POST', key: 'tenant-key', body: {} });
+    assert(cloned.status === 201 && cloned.body.id !== pid, 'clone makes a new persona');
+    assert(cloned.body.fingerprint.platform === 'MacIntel' && cloned.body.fingerprint.timezone === 'Pacific/Honolulu', 'of the same kind of device');
+    assert(cloned.body.fingerprint.canvasSeed !== created.body.fingerprint.canvasSeed, 'but a different device');
+
+    const unpin = await call('/api/personas/' + pid + '/proxy', { method: 'PUT', key: 'tenant-key', body: { proxyId: null } });
+    assert(unpin.status === 200 && unpin.body.proxy === null, 'a persona can be unpinned from its proxy');
+    const nope = await call('/api/personas/' + pid + '/proxy', { method: 'PUT', key: 'tenant-key', body: { proxyId: 'not-a-proxy' } });
+    assert(nope.status === 404, 'pinning to an unknown proxy is a 404');
+  }
+
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack}`);
   failed++;
