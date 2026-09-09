@@ -31,8 +31,10 @@ fi
 # ── Graceful shutdown ──
 cleanup() {
   echo "[oya-docker] Shutting down..."
-  kill $ELECTRON_PID 2>/dev/null || true
-  wait $ELECTRON_PID 2>/dev/null || true
+  if [ -n "${ELECTRON_PID:-}" ]; then
+    kill "$ELECTRON_PID" 2>/dev/null || true
+    wait "$ELECTRON_PID" 2>/dev/null || true
+  fi
   kill $XVFB_PID 2>/dev/null || true
   exit 0
 }
@@ -41,7 +43,7 @@ trap cleanup SIGTERM SIGINT
 # ── Start Electron ──
 # --no-sandbox must be a CLI arg — Electron checks for root before app code runs
 echo "[oya-docker] Starting Oya Browser (${SCREEN_WIDTH:-1920}x${SCREEN_HEIGHT:-1080})"
-npx electron . --no-sandbox --disable-gpu 2>&1 | grep -v "bus.cc\|viz_main_impl\|command_buffer_proxy\|interface_endpoint_client" &
+./node_modules/.bin/electron . --no-sandbox --disable-gpu &
 ELECTRON_PID=$!
 
 wait $ELECTRON_PID

@@ -7,8 +7,12 @@
  * @param {Electron.Session} ses
  * @param {{ type: string, host: string, port: number, username?: string, password?: string }} proxyConfig
  */
+const authHandlers = new WeakMap();
 async function configureProxy(ses, proxyConfig) {
-  if (!proxyConfig || !proxyConfig.host) return;
+  const { app } = require('electron');
+  const previous = authHandlers.get(ses);
+  if (previous) { app.removeListener('login', previous); authHandlers.delete(ses); }
+  if (!proxyConfig || !proxyConfig.host) { await ses.setProxy({ mode: 'direct' }); return; }
 
   const type = proxyConfig.type || 'http';
   let proxyUrl;
@@ -17,7 +21,7 @@ async function configureProxy(ses, proxyConfig) {
     // SOCKS5 automatically routes DNS through the proxy
     proxyUrl = `socks5://${proxyConfig.host}:${proxyConfig.port}`;
   } else {
-    proxyUrl = `http://${proxyConfig.host}:${proxyConfig.port}`;
+    proxyUrl = `${type === 'https' ? 'https' : 'http'}://${proxyConfig.host}:${proxyConfig.port}`;
   }
 
   await ses.setProxy({
@@ -27,12 +31,14 @@ async function configureProxy(ses, proxyConfig) {
 
   // Handle proxy authentication
   if (proxyConfig.username) {
-    ses.on('login', (event, webContents, details, authInfo, callback) => {
-      if (authInfo.isProxy) {
+    const handler = (event, webContents, details, authInfo, callback) => {
+      if (webContents?.session === ses && authInfo.isProxy && authInfo.host === proxyConfig.host && Number(authInfo.port) === Number(proxyConfig.port)) {
         event.preventDefault();
         callback(proxyConfig.username, proxyConfig.password || '');
       }
-    });
+    };
+    authHandlers.set(ses, handler);
+    app.on('login', handler);
   }
 }
 

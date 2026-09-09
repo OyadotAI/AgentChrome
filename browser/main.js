@@ -68,6 +68,9 @@ function loadConfig() {
   if (process.env.OYA_SERVER_URL) config.serverUrl = process.env.OYA_SERVER_URL;
   if (process.env.OYA_API_KEY) config.apiKey = process.env.OYA_API_KEY.split(',')[0].trim();
   if (process.env.OYA_BROWSER_NAME) config.browserName = process.env.OYA_BROWSER_NAME;
+  // Provisioned sandboxes are given their id up front so the server can
+  // correlate the sandbox it created with the browser that enrolls.
+  if (process.env.OYA_BROWSER_ID) browserId = process.env.OYA_BROWSER_ID;
 }
 
 function saveConfig() {
@@ -413,7 +416,7 @@ let missedPongs = 0;
  * This guarantees every browser with the same API key gets the exact same
  * fingerprint — the server is the single source of truth.
  */
-function applyServerFingerprint(profile) {
+async function applyServerFingerprint(profile) {
   if (!profile?.id) return;
 
   // Persist it so it survives restarts (and loads before reconnect)
@@ -427,7 +430,7 @@ function applyServerFingerprint(profile) {
   saveConfig();
 
   // Re-setup session with the new fingerprint (user-agent, proxy, headers)
-  setupBrowserSession();
+  await setupBrowserSession();
 
   // Re-inject into all open tabs so they pick up the new fingerprint
   for (const tab of tabs) {
@@ -456,7 +459,7 @@ function applyServerFingerprint(profile) {
 // ─── Session Setup ───
 
 /** Configure the persistent browser session — user-agent, cookies, privacy. */
-function setupBrowserSession() {
+async function setupBrowserSession() {
   const ses = getBrowserSession();
 
   // Telemetry blocking is handled by Chromium flags (applyTelemetryFlags).
@@ -514,14 +517,12 @@ function setupBrowserSession() {
   });
 
   // ── Proxy: apply from active profile ──
-  if (activeProfile?.proxy?.host) {
-    configureProxy(ses, activeProfile.proxy);
-  }
+  await configureProxy(ses, activeProfile?.proxy);
 }
 
 // ─── App Lifecycle ───
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   loadConfig();
 
   // Initialize profile store and load active profile
@@ -531,7 +532,7 @@ app.whenReady().then(() => {
     activeProfile = profileStore.get(activeId);
   }
 
-  setupBrowserSession();
+  await setupBrowserSession();
   createWindow();
   startCookieChangeListener();
   if (config.apiKey || process.env.OYA_AUTO_CONNECT === 'true') connect();
@@ -922,7 +923,7 @@ ipcMain.handle('activate-profile', async (e, profileId) => {
   saveConfig();
 
   // Re-setup session with new profile (proxy, headers, etc.)
-  setupBrowserSession();
+  await setupBrowserSession();
 
   // Open a fresh tab
   enterBrowsingMode('https://google.com');
@@ -937,7 +938,7 @@ ipcMain.handle('deactivate-profile', async () => {
   if (profileStore) profileStore.clearActive();
   saveConfig();
 
-  setupBrowserSession();
+  await setupBrowserSession();
   enterBrowsingMode('https://google.com');
   return true;
 });
@@ -1168,6 +1169,7 @@ function connect() {
 
   try {
     const socket = new WebSocket(config.serverUrl);
+    let messageQueue = Promise.resolve();
 
     socket.on('open', () => {
       devLog('out', 'auth', { browser_id: browserId, browser_name: config.browserName });
@@ -1187,7 +1189,9 @@ function connect() {
           devLog('in', msg.type, msg);
         }
       }
-      handleServerMessage(msg);
+      messageQueue = messageQueue.then(() => handleServerMessage(msg)).catch(() => {
+        socket.close(4003, 'Session setup failed');
+      });
     });
 
     socket.on('close', (code) => {
@@ -1227,7 +1231,7 @@ function scheduleReconnect() {
 
 function sendStatus() { sendToRenderer('ws-status', { connected: wsReady, browserId }); }
 
-function handleServerMessage(msg) {
+async function handleServerMessage(msg) {
   switch (msg.type) {
     case 'auth_ok':
       wsReady = true; reconnectAttempts = 0;
@@ -1235,7 +1239,7 @@ function handleServerMessage(msg) {
       startPingLoop(); sendStatus();
       // Apply fingerprint from the server — the server is the single source of truth.
       // Same API key = same fingerprint on every browser, guaranteed.
-      if (msg.fingerprint) applyServerFingerprint(msg.fingerprint);
+      if (msg.fingerprint) await applyServerFingerprint(msg.fingerprint);
       if (!browsingMode) enterBrowsingMode('https://google.com');
       // Send our cookies to the server for pool sync
       dumpCookies();
@@ -1726,7 +1730,7 @@ async function handleCommand(msg) {
       config.activeProfileId = profileId;
       profileStore.setActiveId(profileId);
       saveConfig();
-      setupBrowserSession();
+      await setupBrowserSession();
       enterBrowsingMode('https://google.com');
       sendResult(id, true, { activated: profileId, platform: profile.navigator.platform });
       return;
@@ -1789,16 +1793,18 @@ function waitForLoad(timeout = 30000) {
 // ─── Live Stream ───
 
 let streamInterval = null;
+let streamCapturing = false;
 function startStream(fps) {
   stopStream();
   const ms = Math.max(200, Math.round(1000 / fps));
   streamInterval = setInterval(async () => {
     const view = getActiveView();
-    if (!ws || ws.readyState !== WebSocket.OPEN || !view) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !view || streamCapturing || ws.bufferedAmount > 1024 * 1024) return;
+    streamCapturing = true;
     try {
       const img = await view.webContents.capturePage();
       ws.send(JSON.stringify({ type: 'frame', data: 'data:image/jpeg;base64,' + img.toJPEG(40).toString('base64') }));
-    } catch {}
+    } catch {} finally { streamCapturing = false; }
   }, ms);
 }
 function stopStream() { if (streamInterval) { clearInterval(streamInterval); streamInterval = null; } }
