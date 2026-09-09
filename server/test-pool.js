@@ -207,22 +207,38 @@ try {
     },
   }));
 
-  await wait(500); // let sync propagate
+  await wait(500);
 
-  // Check that Browser-2 and Browser-3 received the cookie update
-  const b2CookieMsg = b2.messages.find(m => m.type === 'cookie_update');
-  const b3CookieMsg = b3.messages.find(m => m.type === 'cookie_update');
-  const b1CookieMsg = b1.messages.find(m => m.type === 'cookie_update');
+  // Sync is pull-based: nothing is pushed to peers, because fanning every
+  // change out to every browser is quadratic in pool size.
+  assert(b2.messages.every(m => m.type !== 'cookie_update'), 'Browser-2 is NOT pushed the change');
+  assert(b3.messages.every(m => m.type !== 'cookie_update'), 'Browser-3 is NOT pushed the change');
 
-  assert(b2CookieMsg != null, 'Browser-2 received cookie_update');
-  assert(b3CookieMsg != null, 'Browser-3 received cookie_update');
-  assert(b1CookieMsg == null, 'Browser-1 did NOT receive its own cookie_update (no echo)');
+  // Browser-2 pulls it when it is about to visit that host.
+  b2.messages.length = 0;
+  b2.ws.send(JSON.stringify({ type: 'cookie_pull', domains: ['www.example.com'], pullId: 'test-1' }));
+  await wait(300);
+  const pulled = b2.messages.find(m => m.type === 'cookie_sync' && m.pullId === 'test-1');
+  assert(pulled != null, 'Browser-2 receives cookie_sync in response to its pull');
+  assert(pulled?.cookies?.find(c => c.name === 'session')?.value === 'abc123', 'Pulled cookie has the right value');
 
-  if (b2CookieMsg) {
-    assert(b2CookieMsg.change.cookie.name === 'session', 'Cookie name correct');
-    assert(b2CookieMsg.change.cookie.value === 'abc123', 'Cookie value correct');
-    assert(b2CookieMsg.change.cookie.domain === '.example.com', 'Cookie domain correct');
-  }
+  // A host with nothing stored gets nothing back.
+  b2.messages.length = 0;
+  b2.ws.send(JSON.stringify({ type: 'cookie_pull', domains: ['unrelated.test'], pullId: 'test-2' }));
+  await wait(300);
+  const empty = b2.messages.find(m => m.type === 'cookie_sync' && m.pullId === 'test-2');
+  assert(empty != null && empty.cookies.length === 0, 'A pull for an unrelated host returns nothing');
+
+  // Batched changes are accepted too.
+  b1.ws.send(JSON.stringify({ type: 'cookie_changed', changes: [
+    { removed: false, cookie: { name: 'batched', value: 'v1', domain: '.example.com', path: '/', secure: true, httpOnly: false, sameSite: 'lax' } },
+  ] }));
+  await wait(300);
+  b2.messages.length = 0;
+  b2.ws.send(JSON.stringify({ type: 'cookie_pull', domains: ['example.com'], pullId: 'test-3' }));
+  await wait(300);
+  const batched = b2.messages.find(m => m.type === 'cookie_sync' && m.pullId === 'test-3');
+  assert(batched?.cookies?.some(c => c.name === 'batched'), 'A batched cookie_changed reaches the jar');
 
   // Check server cookie jar via REST
   const jar = await httpGet('/pool/cookies');

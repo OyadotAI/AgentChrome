@@ -155,6 +155,18 @@ try {
     );
     assert(!bobGotAliceBroadcast, "Bob's WS did not receive Alice's cookie via broadcast");
 
+    // Cookie sync is pull-based, so the pull itself must be key-scoped: Bob
+    // asking for the exact domain Alice stored must get nothing.
+    b.messages.length = 0;
+    b.ws.send(JSON.stringify({ type: 'cookie_pull', domains: ['.twitter.com', 'twitter.com', 'www.twitter.com'], pullId: 'leak-probe' }));
+    await wait(300);
+    const bobPull = b.messages.find((m) => m.type === 'cookie_sync' && m.pullId === 'leak-probe');
+    assert(bobPull != null, "Bob's cookie_pull is answered");
+    assert(
+      !JSON.stringify(bobPull).includes('ALICE_SECRET'),
+      "Bob cannot pull Alice's cookie by naming her domain",
+    );
+
     // GET /pool/cookies with Bob's key must not include Alice's cookie
     const bobJar = await request('GET', '/api/pool/cookies', { key: keyB });
     assert(bobJar.status === 200, 'Bob can query his own jar');

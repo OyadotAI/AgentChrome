@@ -6,8 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { validateApiKey } from './auth.js';
 import { registry } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
-import { mergeDump, applyChange, getAll as getAllCookies } from './cookie-store.js';
-import { broadcastToPool } from './pool.js';
+import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from './cookie-store.js';
 import { getFingerprintForKey } from './fingerprint.js';
 
 const PING_INTERVAL = 20000;
@@ -133,30 +132,34 @@ export function handleConnection(ws) {
     }
 
     // ── Cookie dump (full jar from browser on connect) ──
+    //
+    // Merged into this key's jar and left there. Nothing is pushed to peers:
+    // fanning a full jar out to every browser in the pool on every connect was
+    // O(pool size) per connect, so a fleet-wide restart was quadratic.
     if (msg.type === 'cookie_dump') {
       if (Array.isArray(msg.cookies)) {
         const merged = mergeDump(apiKey, msg.cookies);
-        // Sync the merged jar to all OTHER browsers sharing this API key
-        broadcastToPool(apiKey, browserId, {
-          type: 'cookie_sync',
-          cookies: merged,
-        });
         console.log(`[ws] Cookie dump from ${browserId}: ${msg.cookies.length} cookies, jar now ${merged.length}`);
       }
       return;
     }
 
-    // ── Cookie change (incremental update) ──
+    // ── Cookie change (incremental, single or batched) ──
+    //
+    // Recorded in the jar only. Peers pick changes up via cookie_pull when they
+    // navigate somewhere that needs them.
     if (msg.type === 'cookie_changed') {
-      if (msg.change) {
-        const change = applyChange(apiKey, msg.change);
-        if (change) {
-          broadcastToPool(apiKey, browserId, {
-            type: 'cookie_update',
-            change,
-          });
-        }
-      }
+      const changes = Array.isArray(msg.changes) ? msg.changes : (msg.change ? [msg.change] : []);
+      for (const change of changes.slice(0, 500)) applyChange(apiKey, change);
+      return;
+    }
+
+    // ── Cookie pull (browser asks for the hosts it is about to visit) ──
+    if (msg.type === 'cookie_pull') {
+      const cookies = getForDomains(apiKey, msg.domains || []);
+      try {
+        ws.send(JSON.stringify({ type: 'cookie_sync', cookies, pullId: msg.pullId }));
+      } catch {}
       return;
     }
 

@@ -227,6 +227,35 @@ export function getAll(apiKey) {
 }
 
 /**
+ * Cookies matching the given hosts, for a browser about to navigate there.
+ *
+ * This is the pull side of cookie sync: browsers ask for what they need at
+ * navigation time instead of every browser being pushed every change, which
+ * made fan-out quadratic in pool size.
+ *
+ * ponytail: linear scan of the jar. The jar is keyed by domain|path|name, so a
+ * pool sharing one identity converges on one cookie set regardless of how many
+ * browsers are in it — measured 0.05 ms/pull at 1k cookies vs the ~170 pulls/s
+ * a 5k fleet generates. Index by registrable domain only if a pool ever holds
+ * many distinct identities under one key (50k cookies measured 2.2 ms/pull).
+ */
+export function getForDomains(apiKey, domains) {
+  if (!apiKey || !Array.isArray(domains)) return [];
+  const jar = jars.get(apiKey);
+  if (!jar) return [];
+  const hosts = domains
+    .filter((d) => typeof d === 'string' && d)
+    .slice(0, 20)
+    .map((d) => d.toLowerCase().replace(/^\./, ''));
+  if (!hosts.length) return [];
+  return [...jar.values()].filter((c) => {
+    const cookieDomain = String(c.domain || '').toLowerCase().replace(/^\./, '');
+    if (!cookieDomain) return false;
+    return hosts.some((h) => h === cookieDomain || h.endsWith('.' + cookieDomain));
+  });
+}
+
+/**
  * Get all cookies across every API key, as an object keyed by apiKey.
  * Admin-only — do not expose to regular callers.
  */

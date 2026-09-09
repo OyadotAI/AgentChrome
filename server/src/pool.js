@@ -46,23 +46,3 @@ export function poolStats(apiKey) {
     }),
   };
 }
-
-/**
- * Broadcast a WebSocket message to all browsers in the pool EXCEPT the sender.
- */
-export function broadcastToPool(apiKey, excludeBrowserId, message) {
-  const ids = getPoolBrowsers(apiKey);
-  const payload = JSON.stringify(message);
-  let sent = 0;
-  for (const id of ids) {
-    if (id === excludeBrowserId) continue;
-    const browser = registry.get(id);
-    if (browser?.ws?.readyState === 1) { // WebSocket.OPEN
-      try {
-        browser.ws.send(payload);
-        sent++;
-      } catch {}
-    }
-  }
-  return sent;
-}

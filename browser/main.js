@@ -346,34 +346,67 @@ async function applyCookieSync(cookies) {
 }
 
 /** Apply an incremental cookie update from the server. */
-async function applyCookieUpdate(change) {
-  if (!change?.cookie) return;
-  const c = change.cookie;
-  const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
-  applyingCookieSync = true;
+
+// ── Pull-based cookie sync ──
+//
+// The server no longer pushes every cookie change to every browser in the pool
+// — that was O(pool size) per change. Instead each browser asks for the hosts
+// it is about to visit, so sync cost tracks navigations rather than the square
+// of the fleet size. Outbound changes are batched for the same reason.
+
+const COOKIE_PULL_TTL = 30000;   // re-pull a host at most this often
+const COOKIE_PULL_TIMEOUT = 3000; // never block a navigation longer than this
+const COOKIE_FLUSH_MS = 2000;
+
+const pulledAt = new Map();
+const pendingPulls = new Map();
+let pullSeq = 0;
+
+function hostFor(url) {
   try {
-    if (change.removed) {
-      await getBrowserSession().cookies.remove(url, c.name);
-    } else {
-      await getBrowserSession().cookies.set({
-        url,
-        name: c.name,
-        value: c.value,
-        domain: c.domain,
-        path: c.path || '/',
-        secure: c.secure || false,
-        httpOnly: c.httpOnly || false,
-        sameSite: c.sameSite || 'unspecified',
-        expirationDate: c.expirationDate || undefined,
-      });
-    }
-  } catch {}
-  // Delay resetting the flag so any async 'changed' events fired by the
-  // cookie set/remove above are still suppressed.
-  setTimeout(() => { applyingCookieSync = false; }, 150);
+    return new URL(/^https?:\/\//i.test(url) ? url : 'https://' + url).hostname;
+  } catch { return null; }
 }
 
-/** Start listening for local cookie changes and forward to server. */
+/** Fetch this host's cookies from the pool before navigating to it. */
+function pullCookiesFor(url, { force = false } = {}) {
+  const host = hostFor(url);
+  if (!host || !ws || ws.readyState !== WebSocket.OPEN || !wsReady) return Promise.resolve();
+  if (!force && Date.now() - (pulledAt.get(host) || 0) < COOKIE_PULL_TTL) return Promise.resolve();
+  if (pulledAt.size > 500) pulledAt.clear();
+  pulledAt.set(host, Date.now());
+
+  const pullId = `p${++pullSeq}`;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      pendingPulls.delete(pullId);
+      resolve();
+    };
+    const timer = setTimeout(finish, COOKIE_PULL_TIMEOUT);
+    pendingPulls.set(pullId, finish);
+    try {
+      ws.send(JSON.stringify({ type: 'cookie_pull', domains: [host], pullId }));
+    } catch { finish(); }
+  });
+}
+
+/** Start listening for local cookie changes and forward them in batches. */
+let cookieBatch = new Map();
+let cookieFlushTimer = null;
+
+function flushCookieChanges() {
+  cookieFlushTimer = null;
+  if (!cookieBatch.size) return;
+  const changes = [...cookieBatch.values()];
+  cookieBatch = new Map();
+  if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) return;
+  try { ws.send(JSON.stringify({ type: 'cookie_changed', changes })); } catch {}
+}
+
 function startCookieChangeListener() {
   getBrowserSession().cookies.on('changed', (event, cookie, cause, removed) => {
     if (applyingCookieSync) return;
@@ -381,20 +414,18 @@ function startCookieChangeListener() {
     // when a cookie is replaced), expired, and evicted events to prevent
     // feedback loops between browsers in the pool.
     if (cause !== 'explicit') return;
-    if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) return;
-    try {
-      ws.send(JSON.stringify({
-        type: 'cookie_changed',
-        change: {
-          removed,
-          cookie: {
-            name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
-            secure: cookie.secure, httpOnly: cookie.httpOnly, sameSite: cookie.sameSite || 'unspecified',
-            expirationDate: cookie.expirationDate,
-          },
-        },
-      }));
-    } catch {}
+    // Keyed so a cookie rewritten repeatedly inside one window collapses to
+    // its final value instead of sending every intermediate step.
+    cookieBatch.set(`${cookie.domain}|${cookie.path}|${cookie.name}`, {
+      removed,
+      cookie: {
+        name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
+        secure: cookie.secure, httpOnly: cookie.httpOnly, sameSite: cookie.sameSite || 'unspecified',
+        expirationDate: cookie.expirationDate,
+      },
+    });
+    if (cookieBatch.size >= 200) { clearTimeout(cookieFlushTimer); flushCookieChanges(); return; }
+    if (!cookieFlushTimer) cookieFlushTimer = setTimeout(flushCookieChanges, COOKIE_FLUSH_MS);
   });
 }
 
@@ -843,11 +874,12 @@ async function injectScripts(view) {
 
 // ─── IPC ───
 
-ipcMain.handle('navigate', (e, url) => {
+ipcMain.handle('navigate', async (e, url) => {
   if (!browsingMode) { enterBrowsingMode(url); return; }
   const view = getActiveView();
   if (!view) return;
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  await pullCookiesFor(url);
   view.webContents.loadURL(url);
 });
 
@@ -1060,6 +1092,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         if (!params?.url) return { ok: false, error: 'URL required' };
         let url = params.url;
         if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+        await pullCookiesFor(url);
         await view.webContents.loadURL(url);
         await injectScripts(view);
         return { ok: true, data: { url: view.webContents.getURL(), title: view.webContents.getTitle() } };
@@ -1245,10 +1278,8 @@ async function handleServerMessage(msg) {
       dumpCookies();
       break;
     case 'cookie_sync':
-      applyCookieSync(msg.cookies);
-      break;
-    case 'cookie_update':
-      applyCookieUpdate(msg.change);
+      await applyCookieSync(msg.cookies);
+      pendingPulls.get(msg.pullId)?.();
       break;
     case 'ping': missedPongs = 0; try { ws.send(JSON.stringify({ type: 'pong' })); } catch {} break;
     case 'pong': missedPongs = 0; break;
