@@ -20,6 +20,8 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import cors from 'cors';
 import { router as apiRouter } from './api.js';
+import { drain as drainAudit } from './audit.js';
+import * as usage from './usage.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
 import { validateApiKey } from './auth.js';
@@ -59,6 +61,9 @@ app.get('/openapi.json', (req, res) => res.type('application/json').sendFile(joi
 
 // ── REST API under /api ──
 app.use('/api', apiRouter);
+// Prometheus convention is /metrics at the root; the same handler also serves
+// /api/metrics for callers that prefix everything.
+app.use('/', apiRouter);
 
 // ── Downloads (binary files) ──
 app.use('/downloads', express.static(join(__dirname, '..', 'downloads')));
@@ -120,6 +125,18 @@ registry.on('browser:connected', ({ id, name }) => {
 registry.on('browser:disconnected', ({ id, name }) => {
   console.log(`[oya] Browser disconnected: ${name} (${id})`);
 });
+
+// Continue this hour's usage buckets across a restart, so a quota cannot be
+// reset by bouncing the process.
+usage.restore().catch(() => {});
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, async () => {
+    registry.draining = true;
+    await Promise.allSettled([drainAudit(), usage.drain()]);
+    process.exit(0);
+  });
+}
 
 server.listen(PORT, () => {
   console.log(`[oya] Oya Browser server listening on port ${PORT}`);

@@ -17,8 +17,52 @@ import { runtimeConfig, userConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
 import { getAll as getAllCookies, getAllByKey as getAllCookiesByKey, clear as clearCookies, clearAll as clearAllCookies } from './cookie-store.js';
 import { isConfigured as sandboxConfigured, createSandbox, removeSandbox } from './sandbox.js';
+import { metrics, render as renderMetrics, snapshot as metricsSnapshot } from './metrics.js';
+import { audit, history as auditHistory, fingerprint } from './audit.js';
+import * as usage from './usage.js';
+import { enforce, consume, checkQuota, checkHourly, status as limitStatus, LIMITS, QUOTAS } from './limits.js';
+import { acquire as acquireBrowser, available as availableProviders } from './providers.js';
+import { CDPDriver } from './drivers/cdp.js';
+import { v4 as uuidv4 } from 'uuid';
 
 export const router = Router();
+
+/**
+ * HTTP metrics. Labelled by the route pattern, never the concrete path — at
+ * this fleet size /browsers/:id/command must not become one series per browser.
+ */
+router.use((req, res, next) => {
+  const started = Date.now();
+  res.on('finish', () => {
+    const route = (req.route?.path || req.path)
+      .replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, '/:id')
+      .replace(/\/[A-Za-z0-9_-]{24,}/g, '/:token');
+    metrics.httpRequests.inc({ route, status: `${Math.floor(res.statusCode / 100)}xx` });
+    metrics.httpDuration.observe({ route }, Date.now() - started);
+  });
+  next();
+});
+
+// One pair of listeners for the whole process. Registering per browser would
+// leak a listener each time and trip EventEmitter's max at 11 CDP browsers.
+registry.on('stream:start', ({ id }) => {
+  const browser = registry.get(id);
+  if (!browser?.driver?.startScreencast) return;   // Oya clients push frames themselves
+  browser.driver.startScreencast((dataUrl) => {
+    registry.pushFrame(id, dataUrl);
+    metrics.frames.inc({ client: 'cdp' });
+  }).catch(() => {});
+});
+registry.on('stream:stop', ({ id }) => {
+  registry.get(id)?.driver?.stopScreencast?.().catch(() => {});
+});
+
+/** Admin gate. Anything that can read across tenants or change global state. */
+function adminOnly(req, res, next) {
+  if (isAdminKey(getKey(req))) return next();
+  audit({ action: 'admin.denied', actorKey: getKey(req), targetType: 'endpoint', targetId: req.path, outcome: 'denied', req });
+  return res.status(403).json({ error: 'Admin key required' });
+}
 
 /** Extract API key from Authorization header */
 function getKey(req) {
@@ -147,7 +191,184 @@ router.post('/fleet/provision', authMiddleware, async (req, res) => {
   }
   const count = Math.min(Math.max(parseInt(req.query.count || req.body?.count) || 1, 1), 10000);
   const keys = await provisionKeys(count);
+  audit({ action: 'key.provision', actorKey: key, targetType: 'key', meta: { count: keys.length }, req });
   res.json({ ok: true, count: keys.length, keys });
+});
+
+// ─── Observability ───────────────────────────────────────────────────────────
+
+/**
+ * Prometheus scrape target. Accepts an admin key or a dedicated
+ * OYA_METRICS_TOKEN, so a scraper does not need admin credentials.
+ */
+router.get('/metrics', (req, res) => {
+  const supplied = getKey(req) || req.query.token || '';
+  const scrapeToken = process.env.OYA_METRICS_TOKEN;
+  if (!isAdminKey(supplied) && !(scrapeToken && supplied === scrapeToken)) {
+    return res.status(403).type('text/plain').send('# admin key or OYA_METRICS_TOKEN required\n');
+  }
+  metrics.browsersConnected.set({}, registry.browsers.size);
+  res.type('text/plain; version=0.0.4').send(renderMetrics());
+});
+
+/** Same numbers as JSON, plus live fleet composition, for the dashboard. */
+router.get('/admin/metrics', authMiddleware, adminOnly, (req, res) => {
+  metrics.browsersConnected.set({}, registry.browsers.size);
+  const byClient = {};
+  const byProvider = {};
+  for (const b of registry.browsers.values()) {
+    byClient[b.clientType || 'oya'] = (byClient[b.clientType || 'oya'] || 0) + 1;
+    if (b.provider) byProvider[b.provider] = (byProvider[b.provider] || 0) + 1;
+  }
+  res.json({
+    at: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    browsers: { total: registry.browsers.size, byClient, byProvider },
+    metrics: metricsSnapshot(),
+  });
+});
+
+/** Cross-tenant usage. */
+router.get('/admin/usage', authMiddleware, adminOnly, (req, res) => {
+  res.json({ hour: new Date().toISOString().slice(0, 13) + ':00:00Z', keys: usage.snapshot() });
+});
+
+/** The caller's own usage and remaining allowance — no admin key needed. */
+router.get('/usage', authMiddleware, async (req, res) => {
+  const key = getKey(req);
+  const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key).length;
+  res.json({
+    current: usage.current(key),
+    browsers: { connected: mine, quota: QUOTAS.browsers },
+    ...limitStatus(key),
+    history: (await usage.history(key, { hours: Number(req.query.hours) || 24 })).rows,
+  });
+});
+
+/** Audit trail. Admin only: it spans every tenant by construction. */
+router.get('/admin/audit', authMiddleware, adminOnly, async (req, res) => {
+  const result = await auditHistory({
+    limit: Math.min(Number(req.query.limit) || 100, 1000),
+    action: req.query.action,
+    actor: req.query.actor,
+    since: req.query.since,
+  });
+  res.json(result);
+});
+
+// ─── Control ─────────────────────────────────────────────────────────────────
+
+/** Force a browser off the fleet — a stuck client, a runaway, an abusive key. */
+router.post('/admin/browsers/:browserId/disconnect', authMiddleware, adminOnly, (req, res) => {
+  const { browserId } = req.params;
+  const browser = registry.get(browserId);
+  if (!browser) return res.status(404).json({ error: 'Browser not connected' });
+  try { browser.ws?.close(4008, 'Disconnected by operator'); } catch {}
+  registry.remove(browserId);
+  audit({ action: 'browser.disconnect', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
+    meta: { clientType: browser.clientType, reason: req.body?.reason || null }, req });
+  metrics.browsersConnected.set({}, registry.browsers.size);
+  res.json({ ok: true, disconnected: browserId });
+});
+
+/** Drop every browser belonging to one key, without waiting for key deletion. */
+router.post('/admin/keys/:key/disconnect', authMiddleware, adminOnly, (req, res) => {
+  const target = req.params.key;
+  const ids = [...registry.browsers.entries()].filter(([, b]) => b.apiKey === target).map(([id]) => id);
+  for (const id of ids) {
+    try { registry.get(id)?.ws?.close(4008, 'Key disconnected by operator'); } catch {}
+    registry.remove(id);
+  }
+  audit({ action: 'key.disconnect', actorKey: getKey(req), targetType: 'key', targetId: fingerprint(target),
+    meta: { browsers: ids.length }, req });
+  metrics.browsersConnected.set({}, registry.browsers.size);
+  res.json({ ok: true, disconnected: ids.length });
+});
+
+/**
+ * Drain: stop accepting new browsers so this instance can be restarted without
+ * dropping in-flight work. Read by the WebSocket handler.
+ */
+router.post('/admin/drain', authMiddleware, adminOnly, (req, res) => {
+  const draining = req.body?.draining !== false;
+  registry.draining = draining;
+  audit({ action: draining ? 'fleet.drain' : 'fleet.undrain', actorKey: getKey(req), targetType: 'fleet', req });
+  res.json({ ok: true, draining, connected: registry.browsers.size });
+});
+
+// ─── Browser providers (CDP) ─────────────────────────────────────────────────
+
+router.get('/providers', authMiddleware, (req, res) => {
+  res.json({ providers: availableProviders(), daytona: sandboxConfigured() });
+});
+
+/**
+ * Attach a CDP browser: one we dial out to, rather than one that dials in.
+ * Anchor, Browserbase, Steel, or any Chrome with --remote-debugging-port.
+ */
+router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req, res) => {
+  const key = getKey(req);
+  const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key).length;
+  const quota = checkQuota('browsers', key, mine);
+  if (!quota.allowed) {
+    audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'denied',
+      meta: { reason: 'quota', quota: quota.quota }, req });
+    return res.status(429).json({ error: `Browser quota reached (${quota.quota})`, ...quota });
+  }
+
+  const provider = String(req.body?.provider || 'cdp');
+  let session;
+  try {
+    session = await acquireBrowser({ provider, wsUrl: req.body?.wsUrl });
+  } catch (err) {
+    audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'error',
+      meta: { provider, error: err.message }, req });
+    return res.status(err.status || 502).json({ error: err.message });
+  }
+
+  const browserId = uuidv4();
+  try {
+    const driver = await new CDPDriver({
+      wsUrl: session.wsUrl,
+      provider: session.provider,
+      onClose: () => { if (registry.get(browserId)) registry.remove(browserId); },
+    }).connect();
+
+    registry.add(browserId, {
+      apiKey: key,
+      name: (req.body?.name || `${session.provider} browser`).slice(0, 100),
+      driver,
+      clientType: 'cdp',
+      provider: session.provider,
+      release: session.release,
+    });
+
+    usage.browserConnected(key, browserId);
+    metrics.wsConnections.inc({ outcome: 'ok' });
+    metrics.browsersConnected.set({}, registry.browsers.size);
+    audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', targetId: browserId,
+      meta: { provider: session.provider, sessionId: session.sessionId }, req });
+
+    res.status(201).json({ id: browserId, provider: session.provider, clientType: 'cdp' });
+  } catch (err) {
+    await session.release().catch(() => {});
+    audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'error',
+      meta: { provider, error: err.message }, req });
+    res.status(502).json({ error: `Could not attach to the CDP browser: ${err.message}` });
+  }
+});
+
+/** Detach a CDP browser and release the vendor session. */
+router.delete('/browsers/:browserId/connection', authMiddleware, (req, res) => {
+  const { browserId } = req.params;
+  const browser = registry.get(browserId);
+  if (!browser || !canAccess(req, browserId)) return res.status(404).json({ error: 'Browser not found' });
+  usage.browserDisconnected(browser.apiKey, browserId);
+  registry.remove(browserId);   // closes the driver and releases the session
+  metrics.browsersConnected.set({}, registry.browsers.size);
+  audit({ action: 'browser.disconnect', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
+    meta: { clientType: browser.clientType, provider: browser.provider }, req });
+  res.json({ ok: true });
 });
 
 // ─── Cloud browser provisioning (Daytona) ───
@@ -155,7 +376,13 @@ router.post('/fleet/provision', authMiddleware, async (req, res) => {
 // Launches sandboxed browsers that enroll over the normal WebSocket with the
 // caller's own key, so they join that caller's pool as ordinary browsers.
 
-router.post('/browsers/provision', authMiddleware, async (req, res) => {
+router.post('/browsers/provision', authMiddleware, enforce('provision'), async (req, res) => {
+  const hourly = checkHourly('sandboxesPerHour', getKey(req));
+  if (!hourly.allowed) {
+    audit({ action: 'browser.provision', actorKey: getKey(req), outcome: 'denied',
+      meta: { reason: 'hourly quota', quota: hourly.quota }, req });
+    return res.status(429).json({ error: `Sandbox quota reached for this hour (${hourly.quota})`, ...hourly });
+  }
   if (!sandboxConfigured()) {
     return res.status(409).json({
       error: 'Cloud browsers are not configured. Set DAYTONA_API_KEY, DAYTONA_SNAPSHOT and OYA_PUBLIC_WS_URL.',
@@ -181,6 +408,12 @@ router.post('/browsers/provision', authMiddleware, async (req, res) => {
   const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message || 'unknown error');
 
   if (failed.length) console.error(`[sandbox] ${failed.length}/${count} failed:`, failed.join('; '));
+  usage.record(key, 'sandboxes_created', created.length);
+  metrics.sandboxes.inc({ op: 'create', outcome: 'ok' }, created.length);
+  if (failed.length) metrics.sandboxes.inc({ op: 'create', outcome: 'error' }, failed.length);
+  audit({ action: 'browser.provision', actorKey: key, targetType: 'sandbox',
+    outcome: created.length ? 'ok' : 'error',
+    meta: { requested: count, created: created.length, failed: failed.length }, req });
 
   res.status(created.length ? 202 : 502).json({
     ok: created.length > 0,
@@ -197,6 +430,9 @@ router.delete('/browsers/:browserId/sandbox', authMiddleware, async (req, res) =
     // Ownership is enforced by the sandbox's owner label, which works whether or
     // not the browser is currently connected.
     const removed = await removeSandbox(browserId, getKey(req));
+    metrics.sandboxes.inc({ op: 'delete', outcome: 'ok' });
+    audit({ action: 'sandbox.delete', actorKey: getKey(req), targetType: 'sandbox', targetId: browserId,
+      meta: { removed }, req });
     res.json({ ok: true, removed });
   } catch (err) {
     console.error('[sandbox] delete failed:', err.message);
@@ -230,12 +466,16 @@ router.post('/config', authMiddleware, async (req, res) => {
     const userId = await getKeyOwner(key);
     if (userId) {
       await userConfig.set(userId, req.body);
+      audit({ action: 'config.update', actorKey: key, actorUser: userId, targetType: 'config',
+        meta: { scope: 'account', fields: Object.keys(req.body || {}) }, req });
       return res.json({ ok: true, scope: 'account' });
     }
     if (!isAdminKey(key)) {
       return res.status(403).json({ error: 'Admin key required' });
     }
     runtimeConfig.set(req.body);
+    audit({ action: 'config.update', actorKey: key, targetType: 'config',
+      meta: { scope: 'server', fields: Object.keys(req.body || {}) }, req });
     res.json({ ok: true, scope: 'server' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -283,7 +523,7 @@ router.get('/live/:browserId', (req, res, next) => {
 });
 
 // Send command to a browser
-router.post('/browsers/:browserId/command', authMiddleware, async (req, res) => {
+router.post('/browsers/:browserId/command', authMiddleware, enforce('command'), async (req, res) => {
   // Navigate can take up to 90s — disable socket timeout for this request
   req.setTimeout(0);
   res.setTimeout(0);
@@ -301,14 +541,17 @@ router.post('/browsers/:browserId/command', authMiddleware, async (req, res) => 
 
   try {
     const result = await sendCommand(browserId, action, params || {});
+    usage.record(getKey(req), 'commands');
+    if (result?.ok === false) usage.record(getKey(req), 'command_errors');
     res.json(result);
   } catch (err) {
+    usage.record(getKey(req), 'command_errors');
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
 // Chat — LLM + MCP tools for natural-language browser control
-router.post('/browsers/:browserId/chat', authMiddleware, async (req, res) => {
+router.post('/browsers/:browserId/chat', authMiddleware, enforce('chat'), async (req, res) => {
   req.setTimeout(0);
   res.setTimeout(0);
 
@@ -386,10 +629,11 @@ router.get('/pool/cookies', authMiddleware, (req, res) => {
 // Pool cookies — clear the caller's API-key jar only. Admin clears every jar.
 router.delete('/pool/cookies', authMiddleware, (req, res) => {
   const key = getKey(req);
-  if (isAdminKey(key)) {
-    clearAllCookies();
-  } else {
-    clearCookies(key);
-  }
+  const scope = isAdminKey(key) ? 'all' : 'own';
+  if (scope === 'all') clearAllCookies(); else clearCookies(key);
+  // Destroying sessions across a fleet is exactly the action you want a record
+  // of afterwards.
+  audit({ action: 'cookies.clear', actorKey: key, targetType: 'cookies', targetId: scope,
+    meta: { scope }, req });
   res.json({ ok: true });
 });

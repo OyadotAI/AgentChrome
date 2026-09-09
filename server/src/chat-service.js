@@ -6,6 +6,9 @@ import { sendCommand } from './ws-handler.js';
 import { BROWSER_TOOLS } from './chat-tools.js';
 import { userConfig } from './runtime-config.js';
 import { getKeyOwner } from './auth.js';
+import { metrics } from './metrics.js';
+import * as usage from './usage.js';
+import { checkHourly } from './limits.js';
 
 const SYSTEM_PROMPT = `You control a real browser via tools. The browser belongs to the user — it has their cookies, logins, and sessions.
 
@@ -138,6 +141,18 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
   // Settings belong to the account that owns the calling API key; keys with no
   // account fall back to the server-wide values.
   const userId = apiKey ? await getKeyOwner(apiKey) : null;
+
+  // A runaway agent loop is the most expensive thing this control plane can do
+  // on someone else's behalf, so the ceiling is checked before the first call.
+  const budget = checkHourly('chatTokensPerHour', apiKey);
+  if (!budget.allowed) {
+    metrics.chatRequests.inc({ outcome: 'quota' });
+    throw Object.assign(
+      new Error(`Chat token quota reached for this hour (${budget.current}/${budget.quota})`),
+      { status: 429 },
+    );
+  }
+
   const { openaiKey, baseUrl, model } = await userConfig.resolve(userId);
   if (!openaiKey) {
     throw new Error('OpenAI API key not configured. Open Settings in the dashboard to add one for your account, or set OPENAI_API_KEY env var.');
@@ -197,6 +212,14 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
     }
 
     const data = await res.json();
+
+    // Every iteration of the agentic loop bills, so account per iteration
+    // rather than once per request.
+    const input = data.usage?.prompt_tokens || 0;
+    const output = data.usage?.completion_tokens || 0;
+    if (input) { metrics.chatTokens.inc({ direction: 'input' }, input); usage.record(apiKey, 'chat_input_tokens', input); }
+    if (output) { metrics.chatTokens.inc({ direction: 'output' }, output); usage.record(apiKey, 'chat_output_tokens', output); }
+
     const choice = data.choices?.[0];
     if (!choice) throw new Error('No completion in response');
 

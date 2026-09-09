@@ -9,6 +9,7 @@ import { destroyMcpServer } from './mcp-server.js';
 import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from './cookie-store.js';
 import { getFingerprintForKey } from './fingerprint.js';
 import { metrics } from './metrics.js';
+import * as usage from './usage.js';
 
 /** One place both client types report through, so the numbers are comparable. */
 function recordCommand(action, outcome, ms) {
@@ -54,6 +55,14 @@ export function handleConnection(ws) {
     if (msg.type === 'auth') {
       clearTimeout(authTimeout);
 
+      // Draining: finish what is in flight, accept nothing new, so an
+      // instance can be restarted without dropping live sessions.
+      if (registry.draining) {
+        metrics.wsConnections.inc({ outcome: 'draining' });
+        ws.close(4009, 'Server draining');
+        return;
+      }
+
       if (!validateApiKey(msg.api_key)) {
         metrics.wsConnections.inc({ outcome: 'invalid_key' });
         ws.close(4003, 'Invalid API key');
@@ -93,6 +102,7 @@ export function handleConnection(ws) {
       registry.add(browserId, { ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya' });
       metrics.wsConnections.inc({ outcome: 'ok' });
       metrics.browsersConnected.set({}, registry.browsers.size);
+      usage.browserConnected(apiKey, browserId);
 
       // Generate deterministic fingerprint from API key — same key = same profile everywhere
       const fingerprint = getFingerprintForKey(msg.api_key);
@@ -141,6 +151,8 @@ export function handleConnection(ws) {
       if (msg.data) {
         registry.pushFrame(browserId, msg.data);
         metrics.frames.inc({ client: 'oya' });
+        usage.record(apiKey, 'frames');
+        usage.record(apiKey, 'bytes_out', msg.data.length);
       }
       return;
     }
@@ -173,6 +185,7 @@ export function handleConnection(ws) {
     if (msg.type === 'cookie_pull') {
       const cookies = getForDomains(apiKey, msg.domains || []);
       metrics.cookiePulls.inc({});
+      usage.record(apiKey, 'cookie_pulls');
       try {
         ws.send(JSON.stringify({ type: 'cookie_sync', cookies, pullId: msg.pullId }));
       } catch {}
@@ -227,6 +240,7 @@ export function handleConnection(ws) {
 
         registry.remove(browserId);
         destroyMcpServer(browserId);
+        usage.browserDisconnected(apiKey, browserId);
         metrics.wsDisconnections.inc({ client: 'oya' });
         metrics.browsersConnected.set({}, registry.browsers.size);
         metrics.pendingCommands.set({}, pendingCommands.size);
