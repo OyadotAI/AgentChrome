@@ -34,6 +34,7 @@ import * as proxies from './proxies.js';
 import * as captcha from './captcha.js';
 import * as mfa from './mfa.js';
 import * as keyConfig from './key-config.js';
+import * as pairing from './pairing.js';
 
 export const router = Router();
 
@@ -438,6 +439,38 @@ router.delete('/personas/:id', authMiddleware, (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// ─── Desktop pairing ─────────────────────────────────────────────────────────
+//
+// The `oya://` link the dashboard builds carries one of these codes, never the
+// API key. See pairing.js for why.
+
+router.post('/pairing', authMiddleware, enforce('provision'), (req, res) => {
+  const key = getKey(req);
+  try {
+    const { code, expiresAt } = pairing.issue(key);
+    audit({ action: 'pairing.issue', actorKey: key, targetType: 'key', targetId: fingerprint(key), req });
+    res.status(201).json({ code, expiresAt });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/**
+ * Redeem a code for the key it stands for. Unauthenticated by necessity — the
+ * desktop app has no credential yet, which is the whole point — so the code is
+ * 256 bits, single use, and short-lived, and the attempt is rate limited by IP.
+ */
+router.post('/pairing/claim', (req, res) => {
+  const from = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (!consume('connect', `pair:${from}`).allowed) {
+    return res.status(429).json({ error: 'Too many pairing attempts' });
+  }
+  const apiKey = pairing.claim(req.body?.code);
+  if (!apiKey) return res.status(404).json({ error: 'That pairing code is invalid, used or expired' });
+  audit({ action: 'pairing.claim', actorKey: apiKey, targetType: 'key', targetId: fingerprint(apiKey), req });
+  res.json({ apiKey });
 });
 
 // ─── Start a browser ─────────────────────────────────────────────────────────

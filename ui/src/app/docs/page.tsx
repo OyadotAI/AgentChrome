@@ -15,6 +15,7 @@ import {
   Zap,
   Menu,
   Shield,
+  Users,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -284,9 +285,18 @@ export default function DocsPage() {
       {/* Nav sections */}
       <NavSection icon={<Zap className="w-3 h-3" />} label="Getting Started">
         <NavLink onClick={() => navClick('quickstart')}>Quickstart</NavLink>
+        <NavLink onClick={() => navClick('sdk')}>SDK</NavLink>
+        <NavLink onClick={() => navClick('cli')}>CLI</NavLink>
         <NavLink onClick={() => navClick('create-key')}>Create API Key</NavLink>
-        <NavLink onClick={() => navClick('download')}>Download Browser</NavLink>
+        <NavLink onClick={() => navClick('download')}>Desktop Sign-in</NavLink>
         <NavLink onClick={() => navClick('connect')}>Connect</NavLink>
+      </NavSection>
+
+      <NavSection icon={<Users className="w-3 h-3" />} label="Identity">
+        <NavLink onClick={() => navClick('personas')}>Personas</NavLink>
+        <NavLink onClick={() => navClick('rotation')}>Rotation</NavLink>
+        <NavLink onClick={() => navClick('captcha')}>CAPTCHA</NavLink>
+        <NavLink onClick={() => navClick('mfa')}>MFA</NavLink>
       </NavSection>
 
       <NavSection icon={<BookOpen className="w-3 h-3" />} label="AI Integration">
@@ -320,7 +330,7 @@ export default function DocsPage() {
 
       <NavSection icon={<Globe className="w-3 h-3" />} label="Dashboard">
         <NavLink onClick={() => navClick('dashboard-overview')}>Overview</NavLink>
-        <NavLink onClick={() => navClick('chat')}>Chat</NavLink>
+        <NavLink onClick={() => navClick('onboarding')}>Onboarding</NavLink>
         <NavLink onClick={() => navClick('live-view')}>Live View</NavLink>
         <NavLink onClick={() => navClick('settings')}>Settings</NavLink>
       </NavSection>
@@ -421,17 +431,84 @@ export default function DocsPage() {
           {/* Title */}
           <h1 className="font-display text-3xl font-bold tracking-tight text-text mb-2">Documentation</h1>
           <p className="text-text-muted mb-10 text-base leading-relaxed">
-            Everything you need to connect your browser to AI agents via Oya Browser.
+            Thousands of browsers, one API. Every one a different identity.
           </p>
 
           {/* ============ QUICKSTART ============ */}
           <SectionHeading id="quickstart" first>Quickstart</SectionHeading>
-          <ol className="list-decimal list-inside space-y-1.5 mb-4 text-[15px] leading-relaxed">
-            <li>Go to the <InlineLink href="/dashboard">dashboard</InlineLink> and click <strong>Generate</strong> to create an API key</li>
-            <li><InlineAnchor onClick={() => navClick('download')}>Download</InlineAnchor> Oya Browser for your OS</li>
-            <li>Open the app, enter <InlineCode>wss://browser.getoya.ai/ws</InlineCode> as server URL and paste your API key</li>
-            <li>Your browser appears in the <InlineLink href="/dashboard">dashboard</InlineLink> — you can now send commands or connect AI tools</li>
-          </ol>
+          <CodeBlock>{`npm i @oya/browser
+npx oya login && npx oya init`}</CodeBlock>
+          <CodeBlock>{`import { Oya } from "@oya/browser";
+
+const oya = new Oya();                                    // OYA_API_KEY
+const browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
+await browser.goto("https://example.com");`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            That is the whole surface. Which provider actually runs the browser — Oya Cloud, your own
+            machines, Browser Use, Browserbase, Steel, Anchor, or a CDP URL you hand us — is a setting
+            on your API key, chosen once during <InlineAnchor onClick={() => navClick('onboarding')}>onboarding</InlineAnchor>.
+            Your code never branches on it.
+          </p>
+          <NoteBox>
+            The API key is the identity for everything: browsers, personas, cookies, settings, usage
+            and audit history are all scoped to it, and one key can never see another&apos;s.
+          </NoteBox>
+
+          {/* ============ SDK ============ */}
+          <SectionHeading id="sdk">SDK</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            <InlineCode>@oya/browser</InlineCode> is TypeScript with no runtime dependencies, shipped as
+            ESM, CJS and types. Element IDs come from <InlineCode>analyze()</InlineCode> and are only valid
+            until the page changes — after a navigation or a click that redraws, analyze again.
+          </p>
+          <CodeBlock>{`const page = await browser.analyze();      // markdown + numbered elements
+const els  = await browser.elements();     // just the visible ones
+
+await browser.click(13);
+await browser.type(9, "hello");
+await browser.pressKey("Enter");
+await browser.waitFor("[data-testid=results]");
+await browser.scroll("bottom");
+
+const png = await browser.screenshot();    // base64
+const answer = await browser.ask("find the pricing page");
+
+await browser.solveCaptcha();              // { solved, method }
+await browser.completeMfa();               // { completed, method, liveViewUrl }
+await browser.close();`}</CodeBlock>
+
+          <h3 className="text-base font-semibold mt-6 mb-2 text-text">Bring your own tools</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            <InlineCode>browser.cdpUrl</InlineCode> is our gateway URL, not the vendor&apos;s — point
+            Playwright, Puppeteer, Stagehand or browser-use at it and you get routing, profile capture
+            and session recording without any of them knowing this exists.
+          </p>
+          <CodeBlock>{`const browser = await oya.browser.start();
+const pw = await chromium.connectOverCDP(browser.cdpUrl);`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            The gateway also answers <InlineCode>/json/version</InlineCode> and <InlineCode>/json/list</InlineCode>,
+            which is what lets those clients treat it as an ordinary browser.
+          </p>
+
+          {/* ============ CLI ============ */}
+          <SectionHeading id="cli">CLI</SectionHeading>
+          <CodeBlock>{`oya login                       Save an API key for this machine
+oya init                        Model, browser provider, solver, desktop sign-in
+oya start [--persona auto]      Start a browser and print its id
+oya goto <url>                  Navigate (defaults to the newest browser)
+oya ask "<prompt>"              Drive it in plain language
+oya ls                          What is running
+oya rm <id> | --all             Stop browsers
+oya personas [new|rm <id>]      Identities and their concurrency
+oya open                        Watch a browser work
+oya config [key=value ...]      This key's settings
+oya usage                       What this key has spent
+oya stealth-test [--live]       Score this deployment against bot detectors`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Flags and <InlineCode>OYA_API_KEY</InlineCode> / <InlineCode>OYA_BASE_URL</InlineCode> beat the
+            saved file, so CI never needs <InlineCode>oya login</InlineCode>. The key is stored at{' '}
+            <InlineCode>~/.oya/config.json</InlineCode>, mode 600.
+          </p>
 
           {/* ============ CREATE KEY ============ */}
           <SectionHeading id="create-key">Create API Key</SectionHeading>
@@ -446,17 +523,35 @@ export default function DocsPage() {
           </WarnBox>
 
           {/* ============ DOWNLOAD ============ */}
-          <SectionHeading id="download">Download Browser</SectionHeading>
+          <SectionHeading id="download">Desktop Sign-in</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            For browsers on Oya infrastructure, the desktop app is a one-time step: log into the sites
+            your agents need, and those cookies move to the remote browsers, which run the same
+            fingerprint as that identity. The agent arrives already signed in, and the site sees one
+            device returning rather than a fleet sharing an account.
+          </p>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Onboarding and Settings both have an <strong>Open the desktop browser</strong> button. It
+            builds an <InlineCode>oya://</InlineCode> link carrying a single-use pairing code — never
+            your API key, because a protocol URL is reachable by any page you visit and lands in OS logs
+            on the way. The app exchanges that code over HTTPS with the server the link names.
+          </p>
+          <WarnBox>
+            The desktop app asks before connecting, naming the destination host, with Cancel as the
+            default. Connecting shares that browser&apos;s cookies and logged-in sessions with the
+            control plane it dials — so if a web page opened the dialog rather than your own dashboard,
+            cancel it.
+          </WarnBox>
           <Table
             headers={['Platform', 'Download']}
             rows={[
               [
                 'macOS (Intel + Apple Silicon)',
-                <a key="mac" href="/downloads/Oya.Browser-1.0.22-universal.dmg" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.dmg</a>,
+                <a key="mac" href="/downloads/Oya.Browser-1.0.44-universal.dmg" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.dmg</a>,
               ],
               [
                 'Linux (arm64)',
-                <a key="linux" href="/downloads/Oya.Browser-1.0.22-arm64.AppImage" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.AppImage</a>,
+                <a key="linux" href="/downloads/Oya.Browser-1.0.44-arm64.AppImage" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.AppImage</a>,
               ],
             ]}
           />
@@ -646,6 +741,95 @@ analyze_page()`}</CodeBlock>
           <CodeBlock>{'wait({ selector: ".results", timeout: 10000 })'}</CodeBlock>
 
           {/* ============ ANONYMITY ============ */}
+          {/* ============ PERSONAS ============ */}
+          <SectionHeading id="personas">Personas</SectionHeading>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            A <strong>persona</strong> is one identity: a fingerprint, a cookie jar and a proxy, bound
+            together and stable for its life. One persona is one device.
+          </p>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            There are two ways to get caught, and they are mirror images of each other:
+          </p>
+          <Table
+            headers={['Shape', 'Signal']}
+            rows={[
+              ['One account seen from many device fingerprints', 'Textbook bot farm'],
+              ['One device fingerprint across many accounts — or 1,000 concurrent sessions', 'Device farm'],
+            ]}
+          />
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Binding the fingerprint to your API key avoids the first and walks straight into the second.
+            Binding it to each browser avoids the second and walks into the first. So the binding sits at
+            the level that actually corresponds to a device:
+          </p>
+          <CodeBlock>{`persona = fingerprint + cookie jar + proxy       # one identity, one device
+API key = a group of personas                    # your fleet`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            A persona&apos;s fingerprint is derived from a stored seed, so it is byte-identical across
+            restarts — a returning session looks like a returning device, not a new one.
+          </p>
+          <CodeBlock>{`const p = await oya.personas.create({ name: "acme-ops" });
+const browser = await oya.browser.start({ persona: p.id });
+
+await oya.personas.list();     // includes activeBrowsers and maxConcurrent
+await oya.personas.remove(p.id);`}</CodeBlock>
+          <NoteBox>
+            Every API key has a <strong>default</strong> persona whose seed reproduces the fingerprint
+            that key had before personas existed. If you run a single account, nothing changed for you.
+          </NoteBox>
+
+          <h3 id="rotation" className="text-base font-semibold mt-6 mb-2 text-text">Rotation and concurrency</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Rotation means picking a <em>different</em> persona — never giving one persona a new
+            fingerprint. <InlineCode>persona: &apos;auto&apos;</InlineCode> selects the least recently used
+            persona that is still under its concurrency cap.
+          </p>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Concurrency is capped per persona, because one laptop cannot be in a thousand places at once.
+            Named personas default to 2 (a phone and a laptop is plausible); the default persona is
+            uncapped so an existing fleet does not break on upgrade. Past the cap you get a clear 429
+            rather than a silent breach, and <InlineCode>activeBrowsers</InlineCode> is visible in the
+            dashboard and as a Prometheus metric.
+          </p>
+
+          {/* ============ CHALLENGES ============ */}
+          <SectionHeading id="captcha">CAPTCHA</SectionHeading>
+          <CodeBlock>{`await browser.solveCaptcha();                    // explicit
+oya.browser.start({ captcha: 'auto' });          // solve as they appear`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Detects reCAPTCHA v2/v3, hCaptcha and Turnstile. Providers that solve natively — Anchor,
+            Browserbase, Steel, Browser Use — are left to do it rather than paying twice and racing
+            their attempt. Everything else goes to your configured solver (CapSolver or 2Captcha).
+          </p>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Returns <InlineCode>{`{ solved, method: 'provider' | 'solver' | 'none' }`}</InlineCode>. A
+            failure returns <InlineCode>solved: false</InlineCode> — a silent no-op that leaves an agent
+            stuck is worse than a clear answer.
+          </p>
+          <WarnBox>
+            Automated solving conflicts with some sites&apos; terms of service. Sessions that used it are
+            recorded in the audit trail so you can see which.
+          </WarnBox>
+
+          <SectionHeading id="mfa">MFA</SectionHeading>
+          <CodeBlock>{`await oya.personas.setMfa(id, { type: 'totp', secret: 'JBSWY3DPEHPK3PXP' });
+await oya.personas.setMfa(id, { type: 'email', url: 'https://mail.example/api/latest' });
+
+const r = await browser.completeMfa();
+if (!r.completed) open(r.liveViewUrl);   // finish it by hand`}</CodeBlock>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            TOTP is generated locally (RFC 6238). Email and SMS one-time codes are polled from a relay
+            endpoint you supply, within a bounded window — the code does not exist yet when the prompt
+            appears. When nothing automated can answer, <InlineCode>liveViewUrl</InlineCode> is where a
+            person finishes; that is also the only workable answer for push-approval MFA.
+          </p>
+          <NoteBox>
+            TOTP seeds are credential material of the same weight as a password: sealed at rest with
+            AES-256-GCM, audited on use, and never returned by the API. The relay URL is checked against
+            private and link-local ranges when you store it <em>and</em> on every poll, because a public
+            name says nothing about where it resolves later.
+          </NoteBox>
+
           <SectionHeading id="anonymity">Anonymity</SectionHeading>
           <p className="mb-3 text-[15px] leading-relaxed">
             Create and manage browser profiles with unique fingerprints, proxy routing, and isolated cookie stores. Each profile is a complete identity — different canvas hash, WebGL renderer, navigator properties, and session storage. Switch identities with a single MCP call.
@@ -735,27 +919,32 @@ analyze_page()`}</CodeBlock>
           <p className="mb-3 text-[15px] leading-relaxed">
             The <InlineLink href="/dashboard">dashboard</InlineLink> at <InlineCode>/dashboard</InlineCode> is the control panel. It shows your connected browsers and lets you interact with them.
           </p>
+          <p className="mb-3 text-[15px] leading-relaxed">Three tabs, and a button that starts a browser:</p>
           <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
-            <li><strong>Generate key</strong> — click Generate in the API key bar to create a new key</li>
-            <li><strong>Browser list</strong> — shows all browsers connected with your key</li>
-            <li><strong>Commands tab</strong> — quick buttons for analyze, screenshot, scroll + input fields for navigate, click, type</li>
-            <li><strong>MCP Tools tab</strong> — shows the MCP endpoint URL, copy-paste config for Cursor/Claude, and a tool runner</li>
+            <li><strong>Browsers</strong> — what is running, with a live view of whichever you select</li>
+            <li><strong>Personas</strong> — your identities, their fingerprints and how many browsers each is running</li>
+            <li><strong>Control</strong> — metrics, per-key usage, the audit trail, quotas and drain</li>
           </ul>
-
-          <h3 id="chat" className="text-base font-semibold mt-6 mb-2 text-text">Chat</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
-            Control the browser with natural language — available in both the web dashboard and the desktop app&apos;s dev panel. Type &quot;go to google and search for cats&quot; and the AI navigates, types, clicks, and reports back.
+            You can sign in with an account, or by pasting an API key — a self-hosted deployment with{' '}
+            <InlineCode>API_KEYS</InlineCode> and no database has no accounts, and still needs its own UI.
           </p>
-          <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
-            <li>Formatted markdown responses with <strong>bold</strong>, <InlineCode>code</InlineCode>, lists, and headings</li>
-            <li>Tool call badges showing which MCP tools the AI used (analyze_page, click, type, etc.)</li>
-            <li>Copy button on hover to copy any response</li>
-            <li>Automatic context trimming when conversations get long</li>
-            <li>Conversation history preserved across messages</li>
-          </ul>
-          <NoteBox>
-            Chat requires an OpenAI API key. Set it in the Settings panel (gear icon in the API key bar) or <InlineCode>OPENAI_API_KEY</InlineCode> env var on the server. This is optional — you don&apos;t need it for MCP tools.
-          </NoteBox>
+
+          <h3 id="onboarding" className="text-base font-semibold mt-6 mb-2 text-text">Onboarding</h3>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            A key that has not been set up gets a four-step wizard. Everything it asks is stored against
+            that key — nothing lands in an environment variable, and nothing is inherited from an account.
+          </p>
+          <ol className="list-decimal list-inside space-y-1.5 mb-4 text-[15px] leading-relaxed">
+            <li><strong>Model</strong> — Claude or OpenAI, your key, your default model</li>
+            <li><strong>Browsers</strong> — Oya Cloud, Oya self-hosted, Browser Use, Browserbase, Steel, Anchor, or your own CDP URL</li>
+            <li><strong>Challenges</strong> — a CAPTCHA solver, or none</li>
+            <li><strong>Sign in</strong> — one click into the desktop browser, for Oya providers only</li>
+          </ol>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            The same choices are available any time from Settings, and <InlineCode>oya init</InlineCode>{' '}
+            walks the identical flow in a terminal.
+          </p>
 
           <h3 className="text-base font-semibold mt-6 mb-2 text-text">Dev Panel (Desktop App)</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
@@ -770,19 +959,27 @@ analyze_page()`}</CodeBlock>
 
           <h3 id="live-view" className="text-base font-semibold mt-6 mb-2 text-text">Live View</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
-            The Commands tab shows a live view of the browser below the command buttons. Frames are streamed as JPEG via SSE at ~2fps.
+            Select a browser on the Browsers tab to watch it work. Frames stream as JPEG over SSE at
+            ~2fps. <InlineCode>browser.liveViewUrl()</InlineCode> gives you the same stream from the SDK —
+            it carries the key as a query parameter, because EventSource cannot set headers, so treat the
+            URL itself as a credential.
           </p>
 
           <h3 id="settings" className="text-base font-semibold mt-6 mb-2 text-text">Settings</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
-            Click the gear icon next to the API key bar. Configure:
+            The gear icon next to the API key bar. Everything here belongs to that key: model provider
+            and credential, default model, browser provider and its credential, CAPTCHA solver, and the
+            one-click desktop sign-in.
           </p>
-          <ul className="list-disc list-inside space-y-1 mb-4 text-[15px] leading-relaxed">
-            <li><strong>OpenAI API Key</strong> — for the Chat feature</li>
-            <li><strong>Chat Model</strong> — default <InlineCode>gpt-4o-mini</InlineCode></li>
-            <li><strong>Base URL</strong> — override for compatible APIs (Azure OpenAI, local LLMs, etc.)</li>
-          </ul>
-          <p className="mb-3 text-[15px] leading-relaxed">Settings are saved on the server and persist across restarts.</p>
+          <p className="mb-3 text-[15px] leading-relaxed">
+            Credentials are sealed at rest with AES-256-GCM and always read back masked. Saving the
+            masked placeholder never overwrites the real value.
+          </p>
+          <NoteBox>
+            A key that has set nothing falls back to the deployment-wide defaults. Changing <em>those</em>{' '}
+            affects every key that has not set its own, so it needs <InlineCode>OYA_OPERATOR_TOKEN</InlineCode>{' '}
+            via <InlineCode>POST /config/host</InlineCode> rather than any API key.
+          </NoteBox>
 
           {/* ============ REST API ============ */}
           <SectionHeading id="rest-api">REST API</SectionHeading>
@@ -795,12 +992,20 @@ analyze_page()`}</CodeBlock>
               [<InlineCode key="m1">GET</InlineCode>, <InlineCode key="e1">/health</InlineCode>, 'Server status + browser count'],
               [<InlineCode key="m2">POST</InlineCode>, <InlineCode key="e2">/register-key</InlineCode>, <span key="d2">Register a new API key (<InlineCode>{`{ "key": "..." }`}</InlineCode>)</span>],
               [<InlineCode key="m3">GET</InlineCode>, <InlineCode key="e3">/browsers</InlineCode>, 'List your connected browsers'],
+              [<InlineCode key="ms">POST</InlineCode>, <InlineCode key="es">/browsers/start</InlineCode>, <span key="ds">Start one (<InlineCode>{`{ "persona": "auto" }`}</InlineCode>) — provider comes from your key</span>],
               [<InlineCode key="m4">POST</InlineCode>, <InlineCode key="e4">/browsers/:id/command</InlineCode>, <span key="d4">Send command (<InlineCode>{`{ "action": "...", "params": {} }`}</InlineCode>)</span>],
               [<InlineCode key="m5">POST</InlineCode>, <InlineCode key="e5">/browsers/:id/chat</InlineCode>, <span key="d5">Chat (<InlineCode>{`{ "messages": [...] }`}</InlineCode>)</span>],
               [<InlineCode key="m6">GET</InlineCode>, <InlineCode key="e6">/live/:id?key=...</InlineCode>, 'SSE live view frame stream'],
               [<InlineCode key="m7">GET/POST</InlineCode>, <InlineCode key="e7">/mcp/:id</InlineCode>, 'MCP Streamable HTTP endpoint'],
-              [<InlineCode key="m8">GET</InlineCode>, <InlineCode key="e8">/config</InlineCode>, 'Get server settings'],
-              [<InlineCode key="m9">POST</InlineCode>, <InlineCode key="e9">/config</InlineCode>, 'Update server settings'],
+              [<InlineCode key="mp1">GET/POST</InlineCode>, <InlineCode key="ep1">/personas</InlineCode>, 'List or create personas'],
+              [<InlineCode key="mp2">DELETE</InlineCode>, <InlineCode key="ep2">/personas/:id</InlineCode>, 'Delete a persona (409 while in use)'],
+              [<InlineCode key="mp3">PUT</InlineCode>, <InlineCode key="ep3">/personas/:id/mfa</InlineCode>, 'Store a second factor'],
+              [<InlineCode key="mc1">POST</InlineCode>, <InlineCode key="ec1">/browsers/:id/captcha</InlineCode>, 'Detect and clear a CAPTCHA'],
+              [<InlineCode key="mc2">POST</InlineCode>, <InlineCode key="ec2">/browsers/:id/mfa</InlineCode>, 'Answer an MFA prompt'],
+              [<InlineCode key="mu">GET</InlineCode>, <InlineCode key="eu">/usage</InlineCode>, "This key's usage, bucketed by hour"],
+              [<InlineCode key="ma">GET</InlineCode>, <InlineCode key="ea">/audit</InlineCode>, "This key's audit history"],
+              [<InlineCode key="m8">GET</InlineCode>, <InlineCode key="e8">/config</InlineCode>, "This key's settings, credentials masked"],
+              [<InlineCode key="m9">POST</InlineCode>, <InlineCode key="e9">/config</InlineCode>, "Update this key's settings"],
             ]}
           />
 

@@ -56,11 +56,16 @@ export const isOyaProvider = (id: string) => id === 'oya-cloud' || id === 'oya-s
 
 /**
  * One-click desktop sign-in. The installed browser registers `oya://`, so this
- * hands it the key and the server to dial without anyone copying a key by hand.
+ * hands it a single-use pairing code and the server to exchange it with.
+ *
+ * The key itself never goes in the URL: a protocol link is reachable by any page
+ * the user visits, and it lands in OS logs on the way. The code expires in
+ * minutes, redeems once, and the desktop app still asks before acting on it.
  */
-export function desktopSignInUrl(apiKey: string): string {
-  const ws = typeof window === 'undefined'
-    ? ''
-    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
-  return `oya://connect?key=${encodeURIComponent(apiKey)}&server=${encodeURIComponent(ws)}`;
+export async function desktopSignInUrl(apiKey: string): Promise<string> {
+  const res = await fetch(apiUrl('/pairing'), { method: 'POST', headers: apiKeyHeaders(apiKey) });
+  if (!res.ok) throw new Error(await reason(res, 'Could not start desktop sign-in'));
+  const { code } = await res.json();
+  const ws = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+  return `oya://connect?code=${encodeURIComponent(code)}&server=${encodeURIComponent(ws)}`;
 }

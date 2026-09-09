@@ -84,18 +84,22 @@ log_info "Linux AppImage will be built by GitHub Actions"
 
 log_info "Updating download links → $VERSION"
 
-UI_PAGE="ui/src/app/page.tsx"
-if [ -f "$UI_PAGE" ]; then
-  sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" "$UI_PAGE"
-  rm -f "${UI_PAGE}.bak"
-  log_ok "Updated $UI_PAGE"
-fi
+# Every page that links a binary, not just the landing page — the docs page was
+# left out and sat three releases behind pointing at files CI no longer ships.
+UI_PAGES="ui/src/app/page.tsx ui/src/app/docs/page.tsx"
+for UI_PAGE in $UI_PAGES; do
+  if [ -f "$UI_PAGE" ]; then
+    sed -i.bak "s/Oya\.Browser-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*-/Oya.Browser-${VERSION}-/g" "$UI_PAGE"
+    rm -f "${UI_PAGE}.bak"
+    log_ok "Updated $UI_PAGE"
+  fi
+done
 
 # ── Commit, tag, push ──
 
 log_info "Committing version bump and link updates"
 git add browser/package.json
-[ -f "$UI_PAGE" ] && git add "$UI_PAGE"
+for UI_PAGE in $UI_PAGES; do [ -f "$UI_PAGE" ] && git add "$UI_PAGE"; done
 git commit -m "release: $TAG — update browser version and download links"
 
 git tag "$TAG"

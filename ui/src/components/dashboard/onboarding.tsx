@@ -31,6 +31,16 @@ export default function Onboarding({ apiKey, config, onDone }: OnboardingProps) 
   const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
   const [solver, setSolver] = useState(config.captcha_solver || '');
   const [solverKey, setSolverKey] = useState('');
+  const [pairing, setPairing] = useState(false);
+
+  // The code is minted on click and lives for minutes, so it is not sitting in
+  // the DOM of a tab left open all afternoon.
+  const openDesktop = async () => {
+    setPairing(true);
+    try { window.location.href = await desktopSignInUrl(apiKey); }
+    catch (err) { toast(err instanceof Error ? err.message : 'Could not start sign-in', 'error'); }
+    finally { setPairing(false); }
+  };
 
   const needs = config.providers.find((p) => p.id === provider)?.needs ?? [];
 
@@ -184,17 +194,19 @@ export default function Onboarding({ apiKey, config, onDone }: OnboardingProps) 
                 so the sessions look like one device returning, not a fleet sharing an account.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <a href={desktopSignInUrl(apiKey)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-black">
-                  Open the desktop browser <ArrowRight className="h-3.5 w-3.5" />
-                </a>
+                <button onClick={openDesktop} disabled={pairing}
+                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
+                  {pairing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                  Open the desktop browser
+                </button>
                 <a href="/downloads" target="_blank" rel="noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg-card px-4 py-2 text-sm text-text hover:bg-white/5">
                   Download it first <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>
               <p className="mt-3 text-xs text-text-dim">
-                Opening it signs that browser in as this API key. Optional — Settings has the same link.
+                The desktop browser will ask you to confirm before connecting. Optional — Settings has
+                the same button.
               </p>
             </>
           )}

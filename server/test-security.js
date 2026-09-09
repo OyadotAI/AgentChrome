@@ -358,6 +358,47 @@ try {
     await wait(150);
   }
 
+  console.log('\n8\u20e3  Desktop pairing hands over a key without putting it in a URL');
+  {
+    const pairing = await import('./src/pairing.js');
+    const PORT_BASE = `http://127.0.0.1:${PORT}`;
+
+    const issued = await request('POST', '/api/pairing', { key: keyA });
+    assert(issued.status === 201 && typeof issued.data.code === 'string',
+      `a key can mint a pairing code (got ${issued.status})`);
+    assert((issued.data.code || '').length >= 40, 'the code is long enough that guessing is hopeless');
+    assert(issued.data.code !== keyA && !String(issued.data.code).includes(keyA),
+      'the code is not the API key');
+
+    const anon = await fetch(`${PORT_BASE}/api/pairing`, { method: 'POST' });
+    assert(anon.status === 401, `minting a code requires auth (got ${anon.status})`);
+
+    // The claim is unauthenticated by necessity: the desktop app has no
+    // credential yet. That is what makes single use load-bearing.
+    const claimed = await request('POST', '/api/pairing/claim', { body: { code: issued.data.code }, omitAuth: true });
+    assert(claimed.status === 200 && claimed.data.apiKey === keyA,
+      `a code redeems for the key that minted it (got ${claimed.status})`);
+
+    const replay = await request('POST', '/api/pairing/claim', { body: { code: issued.data.code }, omitAuth: true });
+    assert(replay.status === 404, `a code cannot be redeemed twice (got ${replay.status})`);
+
+    let accepted = 0;
+    for (const bogus of ['', 'x', 'not-a-real-code-but-long-enough-to-pass-the-length-check', null, 123, { a: 1 }]) {
+      const bad = await request('POST', '/api/pairing/claim', { body: { code: bogus }, omitAuth: true });
+      if (bad.status === 200) accepted++;
+    }
+    assert(accepted === 0, `no bogus code is accepted (${accepted} were)`);
+
+    // Single use is what bounds a link that leaked into a shell history or an OS log.
+    pairing.reset();
+    const { code } = pairing.issue('some-key');
+    assert(pairing.outstanding() === 1, 'an outstanding code is tracked');
+    assert(pairing.claim(code) === 'some-key', 'claim returns the key that minted it');
+    assert(pairing.claim(code) === null, 'and only once');
+    assert(pairing.outstanding() === 0, 'a claimed code is gone');
+    pairing.reset();
+  }
+
   // ── Summary ──
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`  ${passed} passed, ${failed} failed`);

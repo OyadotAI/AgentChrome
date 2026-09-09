@@ -7,7 +7,7 @@
  * Protocol for full native control. Human-like timing and mouse paths.
  */
 
-const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage, Menu, nativeTheme } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage, Menu, nativeTheme, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -622,24 +622,73 @@ async function setupBrowserSession() {
 // key by hand. Cookies gathered here are what the remote browsers reuse, so
 // this is the step that makes an agent arrive already logged in.
 
-function applyDeepLink(rawUrl) {
+/**
+ * A deep link is attacker-reachable input: any page the user visits can set
+ * location.href to an oya:// URL. Connecting hands the target server this
+ * browser's cookies, so an unattended handler would be drive-by cookie
+ * exfiltration. Two things stop that:
+ *
+ *   1. The link carries a single-use pairing code, never a key, and the code is
+ *      exchanged over HTTPS with the server it names. A code from a hostile page
+ *      only redeems against that page's own server.
+ *   2. The person is asked, with the destination host spelled out and Cancel as
+ *      the default. A code proves the dashboard issued the link; it does not
+ *      prove the user meant to click it.
+ */
+async function applyDeepLink(rawUrl) {
   let url;
   try { url = new URL(rawUrl); } catch { return false; }
   if (url.protocol !== 'oya:') return false;
 
-  const key = url.searchParams.get('key');
+  const code = url.searchParams.get('code');
   const server = url.searchParams.get('server');
-  if (!key) return false;
+  if (!code || !server) return false;
 
-  // Only ws/wss, and only a URL — a deep link is attacker-reachable input.
-  if (server) {
-    try {
-      const parsed = new URL(server);
-      if (!['ws:', 'wss:'].includes(parsed.protocol)) return false;
-      config.serverUrl = parsed.href;
-    } catch { return false; }
+  let parsed;
+  try { parsed = new URL(server); } catch { return false; }
+  if (!['ws:', 'wss:'].includes(parsed.protocol)) return false;
+  // Plaintext ws:// is only reasonable against your own machine; anywhere else
+  // it would put the key and every synced cookie on the wire in the clear.
+  const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname);
+  if (parsed.protocol === 'ws:' && !local) return false;
+
+  // showMessageBox refuses a null parent, and second-instance can arrive before
+  // the window exists.
+  const ask = (opts) => (mainWindow ? dialog.showMessageBox(mainWindow, opts) : dialog.showMessageBox(opts));
+
+  const { response } = await ask({
+    type: 'warning',
+    buttons: ['Cancel', 'Connect'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Connect this browser?',
+    message: `Connect to ${parsed.host}?`,
+    detail: 'This browser will sign in to that control plane and share its cookies and '
+      + 'logged-in sessions with it, so remote browsers can act as you.\n\n'
+      + 'Only continue if you started this from that dashboard. Cancel if a web page opened it.',
+  });
+  if (response !== 1) return false;
+
+  const claimUrl = `${parsed.protocol === 'wss:' ? 'https' : 'http'}://${parsed.host}/api/pairing/claim`;
+  let apiKey;
+  try {
+    const res = await fetch(claimUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      redirect: 'error',
+      body: JSON.stringify({ code }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.apiKey) throw new Error(body.error || `Pairing failed (${res.status})`);
+    apiKey = body.apiKey;
+  } catch (e) {
+    await ask({ type: 'error', title: 'Could not pair', message: 'Pairing failed', detail: e.message });
+    return false;
   }
-  config.apiKey = key;
+
+  config.serverUrl = parsed.href;
+  config.apiKey = apiKey;
   saveConfig();
   // connect() emits ws-status, which is how the renderer learns about this.
   disconnect();
@@ -657,7 +706,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_event, argv) => {
     const link = argv.find((a) => a.startsWith('oya://'));
-    if (link) applyDeepLink(link);
+    if (link) applyDeepLink(link).catch((e) => console.error('[deeplink]', e.message));
     mainWindow?.show();
   });
 }
@@ -665,7 +714,7 @@ if (!app.requestSingleInstanceLock()) {
 // macOS delivers it as an event, which can fire before the app is ready.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  if (mainWindow) applyDeepLink(url);
+  if (mainWindow) applyDeepLink(url).catch((e) => console.error('[deeplink]', e.message));
   else pendingDeepLinks.push(url);
 });
 
@@ -696,7 +745,7 @@ app.whenReady().then(async () => {
 
   const queued = pendingDeepLinks.splice(0)
     .concat(process.argv.filter((a) => a.startsWith('oya://')));
-  for (const link of queued) applyDeepLink(link);
+  for (const link of queued) await applyDeepLink(link).catch((e) => console.error('[deeplink]', e.message));
 });
 
 app.on('window-all-closed', () => { disconnect(); app.quit(); });

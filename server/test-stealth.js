@@ -114,16 +114,29 @@ const LIVE_TARGETS = [
       return { passed, failed: failed.length, failing: failed };
     })()` },
   { id: 'creepjs', url: 'https://abrahamjuliot.github.io/creepjs/',
-    // CreepJS renders asynchronously and rearranges its own layout; treat a
-    // null as "could not read", not as a pass.
+    // CreepJS computes for tens of seconds and prints its metrics with the
+    // number BEFORE the label ("38% like headless", "100% headless"), which is
+    // why the obvious "label: value" patterns read nothing. Poll for the
+    // fingerprint id, then pull the headless verdicts — those are the numbers
+    // that say whether this browser reads as automated.
+    budgetMs: 90_000,
+    ready: `/FP ID:/i.test(document.body.innerText || '') && /headless/i.test(document.body.innerText || '')`,
     extract: `(() => {
-      const t = document.body.innerText || '';
+      const t = (document.body.innerText || '').replace(/\\s+/g, ' ');
       const grab = (re) => { const m = t.match(re); return m ? m[1] : null; };
+      const pct = (label) => { const v = grab(new RegExp('(\\\\d+)%\\\\s*' + label, 'i')); return v === null ? null : Number(v); };
       return {
-        lies: grab(/(\\d+)\\s*lies/i),
+        fingerprintId: grab(/FP ID:\\s*([0-9a-f]{16,})/i),
+        fuzzy: grab(/Fuzzy:\\s*([0-9a-f]{16,})/i),
+        // "like headless" must be read before the bare "headless", or the
+        // generic pattern swallows it.
+        likeHeadless: pct('like headless'),
+        headless: pct('headless'),
+        stealth: pct('stealth'),
+        lies: grab(/lies\\s*\\((\\d+)\\)/i) ?? grab(/(\\d+)\\s*lies/i),
         trust: grab(/trust score[:\\s]*([0-9.]+)/i),
-        fingerprintId: grab(/fingerprint[:\\s]*([0-9a-f]{8,})/i),
         readable: t.length > 500,
+        excerpt: /FP ID:/i.test(t) ? undefined : t.slice(0, 200),
       };
     })()` },
 ];
@@ -193,10 +206,27 @@ async function score({ protect }) {
       for (const target of LIVE_TARGETS) {
         try {
           await conn.send('Page.navigate', { url: target.url }, sessionId);
-          await new Promise((r) => setTimeout(r, 8000));
-          const res = await conn.send('Runtime.evaluate',
-            { expression: target.extract, returnByValue: true, awaitPromise: true }, sessionId, 30000);
-          results.live[target.id] = res.result?.value ?? { error: 'no result' };
+          const evaluate = async (expression) => (await conn.send('Runtime.evaluate',
+            { expression, returnByValue: true, awaitPromise: true }, sessionId, 30000)).result?.value;
+
+          // Detectors finish when they finish. Poll for the signal the target
+          // names rather than guessing a wait long enough for the slowest one.
+          const deadline = Date.now() + (target.budgetMs ?? 15_000);
+          await new Promise((r) => setTimeout(r, 3000));
+          if (target.ready) {
+            while (Date.now() < deadline) {
+              if (await evaluate(target.ready).catch(() => false)) break;
+              await new Promise((r) => setTimeout(r, 1500));
+            }
+          } else {
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+
+          const value = await evaluate(target.extract);
+          results.live[target.id] = value ?? { error: 'no result' };
+          if (target.ready && !(await evaluate(target.ready).catch(() => false))) {
+            results.live[target.id].timedOut = true;
+          }
         } catch (e) { results.live[target.id] = { error: e.message }; }
       }
     }
@@ -221,7 +251,7 @@ const bareScore = weighted(bare), armedScore = weighted(armed);
 if (JSON_OUT) {
   console.log(JSON.stringify({ total, bare: bareScore, protected: armedScore, probes: PROBES.map((p) => ({
     id: p.id, weight: p.weight, bare: bare[p.id], protected: armed[p.id],
-  })), live: armed.live }, null, 2));
+  })), live: { bare: bare.live, protected: armed.live } }, null, 2));
 } else {
   console.log('  probe                          weight   bare   protected');
   console.log('  ' + '─'.repeat(58));
@@ -236,8 +266,14 @@ if (JSON_OUT) {
   console.log(`  score                                  ${pct(bareScore).padStart(4)}   ${pct(armedScore).padStart(4)}   (${armedScore}/${total})`);
 
   if (armed.live) {
+    // Both sides, because a live number on its own says nothing about whether
+    // any of this is working.
     console.log('\n  live detectors:');
-    for (const [id, v] of Object.entries(armed.live)) console.log(`    ${id.padEnd(12)} ${JSON.stringify(v)}`);
+    for (const [id, v] of Object.entries(armed.live)) {
+      console.log(`    ${id}`);
+      console.log(`      bare      ${JSON.stringify(bare.live?.[id] ?? null)}`);
+      console.log(`      protected ${JSON.stringify(v)}`);
+    }
   }
 
   const regressed = PROBES.filter((p) => bare[p.id] && !armed[p.id]);

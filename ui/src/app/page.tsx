@@ -213,26 +213,35 @@ export default function Home() {
             <div className="grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
               <div className="lg:col-span-7 reveal-stagger">
                 <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-indigo mb-4">
-                  Cookie sync · Sandboxed · Native live view · MCP
+                  Personas · Rotation · CAPTCHA &amp; MFA · Cookie sync
                 </p>
                 <h1 className="font-display text-[2.5rem] sm:text-[3.25rem] lg:text-[3.5rem] font-bold tracking-tight leading-[1.05] mb-5">
-                  <span className="text-text">Login once. Every remote browser</span>
+                  <span className="text-text">Thousands of browsers. One API.</span>
                   <br />
                   <span className="text-accent">
-                    is already authenticated.
+                    Every one a different identity.
                   </span>
                 </h1>
-                <p className="text-[17px] text-text-muted leading-relaxed max-w-xl mb-8">
-                  Your cookies sync across every browser in the fleet. No re-login, no token juggling, no credential management. Just real Chrome sessions with native live view — no VNC needed.
+                <p className="text-[17px] text-text-muted leading-relaxed max-w-xl mb-6">
+                  A control plane for browser fleets. Rotate across personas, keep sessions signed in,
+                  and clear CAPTCHA and MFA — behind four lines of TypeScript. Oya Cloud, your own
+                  machines, Browser Use, Browserbase, Steel or Anchor: one setting, not a rewrite.
                 </p>
+                <div className="mb-8 rounded-xl border border-border bg-bg-card/70 px-4 py-3 font-mono text-[12px] leading-relaxed text-text-muted overflow-x-auto">
+                  <span className="text-text-dim select-none">$ </span>npm i @oya/browser<br />
+                  <br />
+                  <span className="text-indigo">const</span> oya = <span className="text-indigo">new</span> Oya();<br />
+                  <span className="text-indigo">const</span> browser = <span className="text-indigo">await</span> oya.browser.start({'{'} persona: <span className="text-accent">&apos;auto&apos;</span> {'}'});<br />
+                  <span className="text-indigo">await</span> browser.goto(<span className="text-accent">&apos;https://example.com&apos;</span>);
+                </div>
                 <div className="flex flex-wrap gap-3">
-                  <a
-                    href="#download"
+                  <Link
+                    href="/docs"
                     className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent text-[#0c0c0a] text-[15px] font-semibold hover:bg-accent-hover shadow-[0_0_28px_-6px_rgba(57,237,53,0.4)]"
                   >
-                    Download
+                    Read the docs
                     <ArrowRight className="w-4 h-4" />
-                  </a>
+                  </Link>
                   <Link
                     href="/dashboard"
                     className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-border bg-bg-card/60 text-text text-[15px] font-semibold hover:border-accent/30 hover:bg-bg-elevated/80 backdrop-blur-sm"
@@ -423,17 +432,20 @@ export default function Home() {
         <section id="anonymity" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
           <SectionLabel>Anonymity</SectionLabel>
           <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-4 text-text">
-            Every session a different identity
+            One persona is one device
           </h2>
           <p className="text-text-muted mb-6 leading-relaxed text-[15px]">
-            Create anonymity profiles with unique browser fingerprints, proxy routing, and isolated cookie stores. Canvas noise, WebGL spoofing, WebRTC leak prevention, and telemetry blocking — all built in. Agents can switch identities on the fly with a single MCP call.
+            A persona is a fingerprint, a cookie jar and a proxy, bound together and stable for its
+            life. That binding is the point: one account seen from many devices reads as a bot farm,
+            and one device across many accounts reads as a device farm. Rotation means choosing a
+            different persona — never giving one a new fingerprint.
           </p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             {[
-              { icon: Fingerprint, title: 'Fingerprint rotation', desc: 'Unique canvas, WebGL, audio, and font fingerprints per profile — deterministic and coherent' },
-              { icon: Shield, title: 'Stealth mode', desc: 'Removes Electron markers, fixes window.chrome, navigator.webdriver, plugins, and permissions' },
-              { icon: Globe, title: 'Proxy & DNS', desc: 'SOCKS5/HTTP proxy per profile with DNS leak prevention — route each identity through a different exit' },
-              { icon: X, title: 'Telemetry blocked', desc: 'Chromium phone-home domains blocked, Safe Browsing disabled, no background networking' },
+              { icon: Fingerprint, title: 'Stable fingerprints', desc: 'Derived from a stored seed, byte-identical across restarts — a returning session looks like a returning device' },
+              { icon: Shield, title: 'Stealth, measured', desc: 'Scored against real detectors rather than asserted. Run oya stealth-test and read the number' },
+              { icon: Globe, title: 'Proxy per persona', desc: 'Sticky HTTP exit per identity, with a timezone-versus-geo coherence check. Credentials sealed at rest' },
+              { icon: X, title: 'Capped concurrency', desc: 'One laptop cannot be in a thousand places at once, so each persona has a visible ceiling' },
             ].map((f) => (
               <div
                 key={f.title}

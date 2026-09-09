@@ -23,6 +23,14 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
   const [config, setConfig] = useState<KeyConfig | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [pairing, setPairing] = useState(false);
+
+  const openDesktop = async () => {
+    setPairing(true);
+    try { window.location.href = await desktopSignInUrl(apiKey); }
+    catch (err) { toast(err instanceof Error ? err.message : 'Could not start sign-in', 'error'); }
+    finally { setPairing(false); }
+  };
 
   const refresh = useCallback(async () => {
     if (!open || !apiKey) return;
@@ -143,10 +151,11 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
 
               {isOyaProvider(value('browser_provider')) && apiKey && (
                 <div className="flex flex-wrap gap-2">
-                  <a href={desktopSignInUrl(apiKey)}
-                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text hover:bg-white/5">
+                  <button onClick={openDesktop} disabled={pairing}
+                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text hover:bg-white/5 disabled:opacity-60">
+                    {pairing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Sign in on the desktop browser
-                  </a>
+                  </button>
                   <a href="/downloads" target="_blank" rel="noreferrer"
                     className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-dim hover:bg-white/5 hover:text-text">
                     Download <ExternalLink className="h-3.5 w-3.5" />

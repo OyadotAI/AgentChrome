@@ -94,6 +94,13 @@ the sites your agents need, and those cookies move to the remote browsers, which
 run the same fingerprint as that identity. The agent arrives already signed in,
 and the site sees one device returning rather than a fleet sharing an account.
 
+The dashboard pairs the desktop app over an `oya://` link. That link carries a
+**single-use pairing code**, never your API key — a protocol URL is reachable by
+any page you visit, and it lands in OS logs on the way. The app exchanges the
+code over HTTPS with the server the link names, and asks you first, naming the
+destination host. Cancel is the default: a code proves the dashboard issued the
+link, not that you meant to click it.
+
 ## Stealth, measured
 
 "Zero detection" is not a number anyone can hold you to. This one is:
@@ -107,6 +114,11 @@ It scores a bare browser against a protected one across canvas, WebGL, audio,
 client rects, plugins, `navigator.webdriver`, `userAgentData`, media devices and
 `Function.prototype.toString` masking, and reports the delta. Improvements are
 attributable to the change that made them.
+
+`--live` adds real detectors — bot.sannysoft.com and CreepJS — and prints both
+columns, because a live number on its own says nothing about whether any of it
+is working. CreepJS's headless verdict is the honest one to watch; it is not at
+zero, and the harness exists so that stays visible rather than assumed.
 
 Our own stealth applies to Oya Cloud, self-hosted and plain CDP browsers. It is
 deliberately **not** layered on top of Anchor, Browserbase or Steel — they ship
