@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CDPDriver } from './src/drivers/cdp.js';
+import { getFingerprintForPersona } from './src/fingerprint.js';
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -146,6 +147,61 @@ try {
   const evalAttempt = await driver.send('evaluate', { expression: 'window.__pwned = 1' });
   assert(evalAttempt.ok === false, 'arbitrary evaluate is not exposed as a command');
   assert(await driver.evaluate('window.__pwned === undefined'), 'the evaluate attempt changed nothing');
+
+  console.log('\n\u0038\ufe0f\u20e3  The page carries no trace of this product...');
+  {
+    // `typeof window.analyzePage === 'function'` is a one-line, 100%-precision
+    // detector. It has to be checked in the page's own world — driver.evaluate
+    // runs in the isolated one, where of course the analyzer is present.
+    const inPage = (expr) => driver.evaluateMain(expr);
+    assert(await inPage(`typeof window.analyzePage === 'undefined'`), 'analyzePage is not a page global');
+    assert(await inPage(
+      `['__acAnalyzerLoaded','__acFindElement','__acQueryShadow','__oyaInternalCall']
+         .every((k) => typeof window[k] === 'undefined')`), 'no __ac* globals leak into the page');
+    assert(await inPage(`document.querySelectorAll('[data-ac-id]').length === 0`),
+      'the analyzer does not brand the DOM with a constant attribute');
+    // The analyzer still has to work from where it lives.
+    assert((await driver.send('analyze')).ok, 'analyze still works from the isolated world');
+  }
+
+  console.log('\n\u0039\ufe0f\u20e3  A persona actually reaches the page...');
+  {
+    const fp = getFingerprintForPersona({ id: 'cdp-test-persona', seed: 4242 });
+    const d2 = await new CDPDriver({ wsUrl, provider: 'cdp', fingerprint: fp }).connect();
+    try {
+      await d2.send('navigate', { url: siteUrl });
+      const inPage = (expr) => d2.evaluateMain(expr);
+      assert(await inPage('navigator.platform') === fp.navigator.platform,
+        `navigator.platform is the persona's (${fp.navigator.platform})`);
+      assert(await inPage('navigator.hardwareConcurrency') === fp.navigator.hardwareConcurrency,
+        "hardwareConcurrency is the persona's, not this machine's");
+      assert(await inPage('Intl.DateTimeFormat().resolvedOptions().timeZone') === fp.timezone,
+        `the timezone is the persona's (${fp.timezone})`);
+      assert(await inPage('navigator.webdriver') === false, 'navigator.webdriver reads false');
+      assert(!/HeadlessChrome/.test(await inPage('navigator.userAgent')),
+        'the UA carries no headless marker');
+      // Overriding the UA without metadata blanks client hints, which no real
+      // browser does — the mitigation would plant the flag it was hiding.
+      assert((await inPage('navigator.userAgentData.brands.length')) > 0,
+        'client hints survive the user agent override');
+      assert(!!(await inPage('navigator.userAgentData.platform')),
+        'userAgentData.platform is populated');
+
+      // A provider that ships its own stealth must not be double-patched:
+      // their patches plus ours contradict each other, and a contradiction is
+      // a stronger signal than either alone. Asserted on the driver rather
+      // than the page, because both drivers attach to the same page target
+      // here and would otherwise read each other's work.
+      const d3 = await new CDPDriver({ wsUrl, provider: 'browserbase', fingerprint: fp }).connect();
+      try {
+        await d3.send('navigate', { url: siteUrl });
+        assert(d3.userAgent === undefined,
+          'a provider that ships its own stealth gets no user agent override');
+        assert(await d3.evaluateMain(`typeof window.analyzePage === 'undefined'`),
+          'and it still gets no product globals in the page');
+      } finally { d3.close(); }
+    } finally { d2.close(); }
+  }
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}`);
   failed++;

@@ -121,9 +121,16 @@ is working. CreepJS's headless verdict is the honest one to watch; it is not at
 zero, and the harness exists so that stays visible rather than assumed.
 
 Our own stealth applies to Oya Cloud, self-hosted and plain CDP browsers. It is
-deliberately **not** layered on top of Anchor, Browserbase or Steel — they ship
-tuned stealth, and adding a second layer creates contradictions that are
-themselves detectable.
+deliberately **not** layered on top of Anchor, Browserbase, Steel or Browser Use
+— they ship tuned stealth, and a second layer contradicts theirs, which is a
+stronger signal than either alone. On those providers a persona still governs
+the cookie jar, the proxy and the concurrency cap; only the device spoofing is
+theirs to do.
+
+Known gap, measured rather than assumed: a Worker is a separate global that the
+injected script does not reach, so values the persona spoofs disagree between
+page and worker and the real machine shows through. CreepJS compares exactly
+that. The `worker.coherent` probe fails on purpose so it stays visible.
 
 ## The CLI
 

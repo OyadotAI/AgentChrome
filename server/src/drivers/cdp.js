@@ -16,6 +16,29 @@ import { readFileSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
+import { userAgentFor, metadataFor } from '../ua.js';
+
+const require = createRequire(import.meta.url);
+
+/**
+ * Anchor, Browserbase, Steel and Browser Use ship tuned stealth of their own.
+ * Layering ours on top produces contradictions that are themselves detectable,
+ * so the injection is for browsers nobody else has already treated.
+ */
+const PROVIDER_SHIPS_STEALTH = new Set(['anchor', 'browserbase', 'steel', 'browseruse']);
+
+let injectBuilder;
+function getInjection(fingerprint) {
+  if (injectBuilder === undefined) {
+    try { ({ buildInjectionScript: injectBuilder } = require('../../../browser/anonymity/inject.js')); }
+    catch (e) {
+      injectBuilder = null;
+      console.warn(`[cdp] anonymity/inject.js not found (${e.message}) — CDP browsers run unspoofed`);
+    }
+  }
+  return injectBuilder ? injectBuilder(fingerprint) : null;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -206,13 +229,14 @@ export class CDPDriver {
 
   constructor({ wsUrl, provider = 'cdp', onClose, fingerprint } = {}) {
     Object.assign(this, { wsUrl, provider, onClose });
-    if (fingerprint) {
-      // Strip the headless marker and align the UA with the spoofed platform;
-      // "HeadlessChrome" in the UA is one of the oldest checks there is.
-      this.userAgent = String(fingerprint.userAgent || '').replace(/HeadlessChrome/g, 'Chrome') || null;
-      this.acceptLanguage = fingerprint.navigator?.languages?.join(',') || null;
-      this.platform = fingerprint.navigator?.platform || null;
-    }
+    // The persona carries no UA of its own — it is derived from the real
+    // browser's version and this persona's platform in attach(), once the
+    // connection can report that version. Reading fingerprint.userAgent here
+    // left this null for every persona, so the override never fired and CDP
+    // browsers kept HeadlessChrome in the UA and in the request header.
+    this.fingerprint = fingerprint || null;
+    this.worldName = 'w' + randomBytes(8).toString('hex');
+    this.acceptLanguage = fingerprint?.navigator?.languages?.join(',') || null;
   }
 
   async connect() {
@@ -241,39 +265,121 @@ export class CDPDriver {
     // The UA is an HTTP header as well as a JS property, so it cannot be fixed
     // from an injected script — a page reads HeadlessChrome from the header no
     // matter what navigator.userAgent says. Emulation sets both.
-    if (this.userAgent) {
-      await this.conn.send('Emulation.setUserAgentOverride', {
-        userAgent: this.userAgent,
-        ...(this.acceptLanguage ? { acceptLanguage: this.acceptLanguage } : {}),
-        ...(this.platform ? { platform: this.platform } : {}),
-      }, sessionId).catch(() => {});
+    // A vendor that ships tuned stealth owns the whole surface: our UA,
+    // timezone and patches together would contradict theirs, and a
+    // contradiction is a stronger signal than either alone. The persona still
+    // governs that session's cookie jar, proxy and concurrency there — only
+    // the device spoofing is theirs to do.
+    if (this.fingerprint && !PROVIDER_SHIPS_STEALTH.has(this.provider)) {
+      try {
+        const version = await this.conn.send('Browser.getVersion');
+        // Read the browser's own brand list first. The GREASE entry
+        // ("Not?A_Brand" and friends) changes between releases, so reusing it
+        // beats constructing one — and overriding without any metadata blanks
+        // client hints, which is itself a tell.
+        const brands = await this.conn.send('Runtime.evaluate', {
+          expression: 'JSON.stringify(navigator.userAgentData?.brands || [])',
+          returnByValue: true,
+        }, sessionId).then((r) => { try { return JSON.parse(r.result?.value || '[]'); } catch { return []; } })
+          .catch(() => []);
+
+        this.userAgent = userAgentFor(this.fingerprint, version.userAgent);
+        await this.conn.send('Emulation.setUserAgentOverride', {
+          userAgent: this.userAgent,
+          ...(this.acceptLanguage ? { acceptLanguage: this.acceptLanguage } : {}),
+          platform: this.fingerprint.navigator?.platform || undefined,
+          userAgentMetadata: metadataFor(this.fingerprint, version.userAgent, brands),
+        }, sessionId);
+      } catch (e) {
+        console.warn(`[cdp] user agent override failed (${e.message}) — this browser reports its real UA`);
+      }
+      if (this.fingerprint.timezone) {
+        await this.conn.send('Emulation.setTimezoneOverride',
+          { timezoneId: this.fingerprint.timezone }, sessionId).catch(() => {});
+      }
     }
 
-    // Re-inject on every navigation so analyze works on the new document.
-    const analyzer = getAnalyzer();
-    if (analyzer) {
-      // Same per-session random tag attribute as the desktop path.
-      this.tagAttr = 'data-' + randomBytes(4).toString('hex');
-      await this.conn.send('Page.addScriptToEvaluateOnNewDocument',
-        { source: analyzer.replace('__OYA_ATTR__', this.tagAttr) }, sessionId).catch(() => {});
+    // The persona's fingerprint, which until now was computed, handed to this
+    // driver and then used for nothing at all. Canvas, WebGL, audio, rects,
+    // fonts and screen all need the injected script.
+    if (this.fingerprint && !PROVIDER_SHIPS_STEALTH.has(this.provider)) {
+      const source = getInjection(this.fingerprint);
+      if (source) {
+        await this.conn.send('Page.addScriptToEvaluateOnNewDocument', { source }, sessionId)
+          .catch((e) => console.warn(`[cdp] fingerprint injection failed: ${e.message}`));
+      }
     }
+
+    // The analyzer lives in an isolated world, never the page's. In the main
+    // world its globals — analyzePage, __acFindElement, __acAnalyzerLoaded —
+    // are a one-line, 100%-precision detector for this product, which is worth
+    // more to a defender than every other signal on the page combined. Same
+    // per-session random tag attribute as the desktop path.
+    this.tagAttr = 'data-' + randomBytes(4).toString('hex');
+    this.worldContext = null;
   }
 
   isAlive() { return !!this.conn && !this.conn.closed; }
 
-  async evaluate(expression, { awaitPromise = true } = {}) {
+  /**
+   * A world that shares the DOM but not the page's globals. Page.createIsolatedWorld
+   * hands back the context id directly, so this needs no Runtime.enable — which
+   * is itself a detection vector.
+   */
+  async ensureWorld({ force = false } = {}) {
+    if (!force && this.worldContext) return this.worldContext;
+    const analyzer = getAnalyzer();
+    if (!analyzer) throw new Error('Analyzer unavailable for this client');
+
+    const { frameTree } = await this.conn.send('Page.getFrameTree', {}, this.sessionId);
+    const { executionContextId } = await this.conn.send('Page.createIsolatedWorld', {
+      frameId: frameTree.frame.id, worldName: this.worldName, grantUniveralAccess: true,
+    }, this.sessionId);
+    this.worldContext = executionContextId;
+
+    await this.conn.send('Runtime.evaluate', {
+      expression: analyzer.replace('__OYA_ATTR__', this.tagAttr),
+      contextId: executionContextId, returnByValue: true,
+    }, this.sessionId);
+    return executionContextId;
+  }
+
+  /** Everything the analyzer needs runs here, never in the page's own world. */
+  async evaluate(expression, { awaitPromise = true, retry = true } = {}) {
+    const contextId = await this.ensureWorld();
+    let res;
+    try {
+      res = await this.conn.send('Runtime.evaluate', {
+        expression, contextId, returnByValue: true, awaitPromise, userGesture: true,
+      }, this.sessionId);
+    } catch (err) {
+      // A navigation destroys the world; rebuild it once rather than failing
+      // the command the user actually asked for.
+      if (retry && /context|Cannot find/i.test(err.message || '')) {
+        await this.ensureWorld({ force: true });
+        return this.evaluate(expression, { awaitPromise, retry: false });
+      }
+      throw err;
+    }
+    if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description || 'Evaluation failed');
+    return res.result?.value;
+  }
+
+  /** The world is created with the analyzer already in it. */
+  async ensureAnalyzer() { await this.ensureWorld(); }
+
+  /**
+   * The page's own world. CAPTCHA and MFA handling has to reach page globals —
+   * `___grecaptcha_cfg.clients[…].callback` is a function the page defined, and
+   * an isolated world cannot see it — so those scripts run here. Nothing from
+   * this driver is left behind in it.
+   */
+  async evaluateMain(expression, { awaitPromise = true } = {}) {
     const res = await this.conn.send('Runtime.evaluate', {
       expression, returnByValue: true, awaitPromise, userGesture: true,
     }, this.sessionId);
     if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description || 'Evaluation failed');
     return res.result?.value;
-  }
-
-  async ensureAnalyzer() {
-    const analyzer = getAnalyzer();
-    if (!analyzer) throw new Error('Analyzer unavailable for this client');
-    const loaded = await this.evaluate('!!window.__acAnalyzerLoaded').catch(() => false);
-    if (!loaded) await this.evaluate(analyzer, { awaitPromise: false });
   }
 
   async mouse(type, x, y, button = 'left', clickCount = 1) {
@@ -440,7 +546,8 @@ export class CDPDriver {
       // Not reachable from the public command API, which is why arbitrary
       // evaluate was removed from that surface.
       case 'evaluate_raw':
-        return { ok: true, data: { result: await this.evaluate(String(params.expression || '')) } };
+        // Main world on purpose: this is the channel challenge handling uses.
+        return { ok: true, data: { result: await this.evaluateMain(String(params.expression || '')) } };
       case 'cookies':
         return { ok: true, data: (await this.conn.send('Network.getAllCookies', {}, this.sessionId)) };
       default:

@@ -23,6 +23,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createRequire } from 'module';
 import { CDPConnection } from './src/drivers/cdp.js';
+import { userAgentFor, metadataFor } from './src/ua.js';
 
 const require = createRequire(import.meta.url);
 const { buildInjectionScript } = require('../browser/anonymity/inject.js');
@@ -95,6 +96,36 @@ const PROBES = [
   { id: 'performance.memory', weight: 2, expr:
     `!!(performance.memory && performance.memory.jsHeapSizeLimit > 0)` },
   { id: 'ua.notHeadless', weight: 3, expr: `!/HeadlessChrome/i.test(navigator.userAgent)` },
+  // Client hints must survive the override. Blanking them is worse than not
+  // spoofing at all: no real browser reports an empty brand list.
+  { id: 'uaData.brandsPopulated', weight: 3,
+    expr: `Array.isArray(navigator.userAgentData?.brands) && navigator.userAgentData.brands.length > 0` },
+  { id: 'uaData.platformSet', weight: 3, expr: `!!navigator.userAgentData?.platform` },
+  { id: 'uaData.highEntropy', weight: 2, expr:
+    `navigator.userAgentData.getHighEntropyValues(['platform','architecture'])
+       .then((v) => !!v.platform && !!v.architecture).catch(() => false)` },
+  { id: 'ua.platformCoherent', weight: 3, expr:
+    `(() => { const ua = navigator.userAgent, p = navigator.platform;
+       if (p === 'Win32') return /Windows NT/.test(ua);
+       if (p === 'MacIntel') return /Macintosh/.test(ua);
+       return /Linux|X11/.test(ua); })()` },
+  // A Worker is a separate global that addScriptToEvaluateOnNewDocument does
+  // not reach, so anything the injection spoofs disagrees between the two
+  // scopes and the real machine shows through. CreepJS compares them directly.
+  // Currently FAILS: this is the largest known remaining gap.
+  { id: 'worker.coherent', weight: 3, expr:
+    `(async () => {
+       const src = 'self.onmessage=()=>postMessage(navigator.hardwareConcurrency+"|"+navigator.deviceMemory+"|"+navigator.platform)';
+       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+       const got = await new Promise((res) => {
+         w.onmessage = (e) => res(e.data);
+         w.postMessage(1);
+         setTimeout(() => res(null), 4000);
+       });
+       w.terminate();
+       if (!got) return false;
+       return got === [navigator.hardwareConcurrency, navigator.deviceMemory, navigator.platform].join('|');
+     })()` },
   { id: 'webgl.vendorPresent', weight: 1, expr:
     `(() => { const c = document.createElement('canvas').getContext('webgl');
        if (!c) return false; const e = c.getExtension('WEBGL_debug_renderer_info');
@@ -181,10 +212,18 @@ async function score({ protect }) {
       // Measure the real configuration: the injected script AND the CDP-level
       // emulation the drivers apply. The UA is an HTTP header as well as a JS
       // property, so no injected script can fix it on its own.
+      const version = (await conn.send('Browser.getVersion')).userAgent;
+      const brands = await conn.send('Runtime.evaluate', {
+        expression: 'JSON.stringify(navigator.userAgentData?.brands || [])', returnByValue: true,
+      }, sessionId).then((r) => { try { return JSON.parse(r.result?.value || '[]'); } catch { return []; } })
+        .catch(() => []);
       await conn.send('Emulation.setUserAgentOverride', {
-        userAgent: (await conn.send('Browser.getVersion')).userAgent.replace(/HeadlessChrome/g, 'Chrome'),
+        userAgent: userAgentFor(profile, version),
         acceptLanguage: profile.navigator.languages.join(','),
         platform: profile.navigator.platform,
+        // Without this Chrome empties navigator.userAgentData, which no real
+        // browser does — the probes below assert it stays populated.
+        userAgentMetadata: metadataFor(profile, version, brands),
       }, sessionId).catch(() => {});
       await conn.send('Emulation.setTimezoneOverride', { timezoneId: profile.timezone }, sessionId).catch(() => {});
       await conn.send('Page.addScriptToEvaluateOnNewDocument',

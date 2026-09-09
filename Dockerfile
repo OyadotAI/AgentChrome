@@ -19,10 +19,12 @@ RUN npm ci --omit=dev
 # Server source
 COPY server/src/ ./src/
 
-# The page analyzer, which drivers/cdp.js injects into CDP browsers. It resolves
-# it relative to its own file (../../../browser/scripts), so the layout matters:
-# without this, analyze and click-by-element-id silently degrade in the image.
+# The page analyzer and the fingerprint injection, both of which drivers/cdp.js
+# loads relative to its own file (../../../browser/...), so the layout matters:
+# without these, CDP browsers lose analyze, click-by-element-id, and every
+# fingerprint patch — silently.
 COPY browser/scripts/ /browser/scripts/
+COPY browser/anonymity/ /browser/anonymity/
 
 # Static UI from build stage
 COPY --from=ui-build /ui/out/ ./ui-static/
