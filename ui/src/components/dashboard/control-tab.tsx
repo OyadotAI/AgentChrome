@@ -6,6 +6,7 @@ import {
   Plus, RefreshCw, Server, ShieldCheck, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import { apiUrl, apiKeyHeaders } from '@/lib/api';
+import Dialog from '@/components/ui/dialog';
 
 type View = 'health' | 'sessions' | 'providers' | 'usage' | 'audit' | 'recordings';
 
@@ -581,12 +582,8 @@ function Player({ sessionId, headers, onClose }: { sessionId: string; headers: H
   }, [playing, index, frames]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-bg border border-border rounded-lg max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-          <span className="font-mono text-xs">{sessionId.slice(0, 16)}</span>
-          <button onClick={onClose} className="text-text-dim hover:text-text"><X className="w-4 h-4" /></button>
-        </div>
+    <Dialog open onClose={onClose} title="Recording" size="lg" description={<span className="font-mono">{sessionId.slice(0, 16)}</span>}>
+      <div className="-mx-5 -my-4">
         <div className="bg-black flex items-center justify-center min-h-[300px]">
           {error ? <p className="text-text-dim text-sm p-8">{error}</p>
             : src ? <img src={src} alt={`Frame ${index + 1}`} className="max-h-[70vh] w-auto" />
@@ -607,6 +604,6 @@ function Player({ sessionId, headers, onClose }: { sessionId: string; headers: H
           </span>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

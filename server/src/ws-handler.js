@@ -371,6 +371,8 @@ export function sendCommand(browserId, action, params = {}, timeoutMs) {
         const ok = result?.ok !== false;
         recordCommand(action, ok ? 'ok' : 'error', Date.now() - started);
         if (visible) registry.recordActivity(browserId, { action, summary, ok, ms: Date.now() - started, error: result?.error });
+        // A driven browser does not announce where it is; navigate tells us.
+        if (ok && typeof result?.data?.url === 'string') registry.updateUrl(browserId, result.data.url);
         return result;
       },
       (err) => {

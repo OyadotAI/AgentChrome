@@ -604,19 +604,38 @@ export class CDPDriver {
   async startScreencast(onFrame, { quality = 40, maxWidth = 1280, everyNthFrame = 2 } = {}) {
     if (this.screencasting) return;
     this.screencasting = true;
+    let lastFrameAt = 0;
     this.offScreencast = this.conn.on('Page.screencastFrame', async (params, sessionId) => {
       if (sessionId && sessionId !== this.sessionId) return;
+      lastFrameAt = Date.now();
       try { onFrame(`data:image/jpeg;base64,${params.data}`); } catch {}
       // Must ack or Chrome stops sending.
       this.conn.send('Page.screencastFrameAck', { sessionId: params.sessionId }, this.sessionId).catch(() => {});
     });
     await this.conn.send('Page.startScreencast',
       { format: 'jpeg', quality, maxWidth, everyNthFrame }, this.sessionId);
+
+    // Chrome only screencasts on repaint. A page that is sitting still sends
+    // nothing — so the live view of an idle browser would be blank forever,
+    // which reads as "broken", not "idle". Fill the gaps with a screenshot
+    // about once a second; the screencast takes over the moment anything moves.
+    let busy = false;
+    this.screencastFill = setInterval(async () => {
+      if (busy || !this.screencasting || Date.now() - lastFrameAt < 1200) return;
+      busy = true;
+      try {
+        const { data } = await this.conn.send('Page.captureScreenshot',
+          { format: 'jpeg', quality, optimizeForSpeed: true }, this.sessionId, 5000);
+        if (this.screencasting) onFrame(`data:image/jpeg;base64,${data}`);
+      } catch { /* the next tick tries again */ }
+      finally { busy = false; }
+    }, 1000);
   }
 
   async stopScreencast() {
     if (!this.screencasting) return;
     this.screencasting = false;
+    clearInterval(this.screencastFill);
     this.offScreencast?.();
     await this.conn.send('Page.stopScreencast', {}, this.sessionId).catch(() => {});
   }
@@ -626,5 +645,5 @@ export class CDPDriver {
     return info || { url: '', title: '' };
   }
 
-  close() { this.conn?.close(); }
+  close() { clearInterval(this.screencastFill); this.conn?.close(); }
 }

@@ -14,12 +14,18 @@ const ACTIVITY_SIZE = 50;
  * is in trouble regardless of heartbeat.
  */
 function healthOf(b, now = Date.now()) {
+  const recent = b.activity.slice(0, 10);
+  const failing = recent.length >= 3 && recent.filter((a) => !a.ok).length >= 3;
+  // An outbound (CDP) browser has no heartbeat: we drive it, it does not
+  // report in. Its socket being open is the liveness signal.
+  if (b.driver) {
+    if (typeof b.driver.isAlive === 'function' && !b.driver.isAlive()) return 'dead';
+    return failing ? 'errors' : 'ok';
+  }
   const silent = now - b.lastSeen.getTime();
   if (silent > 60_000) return 'dead';
   if (silent > 15_000) return 'stale';
-  const recent = b.activity.slice(0, 10);
-  if (recent.length >= 3 && recent.filter((a) => !a.ok).length >= 3) return 'errors';
-  return 'ok';
+  return failing ? 'errors' : 'ok';
 }
 
 /**
@@ -121,6 +127,7 @@ class ConnectionRegistry extends EventEmitter {
     b.commands++;
     if (!ok) { b.errors++; b.lastError = String(error || 'failed').slice(0, 200); }
     b.lastCommandAt = new Date();
+    b.lastSeen = b.lastCommandAt;
     b.activity.unshift({ ts: b.lastCommandAt.toISOString(), action, summary, ok: !!ok, ms: Math.round(ms), ...(ok ? {} : { error: b.lastError }) });
     if (b.activity.length > ACTIVITY_SIZE) b.activity.length = ACTIVITY_SIZE;
   }

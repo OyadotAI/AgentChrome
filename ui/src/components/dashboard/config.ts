@@ -15,6 +15,7 @@ export interface KeyConfig {
   captcha_solver: string;
   captcha_api_key: string;
   onboarded: string;
+  desktop_seen_at: string;
   has_openai_key: boolean;
   inherited: boolean;
   effective: { baseUrl: string; model: string; hasLlmKey: boolean };

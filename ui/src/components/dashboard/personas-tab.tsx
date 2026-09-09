@@ -1,157 +1,101 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, Loader2, Fingerprint, Shield } from 'lucide-react';
-import { apiUrl, apiKeyHeaders } from '@/lib/api';
-import { useToast } from './toast';
+import { Plus, ShieldCheck, Users } from 'lucide-react';
+import { api } from '@/lib/api-client';
+import { ago } from '@/lib/api-client';
+import type { Persona, BrowserRow } from './types';
+import { platformLabel } from './types';
+import PersonaForm from './persona-form';
+import PersonaDrawer from './persona-drawer';
 
-export interface Persona {
-  id: string;
-  name: string;
-  isDefault: boolean;
-  activeBrowsers: number;
-  maxConcurrent: number | null;
-  proxy: { label?: string; geo?: string } | null;
-  fingerprint?: { platform?: string; timezone?: string; screen?: { width: number; height: number }; gpu?: string };
-  mfa?: { configured: boolean; type?: string };
-  lastUsedAt: string | null;
+interface Props {
+  apiKey: string;
+  browsers: BrowserRow[];
+  personas: Persona[];
+  refresh: () => void;
+  openId: string | null;
+  onOpen: (id: string | null) => void;
+  onShowBrowsers: (personaId: string) => void;
+  now: number;
 }
 
 /**
- * A persona is one identity: fingerprint, cookie jar and proxy bound together
- * and stable for its life. That binding is the point — one account seen from
- * many devices is a bot-farm signal, and so is many accounts from one device.
- * Rotation means choosing a different persona, never re-rolling one.
+ * Every identity this key owns. One identity = one device, stable for its
+ * life; rotation means choosing a different row here, never editing one.
  */
-export default function PersonasTab({ apiKey }: { apiKey: string }) {
-  const toast = useToast();
-  const [personas, setPersonas] = useState<Persona[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function PersonasTab({ apiKey, browsers, personas, refresh, openId, onOpen, onShowBrowsers, now }: Props) {
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
-
-  const load = useCallback(async () => {
-    if (!apiKey) return;
-    try {
-      const res = await fetch(apiUrl('/personas'), { headers: apiKeyHeaders(apiKey) });
-      if (!res.ok) return;
-      const data = await res.json();
-      setPersonas(data.personas || []);
-    } catch { /* the poll will retry */ } finally { setLoading(false); }
-  }, [apiKey]);
-
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
-  }, [load]);
-
-  const create = async () => {
-    setCreating(true);
-    try {
-      const res = await fetch(apiUrl('/personas'), {
-        method: 'POST',
-        headers: apiKeyHeaders(apiKey),
-        body: JSON.stringify({ name: name || undefined }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Could not create');
-      setName('');
-      toast(`Created ${body.name}`, 'success');
-      load();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error', 'error');
-    } finally { setCreating(false); }
-  };
-
-  const remove = async (p: Persona) => {
-    if (!confirm(`Delete ${p.name}? Its cookie jar goes with it.`)) return;
-    try {
-      const res = await fetch(apiUrl(`/personas/${p.id}`), { method: 'DELETE', headers: apiKeyHeaders(apiKey) });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || 'Could not delete');
-      toast('Deleted', 'success');
-      load();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error', 'error');
-    }
-  };
-
-  if (loading) {
-    return <div className="flex h-full items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-text-dim" /></div>;
-  }
+  const open = personas.find((p) => p.id === openId) || null;
 
   return (
-    <div className="p-6">
-      <div className="mb-5 flex flex-wrap items-center gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2 lg:px-6">
         <div className="mr-auto">
-          <h2 className="text-sm font-semibold text-text">Personas</h2>
-          <p className="mt-0.5 text-xs text-text-dim">
-            One identity each: fingerprint, cookies and proxy, stable for its life.
-          </p>
+          <h2 className="text-[14px] font-semibold text-text">Personas</h2>
+          <p className="text-[12px] text-text-muted">One identity each: fingerprint, cookies and proxy, stable for its life.</p>
         </div>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') create(); }}
-          placeholder="Name (optional)"
-          className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:border-accent focus:outline-none"
-        />
-        <button onClick={create} disabled={creating}
-          className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-black disabled:opacity-60">
-          {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} New persona
-        </button>
+        <span className="text-[12px] num text-text-muted">{personas.length}</span>
+        <button className="btn-primary h-7" onClick={() => setCreating(true)}><Plus className="h-3.5 w-3.5" /> New persona</button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {personas.map((p) => {
-          const cap = p.maxConcurrent === null ? Infinity : p.maxConcurrent;
-          const atCap = p.activeBrowsers >= cap;
-          return (
-            <div key={p.id} className="rounded-lg border border-border bg-bg-card p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-text">{p.name}</div>
-                  <div className="truncate font-mono text-xs text-text-dim" title={p.id}>{p.id}</div>
-                </div>
-                {!p.isDefault && (
-                  <button onClick={() => remove(p)} className="text-text-dim hover:text-red-400" title="Delete">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-3 flex items-center gap-2 text-xs">
-                <span className={`rounded-full px-2 py-0.5 font-mono ${atCap ? 'bg-amber-500/10 text-amber-400' : 'bg-accent/10 text-accent'}`}>
-                  {p.activeBrowsers}/{cap === Infinity ? '∞' : cap} running
-                </span>
-                {p.isDefault && <span className="text-text-dim">default</span>}
-                {p.mfa?.configured && (
-                  <span className="inline-flex items-center gap-1 text-text-dim"><Shield className="h-3 w-3" />{p.mfa.type}</span>
-                )}
-              </div>
-
-              <div className="mt-3 space-y-1 text-xs text-text-dim">
-                <div className="flex items-center gap-1.5">
-                  <Fingerprint className="h-3 w-3 shrink-0" />
-                  <span className="truncate">
-                    {p.fingerprint?.platform || '—'}
-                    {p.fingerprint?.timezone ? ` · ${p.fingerprint.timezone}` : ''}
-                    {p.fingerprint?.screen ? ` · ${p.fingerprint.screen.width}×${p.fingerprint.screen.height}` : ''}
-                  </span>
-                </div>
-                <div className="truncate">
-                  {p.proxy ? `via ${p.proxy.label || p.proxy.geo || 'proxy'}` : 'direct connection'}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full border-collapse text-[13px]">
+          <thead className="sticky top-0 z-10 bg-bg">
+            <tr className="border-b border-border text-left text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted">
+              <th className="px-2 py-1.5 lg:pl-6">Persona</th>
+              <th className="w-[110px] px-2 py-1.5 text-right">Running</th>
+              <th className="px-2 py-1.5">Device</th>
+              <th className="w-[140px] px-2 py-1.5">Exit</th>
+              <th className="w-[70px] px-2 py-1.5">MFA</th>
+              <th className="w-[90px] px-2 py-1.5 text-right">Last used</th>
+              <th className="w-[90px] px-2 py-1.5 text-right">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {personas.map((p) => {
+              const cap = p.maxConcurrent === null ? Infinity : p.maxConcurrent;
+              const at = p.activeBrowsers >= cap;
+              const running = browsers.filter((b) => b.persona === p.id).length || p.activeBrowsers;
+              return (
+                <tr key={p.id} className={`row-lazy cursor-pointer border-b border-border/60 hover:bg-white/[0.035] ${openId === p.id ? 'bg-accent/[0.08]' : ''}`} onClick={() => onOpen(p.id)}>
+                  <td className="px-2 py-2 lg:pl-6">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-text">{p.name}</span>
+                      {p.isDefault && <span className="rounded border border-border px-1 text-[10px] uppercase tracking-wider text-text-muted">default</span>}
+                    </div>
+                    <div className="font-mono text-[11px] text-text-dim">{p.id}</div>
+                  </td>
+                  <td className="px-2 py-2 text-right num">
+                    <span className={at ? 'text-yellow' : running ? 'text-accent' : 'text-text-muted'}>{running}</span>
+                    <span className="text-text-dim"> / {cap === Infinity ? '∞' : cap}</span>
+                  </td>
+                  <td className="px-2 py-2 text-text-secondary">
+                    {platformLabel(p.fingerprint.platform)} · {p.fingerprint.timezone} · {p.fingerprint.screen}
+                  </td>
+                  <td className="px-2 py-2 text-text-secondary">
+                    {p.exit ? <span title={p.exit.label}>{p.exit.label}{p.exit.geo ? ` · ${p.exit.geo}` : ''}</span>
+                      : p.proxy?.geo ? <span className="text-text-muted">{p.proxy.geo} (auto)</span> : <span className="text-text-dim">direct</span>}
+                  </td>
+                  <td className="px-2 py-2">{p.mfa?.configured ? <span className="inline-flex items-center gap-1 text-[12px] text-accent"><ShieldCheck className="h-3.5 w-3.5" />{p.mfa.type}</span> : <span className="text-text-dim">—</span>}</td>
+                  <td className="px-2 py-2 text-right num text-text-muted">{p.lastUsedAt ? ago(p.lastUsedAt, now) : '—'}</td>
+                  <td className="px-2 py-2 text-right num text-text-muted">{ago(p.createdAt, now)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {personas.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-bg-card"><Users className="h-5 w-5 text-text-muted" /></div>
+            <p className="text-[15px] font-medium text-text">No personas yet</p>
+            <button className="btn-primary" onClick={() => setCreating(true)}>Create one</button>
+          </div>
+        )}
       </div>
 
-      {!personas.length && (
-        <p className="py-16 text-center text-sm text-text-dim">No personas yet.</p>
-      )}
+      <PersonaForm open={creating} onClose={() => setCreating(false)} apiKey={apiKey} onCreated={() => refresh()} />
+      <PersonaDrawer persona={open} onClose={() => onOpen(null)} apiKey={apiKey} browsers={browsers} onChanged={refresh} onShowBrowsers={onShowBrowsers} now={now} />
     </div>
   );
 }

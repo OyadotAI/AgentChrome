@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { X, Loader2, ExternalLink } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, ExternalLink } from 'lucide-react';
+import Dialog from '@/components/ui/dialog';
 import { useToast } from './toast';
 import { loadConfig, saveConfig, desktopSignInUrl, LLM_PRESETS, isOyaProvider, type KeyConfig } from './config';
 
@@ -40,8 +40,6 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  if (!open) return null;
-
   const set = (field: string, value: string) => setDraft({ ...draft, [field]: value });
   const value = (field: keyof KeyConfig) =>
     draft[field] ?? (typeof config?.[field] === 'string' ? (config[field] as string) : '');
@@ -59,26 +57,23 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
     } finally { setSaving(false); }
   };
 
-  const field = 'w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:border-accent focus:outline-none';
-  const label = 'block text-xs font-medium uppercase tracking-wider text-text-dim mb-1.5';
+  const field = 'field';
+  const label = 'label';
   const needs = config?.providers.find((p) => p.id === value('browser_provider'))?.needs ?? [];
 
   return (
-    <AnimatePresence>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-16 overflow-y-auto"
-        onClick={onClose}>
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
-          className="w-full max-w-lg rounded-xl border border-border bg-bg-card p-6"
-          onClick={(e) => e.stopPropagation()}>
-
-          <div className="mb-5 flex items-start justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-text">Settings</h2>
-              <p className="mt-0.5 text-xs text-text-dim">Stored against this API key.</p>
-            </div>
-            <button onClick={onClose} className="text-text-dim hover:text-text"><X className="h-4 w-4" /></button>
-          </div>
+    <Dialog open={open} onClose={onClose} title="Settings" description="Stored against this API key — nothing here lives in an environment variable."
+      footer={config ? (
+        <>
+          {onRerunSetup && (
+            <button onClick={() => { onClose(); onRerunSetup(); }} className="btn-ghost mr-auto">Run setup again</button>
+          )}
+          <button onClick={onClose} className="btn-ghost">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn-primary">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
+          </button>
+        </>
+      ) : undefined}>
 
           {!config ? (
             <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-text-dim" /></div>
@@ -163,20 +158,8 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
                 </div>
               )}
 
-              <div className="flex items-center gap-3 pt-1">
-                <button onClick={save} disabled={saving}
-                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
-                  {saving && <Loader2 className="h-4 w-4 animate-spin" />} Save
-                </button>
-                {onRerunSetup && (
-                  <button onClick={() => { onClose(); onRerunSetup(); }}
-                    className="text-sm text-text-dim hover:text-text">Run setup again</button>
-                )}
-              </div>
             </div>
           )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    </Dialog>
   );
 }

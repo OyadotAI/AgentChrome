@@ -221,7 +221,8 @@ export default function Onboarding({ apiKey, config, onDone }: OnboardingProps) 
           {step > 0 && (
             <button onClick={() => setStep(step - 1)} className="text-sm text-text-dim hover:text-text">Back</button>
           )}
-          <button onClick={onDone} className="ml-auto text-sm text-text-dim hover:text-text">Skip setup</button>
+          {/* A skipped setup is still a finished one — otherwise the wizard nags on every visit. */}
+          <button onClick={async () => { await persist({ onboarded: 'true' }); onDone(); }} className="ml-auto text-sm text-text-dim hover:text-text">Skip setup</button>
         </div>
       </div>
     </div>

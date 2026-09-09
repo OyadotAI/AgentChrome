@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Radio, Key, Plus, Trash2, ChevronDown, Settings, LogOut,
   User, Eye, EyeOff, Loader2, Check, Copy, Import
@@ -56,14 +56,11 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
 
   // Fetch keys from API
   const loadKeys = useCallback(async () => {
-    if (!token) { console.log('[header] loadKeys: no token'); return []; }
-    console.log('[header] loadKeys: fetching with token', token.slice(0, 20) + '...');
+    if (!token) return [];
     try {
       const data = await listApiKeys(token);
-      console.log('[header] loadKeys: got', data);
       const keyList: ApiKeyEntry[] = Array.isArray(data) ? data : Array.isArray(data?.keys) ? data.keys : [];
       setKeys(keyList);
-      console.log('[header] loadKeys: set', keyList.length, 'keys');
       return keyList;
     } catch (err) {
       console.warn('[header] Failed to load API keys:', err);

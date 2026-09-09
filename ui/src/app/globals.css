@@ -90,6 +90,30 @@ button, a, input, select, textarea {
 .scrollbar-none::-webkit-scrollbar { display: none; }
 .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* ── Console primitives ──
+   Buttons, table rows and inputs read the same everywhere. Numbers are
+   tabular so a refreshing column does not jitter. */
+@utility btn-base {
+  @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-3 text-[13px] font-medium whitespace-nowrap select-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent;
+}
+@utility btn-primary { @apply btn-base bg-accent text-[#0c0c0a] hover:bg-accent-hover shadow-[0_0_20px_-8px_rgba(57,237,53,0.55)]; }
+@utility btn-ghost { @apply btn-base border border-border bg-transparent text-text-secondary hover:border-white/20 hover:bg-white/5 hover:text-text; }
+@utility btn-danger { @apply btn-base bg-red/15 text-red hover:bg-red/25 border border-red/30; }
+@utility btn-icon { @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-text-muted hover:bg-white/5 hover:text-text disabled:opacity-40; }
+@utility field { @apply h-8 w-full rounded-md border border-border bg-bg px-2.5 text-[13px] text-text placeholder:text-text-dim focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus; }
+@utility label { @apply mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-text-muted; }
+@utility num { font-variant-numeric: tabular-nums; }
+
+/* A thousand rows: paint only what is on screen. */
+.row-lazy { content-visibility: auto; contain-intrinsic-size: 0 40px; }
+
+/* Health dots. One place, so the strip and the table agree. */
+.dot { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
+.dot-ok { @apply bg-accent shadow-[0_0_8px_rgba(57,237,53,0.7)]; }
+.dot-stale { @apply bg-yellow; }
+.dot-errors { @apply bg-red; }
+.dot-dead { @apply bg-white/25; }
+
 /* Landing page subtle grid */
 .landing-grid {
   background-image:

@@ -211,7 +211,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6">
           <section className="pt-14 sm:pt-20 pb-12 sm:pb-16">
             <div className="grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
-              <div className="lg:col-span-7 reveal-stagger">
+              <div className="lg:col-span-7">
                 <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-indigo mb-4">
                   Personas · Rotation · CAPTCHA &amp; MFA · Cookie sync
                 </p>

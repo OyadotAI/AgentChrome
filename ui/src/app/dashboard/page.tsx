@@ -1,34 +1,26 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Monitor, Users, Activity, Plus, Loader2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { apiUrl, apiKeyHeaders } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Monitor, Users, Activity, HelpCircle } from 'lucide-react';
 import { useToast } from '@/components/dashboard/toast';
+import { api, errorMessage } from '@/lib/api-client';
+import { useShortcuts, type Shortcut } from '@/lib/shortcuts';
 
 import Header from '@/components/dashboard/header';
-import BrowserList, { type BrowserInfo } from '@/components/dashboard/browser-list';
-import OverviewTab from '@/components/dashboard/overview-tab';
+import FleetStrip, { type FleetFilter } from '@/components/dashboard/fleet-strip';
+import FleetTable from '@/components/dashboard/fleet-table';
+import BrowserPanel from '@/components/dashboard/browser-panel';
 import PersonasTab from '@/components/dashboard/personas-tab';
+import PersonaDrawer from '@/components/dashboard/persona-drawer';
 import ControlTab from '@/components/dashboard/control-tab';
 import SettingsDialog from '@/components/dashboard/settings-dialog';
 import Onboarding from '@/components/dashboard/onboarding';
-import { loadConfig, type KeyConfig } from '@/components/dashboard/config';
-
-function formatUptime(seconds: number | undefined | null): string {
-  if (seconds === undefined || seconds === null) return '--';
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function formatDuration(dateStr: string | undefined): string {
-  if (!dateStr) return '--';
-  return formatUptime(Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000));
-}
+import StartBrowser from '@/components/dashboard/start-browser';
+import DesktopBanner from '@/components/dashboard/desktop-banner';
+import ShortcutHelp from '@/components/dashboard/shortcut-help';
+import { Confirm } from '@/components/ui/dialog';
+import { loadConfig, isOyaProvider, type KeyConfig } from '@/components/dashboard/config';
+import type { BrowserRow, Fleet, Persona } from '@/components/dashboard/types';
 
 type MainTab = 'browsers' | 'personas' | 'control';
 
@@ -38,291 +30,245 @@ const TABS: { key: MainTab; label: string; icon: typeof Monitor }[] = [
   { key: 'control', label: 'Control', icon: Activity },
 ];
 
+const NO_FILTER: FleetFilter = { health: null, provider: null, persona: null, text: '' };
+
+/**
+ * The fleet console. A thousand browsers in a table with their health, one
+ * of them open on the right, and a keyboard to move between them.
+ */
 export default function DashboardPage() {
   const toast = useToast();
 
   const [apiKey, setApiKey] = useState('');
-  const [selectedBrowser, setSelectedBrowser] = useState<string | null>(null);
-  const [browsers, setBrowsers] = useState<BrowserInfo[]>([]);
-  const [currentTab, setCurrentTab] = useState<MainTab>('browsers');
-  const [showSettings, setShowSettings] = useState(false);
-
+  const [tab, setTab] = useState<MainTab>('browsers');
+  const [browsers, setBrowsers] = useState<BrowserRow[]>([]);
+  const [fleet, setFleet] = useState<Fleet | null>(null);
+  const [personas, setPersonas] = useState<Persona[]>([]);
   const [config, setConfig] = useState<KeyConfig | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  const [selected, setSelected] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<FleetFilter>(NO_FILTER);
+  const [openPersona, setOpenPersona] = useState<string | null>(null);
+
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showStart, setShowStart] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [stopIds, setStopIds] = useState<string[] | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  const [statUptime, setStatUptime] = useState('--');
-  const [starting, setStarting] = useState(false);
-
-  const [infoUrl, setInfoUrl] = useState('--');
-  const [infoSession, setInfoSession] = useState('--');
-  const [infoTabs, setInfoTabs] = useState('--');
-
-  const [liveFrameSrc, setLiveFrameSrc] = useState<string | null>(null);
-  const [liveFps, setLiveFps] = useState('');
-
-  const apiKeyRef = useRef(apiKey);
-  const selectedBrowserRef = useRef(selectedBrowser);
-  const liveEventSourceRef = useRef<EventSource | null>(null);
-  const liveFrameCountRef = useRef(0);
-  const liveFpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const healthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const browserTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
-  useEffect(() => { selectedBrowserRef.current = selectedBrowser; }, [selectedBrowser]);
-
-  const headers = useCallback(() => apiKeyHeaders(apiKeyRef.current), []);
+  const filterRef = useRef<HTMLInputElement>(null);
+  const urlRef = useRef<HTMLInputElement>(null);
+  const rateRef = useRef<{ at: number; commands: number; errors: number } | null>(null);
+  const [rate, setRate] = useState<{ commandsPerMin: number; errorPct: number } | null>(null);
+  const hidden = useRef(false);
 
   // ── Data ──
-  const fetchHealth = useCallback(async () => {
-    try {
-      const res = await fetch(apiUrl('/health'));
-      if (!res.ok) return;
-      setStatUptime(formatUptime((await res.json()).uptime));
-    } catch { /* the poll will retry */ }
-  }, []);
-
   const fetchBrowsers = useCallback(async () => {
-    if (!apiKeyRef.current) return;
-    try {
-      const res = await fetch(apiUrl('/browsers'), { headers: headers() });
-      if (!res.ok) { setBrowsers([]); return; }
-      setBrowsers(await res.json());
-    } catch { setBrowsers([]); }
-  }, [headers]);
-
-  // First run: a key that has never been through setup gets the wizard.
-  useEffect(() => {
-    if (!apiKey) { setConfig(null); return; }
-    let cancelled = false;
-    loadConfig(apiKey)
-      .then((cfg) => {
-        if (cancelled) return;
-        setConfig(cfg);
-        setShowOnboarding(!cfg.onboarded);
-      })
-      .catch(() => { /* an invalid key already shows as an empty browser list */ });
-    return () => { cancelled = true; };
+    if (!apiKey || hidden.current) return;
+    try { setBrowsers(await api<BrowserRow[]>('/browsers', { key: apiKey })); } catch { setBrowsers([]); }
   }, [apiKey]);
 
-  // ── Start a browser ──
-  const startBrowser = useCallback(async () => {
-    setStarting(true);
+  const fetchFleet = useCallback(async () => {
+    if (!apiKey || hidden.current) return;
     try {
-      const res = await fetch(apiUrl('/browsers/start'), {
-        method: 'POST', headers: headers(), body: JSON.stringify({ persona: 'default' }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || 'Could not start a browser');
-      toast(body.status === 'starting' ? 'Starting — it will appear shortly' : 'Browser ready', 'success');
-      fetchBrowsers();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Error', 'error');
-    } finally { setStarting(false); }
-  }, [headers, toast, fetchBrowsers]);
+      const f = await api<Fleet>('/fleet', { key: apiKey });
+      setFleet(f);
+      const prev = rateRef.current;
+      const cur = { at: Date.now(), commands: f.browsers.commands, errors: f.browsers.errors };
+      if (prev && cur.at > prev.at) {
+        const dc = Math.max(0, cur.commands - prev.commands), de = Math.max(0, cur.errors - prev.errors);
+        const mins = (cur.at - prev.at) / 60000;
+        setRate({ commandsPerMin: Math.round(dc / mins), errorPct: dc ? (de / dc) * 100 : 0 });
+      }
+      rateRef.current = cur;
+    } catch { /* strip shows dashes */ }
+  }, [apiKey]);
 
-  // ── Live view ──
-  const stopLiveView = useCallback(() => {
-    liveEventSourceRef.current?.close();
-    liveEventSourceRef.current = null;
-    if (liveFpsTimerRef.current) { clearInterval(liveFpsTimerRef.current); liveFpsTimerRef.current = null; }
-  }, []);
+  const fetchPersonas = useCallback(async () => {
+    if (!apiKey || hidden.current) return;
+    try { setPersonas((await api<{ personas: Persona[] }>('/personas', { key: apiKey })).personas || []); } catch { /* keep last */ }
+  }, [apiKey]);
 
-  const startLiveView = useCallback(() => {
-    stopLiveView();
-    const browserId = selectedBrowserRef.current;
-    const key = apiKeyRef.current;
-    if (!browserId || !key) return;
-
-    liveFrameCountRef.current = 0;
-    const es = new EventSource(apiUrl(`/live/${browserId}?key=${encodeURIComponent(key)}`));
-    liveEventSourceRef.current = es;
-    es.onmessage = (e) => { setLiveFrameSrc(e.data); liveFrameCountRef.current++; };
-    es.onerror = () => { setLiveFrameSrc(null); stopLiveView(); };
-
-    liveFpsTimerRef.current = setInterval(() => {
-      setLiveFps(`${liveFrameCountRef.current} fps`);
-      liveFrameCountRef.current = 0;
-    }, 1000);
-  }, [stopLiveView]);
-
-  const fetchTabCount = useCallback(async () => {
-    const browserId = selectedBrowserRef.current;
-    if (!browserId || !apiKeyRef.current) return;
+  // The wizard decision is made once per key, on first load. Later refreshes
+  // (after Settings, after Skip) must not re-open it.
+  const decidedFor = useRef<string | null>(null);
+  const fetchConfig = useCallback(async () => {
+    if (!apiKey) { setConfig(null); return; }
     try {
-      const res = await fetch(apiUrl(`/browsers/${browserId}/command`), {
-        method: 'POST', headers: headers(), body: JSON.stringify({ action: 'list_tabs', params: {} }),
-      });
-      const data = await res.json();
-      const tabs = data?.data?.tabs;
-      setInfoTabs(Array.isArray(tabs) ? String(tabs.length) : '--');
-    } catch { /* a browser that cannot list tabs just shows -- */ }
-  }, [headers]);
+      const cfg = await loadConfig(apiKey);
+      setConfig(cfg);
+      if (decidedFor.current !== apiKey) { decidedFor.current = apiKey; setShowOnboarding(!cfg.onboarded); }
+    } catch { /* an invalid key already shows as an empty fleet */ }
+  }, [apiKey]);
 
-  // ── Polling ──
-  const stopPolling = useCallback(() => {
-    if (healthTimerRef.current) { clearInterval(healthTimerRef.current); healthTimerRef.current = null; }
-    if (browserTimerRef.current) { clearInterval(browserTimerRef.current); browserTimerRef.current = null; }
+  useEffect(() => {
+    const saved = localStorage.getItem('oya_api_key') || '';
+    if (saved) setApiKey(saved);
   }, []);
 
-  const startPolling = useCallback(() => {
-    stopPolling();
-    fetchHealth();
-    fetchBrowsers();
-    healthTimerRef.current = setInterval(fetchHealth, 5000);
-    browserTimerRef.current = setInterval(fetchBrowsers, 3000);
-  }, [stopPolling, fetchHealth, fetchBrowsers]);
+  useEffect(() => { fetchConfig(); }, [fetchConfig]);
 
   useEffect(() => {
-    startPolling();
-    return () => { stopPolling(); stopLiveView(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!apiKey) return;
+    fetchBrowsers(); fetchFleet(); fetchPersonas();
+    const a = setInterval(fetchBrowsers, 3000);
+    const b = setInterval(fetchFleet, 5000);
+    const c = setInterval(fetchPersonas, 10000);
+    const d = setInterval(() => setNow(Date.now()), 1000);
+    const onVis = () => { hidden.current = document.hidden; if (!document.hidden) { fetchBrowsers(); fetchFleet(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(a); clearInterval(b); clearInterval(c); clearInterval(d); document.removeEventListener('visibilitychange', onVis); };
+  }, [apiKey, fetchBrowsers, fetchFleet, fetchPersonas]);
 
-  useEffect(() => { if (apiKey) fetchBrowsers(); }, [apiKey, fetchBrowsers]);
-
+  // A browser that leaves the fleet leaves the selection too.
   useEffect(() => {
-    const savedKey = localStorage.getItem('oya_api_key') || '';
-    if (savedKey) setApiKey(savedKey);
-  }, []);
-
-  useEffect(() => {
-    if (selectedBrowser) { startLiveView(); fetchTabCount(); }
-    else { stopLiveView(); setLiveFrameSrc(null); setLiveFps(''); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBrowser]);
-
-  // Keep the selection honest: a browser that goes away must not stay selected.
-  useEffect(() => {
-    if (selectedBrowser && browsers.length && !browsers.find((b) => b.id === selectedBrowser)) {
-      setSelectedBrowser(null);
-      return;
+    if (selected && browsers.length && !browsers.some((b) => b.id === selected)) setSelected(null);
+    if (checked.size) {
+      const alive = new Set(browsers.map((b) => b.id));
+      const next = new Set([...checked].filter((id) => alive.has(id)));
+      if (next.size !== checked.size) setChecked(next);
     }
-    const b = browsers.find((x) => x.id === selectedBrowser);
-    if (b) { setInfoUrl(b.currentUrl || '--'); setInfoSession(formatDuration(b.connectedAt)); }
-  }, [browsers, selectedBrowser]);
+  }, [browsers, selected, checked]);
 
-  // Live views and polls are pointless in a hidden tab, and expensive at fleet scale.
-  useEffect(() => {
-    const handler = () => {
-      if (!document.hidden) {
-        startPolling();
-        if (selectedBrowserRef.current && currentTab === 'browsers') startLiveView();
-      } else { stopPolling(); stopLiveView(); }
-    };
-    document.addEventListener('visibilitychange', handler);
-    return () => document.removeEventListener('visibilitychange', handler);
-  }, [startPolling, stopPolling, startLiveView, stopLiveView, currentTab]);
+  // ── Actions ──
+  const requestStop = useCallback((ids: string[]) => { if (ids.length) setStopIds(ids); }, []);
 
-  useEffect(() => {
-    if (currentTab === 'browsers' && selectedBrowser) startLiveView();
-    else stopLiveView();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTab]);
+  const doStop = async () => {
+    if (!stopIds) return;
+    setStopping(true);
+    try {
+      const r = await api<{ stopped: number; results: { id: string; ok: boolean; sandboxRemoved: boolean | null; error?: string }[] }>(
+        '/browsers/stop', { key: apiKey, method: 'POST', body: { ids: stopIds } });
+      const failedSandbox = r.results.filter((x) => x.sandboxRemoved === false).length;
+      toast(`Stopped ${r.stopped}${failedSandbox ? ` — ${failedSandbox} sandbox${failedSandbox > 1 ? 'es' : ''} could not be removed` : ''}`, failedSandbox ? 'error' : 'success');
+      if (selected && stopIds.includes(selected)) setSelected(null);
+      setChecked(new Set());
+      fetchBrowsers(); fetchFleet();
+    } catch (err) { toast(errorMessage(err), 'error'); }
+    finally { setStopping(false); setStopIds(null); }
+  };
 
+  const moveSelection = useCallback((dir: 1 | -1) => {
+    const rows = [...document.querySelectorAll<HTMLElement>('tbody [data-id]')].map((el) => el.dataset.id!);
+    if (!rows.length) return;
+    const i = selected ? rows.indexOf(selected) : -1;
+    const next = rows[Math.min(rows.length - 1, Math.max(0, i + dir))];
+    setSelected(next);
+  }, [selected]);
+
+  const showBrowsersFor = useCallback((personaId: string) => {
+    const p = personas.find((x) => x.id === personaId);
+    setFilter({ ...NO_FILTER, persona: p?.name || personaId });
+    setOpenPersona(null);
+    setTab('browsers');
+  }, [personas]);
+
+  // ── Shortcuts ──
+  const shortcuts = useMemo<Shortcut[]>(() => [
+    { keys: 'mod+1', label: 'Browsers', group: 'Navigate', global: true, handler: () => setTab('browsers') },
+    { keys: 'mod+2', label: 'Personas', group: 'Navigate', global: true, handler: () => setTab('personas') },
+    { keys: 'mod+3', label: 'Control', group: 'Navigate', global: true, handler: () => setTab('control') },
+    { keys: '?', label: 'This help', group: 'Navigate', handler: () => setShowHelp(true) },
+    { keys: 'n', label: 'Start a browser', group: 'Fleet', handler: () => setShowStart(true) },
+    { keys: '/', label: 'Filter the fleet', group: 'Fleet', handler: () => { setTab('browsers'); filterRef.current?.focus(); } },
+    { keys: 'down', label: 'Next browser', group: 'Fleet', handler: () => moveSelection(1) },
+    { keys: 'up', label: 'Previous browser', group: 'Fleet', handler: () => moveSelection(-1) },
+    { keys: 'j', label: 'Next browser', group: 'Fleet', handler: () => moveSelection(1) },
+    { keys: 'k', label: 'Previous browser', group: 'Fleet', handler: () => moveSelection(-1) },
+    { keys: 'escape', label: 'Close panel / clear', group: 'Fleet', global: true, handler: () => {
+      if (showStart || showHelp || showSettings || stopIds || openPersona) return;   // the dialog handles it
+      if (selected) setSelected(null); else if (checked.size) setChecked(new Set());
+    } },
+    { keys: 'x', label: 'Stop selected', group: 'Browser', handler: () => requestStop(checked.size ? [...checked] : selected ? [selected] : []) },
+    { keys: 'l', label: 'Focus the URL bar', group: 'Browser', handler: () => urlRef.current?.focus() },
+    { keys: 'r', label: 'Reload', group: 'Browser', handler: () => { if (selected) document.querySelector<HTMLButtonElement>('[title^="Reload"]')?.click(); } },
+    { keys: 's', label: 'Screenshot', group: 'Browser', handler: () => { if (selected) [...document.querySelectorAll<HTMLButtonElement>('aside button')].find((b) => /Screenshot/.test(b.textContent || ''))?.click(); } },
+  ], [moveSelection, requestStop, selected, checked, showStart, showHelp, showSettings, stopIds, openPersona]);
+
+  useShortcuts(shortcuts, !!apiKey && !showOnboarding);
+
+  // ── Derived ──
   const onboarding = showOnboarding && config && apiKey;
+  const cloudProvider = !!config && isOyaProvider(config.browser_provider);
+  const needsDesktop = cloudProvider && !config?.desktop_seen_at && !bannerDismissed;
+  const stopTargets = stopIds ? browsers.filter((b) => stopIds.includes(b.id)) : [];
+  const stopCloud = stopTargets.filter((b) => b.provider === 'oya-cloud').length;
+  const providersForStart = (config?.providers || []).map((p) => ({ id: p.id, label: p.label, configured: p.configured }));
 
   return (
-    <div className="flex flex-col h-dvh bg-bg overflow-hidden pb-14 md:pb-0">
+    <div className="flex h-dvh flex-col overflow-hidden bg-bg">
       <Header apiKey={apiKey} setApiKey={setApiKey} onOpenSettings={() => setShowSettings(true)} />
 
-      <div className="h-10 border-b border-border px-4 lg:px-6 flex items-center gap-6 text-xs text-text-dim">
-        <span>Uptime <span className="text-text font-mono tabular-nums ml-1">{statUptime}</span></span>
-        <span>Browsers <span className="text-text font-mono tabular-nums ml-1">{browsers.length}</span></span>
-        {config && (
-          <span className="truncate">
-            Provider <span className="text-text font-mono ml-1">{config.browser_provider || 'cdp'}</span>
-          </span>
-        )}
-      </div>
-
       {onboarding ? (
-        <Onboarding
-          apiKey={apiKey}
-          config={config}
-          onDone={() => { setShowOnboarding(false); loadConfig(apiKey).then(setConfig).catch(() => {}); }}
-        />
+        <Onboarding apiKey={apiKey} config={config} onDone={() => { setShowOnboarding(false); fetchConfig(); }} />
       ) : (
         <>
-          <div className="hidden md:flex border-b border-border px-4 lg:px-6 items-center gap-1">
-            {TABS.map((tab) => (
-              <button key={tab.key} onClick={() => setCurrentTab(tab.key)}
-                className={`flex items-center gap-2 px-3 py-3 text-sm font-medium transition-colors ${
-                  currentTab === tab.key ? 'text-text border-b-2 border-accent' : 'text-text-dim hover:text-text-muted'}`}>
-                <tab.icon className="w-4 h-4 shrink-0" />
-                {tab.label}
+          {needsDesktop && <DesktopBanner apiKey={apiKey} onDismiss={() => setBannerDismissed(true)} />}
+
+          {/* Tabs */}
+          <div className="flex items-center gap-1 border-b border-border px-4 lg:px-6">
+            {TABS.map((t) => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`flex items-center gap-2 border-b-2 px-3 py-2.5 text-[13.5px] font-medium transition-colors ${
+                  tab === t.key ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text-secondary'}`}>
+                <t.icon className="h-4 w-4 shrink-0" />{t.label}
               </button>
             ))}
-            <button onClick={startBrowser} disabled={starting || !apiKey}
-              className="ml-auto my-1.5 inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-black disabled:opacity-60">
-              {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Start browser
+            <button className="btn-icon ml-auto" onClick={() => setShowHelp(true)} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">
+              <HelpCircle className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="flex flex-1 overflow-hidden">
-            {currentTab === 'browsers' && (
-              <div className="hidden lg:flex w-60 border-r border-border bg-bg-card shrink-0">
-                <BrowserList browsers={browsers} selectedBrowser={selectedBrowser} onSelect={setSelectedBrowser} />
+          {tab === 'browsers' && <FleetStrip fleet={fleet} rate={rate} filter={filter} onFilter={(n) => setFilter((f) => ({ ...f, ...n }))} />}
+
+          <div className="flex min-h-0 flex-1">
+            <div className="min-w-0 flex-1">
+              {tab === 'browsers' && (
+                <FleetTable rows={browsers} selectedId={selected} onSelect={setSelected} checked={checked} onChecked={setChecked}
+                  filter={filter} onFilter={(n) => setFilter((f) => ({ ...f, ...n }))} onStop={requestStop} onStart={() => setShowStart(true)}
+                  filterRef={filterRef} now={now} />
+              )}
+              {tab === 'personas' && (
+                <PersonasTab apiKey={apiKey} browsers={browsers} personas={personas} refresh={fetchPersonas}
+                  openId={openPersona} onOpen={setOpenPersona} onShowBrowsers={showBrowsersFor} now={now} />
+              )}
+              {tab === 'control' && <div className="h-full overflow-y-auto"><ControlTab apiKey={apiKey} /></div>}
+            </div>
+
+            {tab === 'browsers' && selected && (
+              <div className="fixed inset-0 z-40 flex justify-end bg-black/50 lg:static lg:z-auto lg:bg-transparent" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
+                <BrowserPanel apiKey={apiKey} browserId={selected} onClose={() => setSelected(null)} onStop={requestStop}
+                  onOpenPersona={setOpenPersona} urlRef={urlRef} now={now} />
               </div>
             )}
-
-            <div className="flex-1 overflow-hidden flex flex-col">
-              {currentTab === 'browsers' && (
-                <div className="lg:hidden border-b border-border px-3 py-1.5 bg-bg-card">
-                  <BrowserList browsers={browsers} selectedBrowser={selectedBrowser} onSelect={setSelectedBrowser} mobile />
-                </div>
-              )}
-
-              <div className="flex-1 overflow-y-auto">
-                <AnimatePresence mode="wait">
-                  {currentTab === 'browsers' && (
-                    <motion.div key="browsers" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}>
-                      <OverviewTab
-                        selectedBrowser={selectedBrowser}
-                        liveFrameSrc={liveFrameSrc}
-                        liveFps={liveFps}
-                        infoUrl={infoUrl}
-                        infoSession={infoSession}
-                        infoTabs={infoTabs}
-                      />
-                    </motion.div>
-                  )}
-                  {currentTab === 'personas' && (
-                    <motion.div key="personas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="h-full">
-                      <PersonasTab apiKey={apiKey} />
-                    </motion.div>
-                  )}
-                  {currentTab === 'control' && (
-                    <motion.div key="control" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }} className="h-full">
-                      <ControlTab apiKey={apiKey} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-          </div>
-
-          {/* Mobile tab bar */}
-          <div className="md:hidden fixed bottom-0 inset-x-0 h-14 border-t border-border bg-bg-card flex">
-            {TABS.map((tab) => (
-              <button key={tab.key} onClick={() => setCurrentTab(tab.key)}
-                className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-xs ${
-                  currentTab === tab.key ? 'text-accent' : 'text-text-dim'}`}>
-                <tab.icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            ))}
           </div>
         </>
       )}
 
-      <SettingsDialog
-        open={showSettings}
-        onClose={() => { setShowSettings(false); if (apiKey) loadConfig(apiKey).then(setConfig).catch(() => {}); }}
-        apiKey={apiKey}
-        onRerunSetup={() => setShowOnboarding(true)}
-      />
+      {/* The persona drawer can open from the browser panel too. */}
+      {tab !== 'personas' && (
+        <PersonaDrawer persona={personas.find((p) => p.id === openPersona) || null} onClose={() => setOpenPersona(null)} apiKey={apiKey}
+          browsers={browsers} onChanged={fetchPersonas} onShowBrowsers={showBrowsersFor} now={now} />
+      )}
+
+      <StartBrowser open={showStart} onClose={() => setShowStart(false)} apiKey={apiKey} personas={personas}
+        defaultProvider={config?.browser_provider || 'cdp'} providers={providersForStart}
+        onStarted={() => { fetchBrowsers(); fetchFleet(); }} />
+
+      <Confirm open={!!stopIds} onClose={() => setStopIds(null)} onConfirm={doStop} danger busy={stopping}
+        title={stopTargets.length === 1 ? `Stop ${stopTargets[0].name}?` : `Stop ${stopTargets.length} browsers?`}
+        confirmLabel={stopTargets.length === 1 ? 'Stop browser' : `Stop ${stopTargets.length}`}
+        body={stopCloud
+          ? <>{stopCloud === stopTargets.length ? 'This' : `${stopCloud} of these`} {stopCloud === 1 ? 'is a cloud browser: its sandbox is destroyed' : 'are cloud browsers: their sandboxes are destroyed'} and billing stops. Anything unsaved in the page is gone.</>
+          : <>The session ends now. A CDP browser is handed back to its provider; a desktop browser just disconnects.</>} />
+
+      <ShortcutHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={shortcuts} />
+
+      <SettingsDialog open={showSettings} onClose={() => { setShowSettings(false); fetchConfig(); }} apiKey={apiKey} onRerunSetup={() => setShowOnboarding(true)} />
     </div>
   );
 }
