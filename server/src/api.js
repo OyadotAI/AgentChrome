@@ -162,12 +162,21 @@ router.post('/browsers/provision', authMiddleware, async (req, res) => {
     });
   }
   const key = getKey(req);
-  const count = Math.min(Math.max(parseInt(req.body?.count) || 1, 1), 10);
+  const count = Math.min(Math.max(parseInt(req.body?.count) || 1, 1), 100);
   const name = typeof req.body?.name === 'string' ? req.body.name.slice(0, 100) : undefined;
 
-  const results = await Promise.allSettled(
-    Array.from({ length: count }, () => createSandbox({ apiKey: key, name })),
-  );
+  // Bounded concurrency: a fleet is built by repeating this call, and firing
+  // every create at once would just rate-limit us at the provider.
+  const IN_FLIGHT = 10;
+  const results = [];
+  const queue = Array.from({ length: count }, (_, i) => i);
+  await Promise.all(Array.from({ length: Math.min(IN_FLIGHT, count) }, async () => {
+    while (queue.length) {
+      queue.shift();
+      try { results.push({ status: 'fulfilled', value: await createSandbox({ apiKey: key, name }) }); }
+      catch (reason) { results.push({ status: 'rejected', reason }); }
+    }
+  }));
   const created = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message || 'unknown error');
 
