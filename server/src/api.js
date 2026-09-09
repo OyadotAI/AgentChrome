@@ -30,6 +30,7 @@ import { pool, STRATEGIES } from './routing.js';
 import * as profiles from './profiles.js';
 import * as recorder from './recorder.js';
 import * as personas from './personas.js';
+import * as proxies from './proxies.js';
 
 export const router = Router();
 
@@ -434,6 +435,50 @@ router.delete('/personas/:id', authMiddleware, (req, res) => {
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
+});
+
+// ─── Proxies ─────────────────────────────────────────────────────────────────
+//
+// A proxy is part of a persona's identity, assigned once and kept — an exit IP
+// that changes mid-life looks like an account takeover.
+
+router.get('/proxies', authMiddleware, (req, res) => {
+  res.json({ proxies: proxies.list(fingerprint(getKey(req))) });
+});
+
+router.post('/proxies', authMiddleware, (req, res) => {
+  try {
+    const created = proxies.register({
+      owner: fingerprint(getKey(req)),
+      label: req.body?.label,
+      url: req.body?.url,
+      geo: req.body?.geo,
+      kind: req.body?.kind,
+      maxPersonas: req.body?.maxPersonas,
+    });
+    audit({ action: 'proxy.create', actorKey: getKey(req), targetType: 'proxy', targetId: created.id,
+      meta: { geo: created.geo, kind: created.kind }, req });
+    res.status(201).json(created.toJSON());
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.delete('/proxies/:id', authMiddleware, (req, res) => {
+  try {
+    const removed = proxies.remove(fingerprint(getKey(req)), req.params.id);
+    if (!removed) return res.status(404).json({ error: 'No such proxy' });
+    audit({ action: 'proxy.delete', actorKey: getKey(req), targetType: 'proxy', targetId: req.params.id, req });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+/** Verify each proxy works and report the address its traffic actually leaves from. */
+router.post('/proxies/check', authMiddleware, async (req, res) => {
+  const results = await proxies.checkAll(fingerprint(getKey(req)));
+  res.json({ results });
 });
 
 // ─── CDP gateway: sessions, providers, profiles, recordings ──────────────────

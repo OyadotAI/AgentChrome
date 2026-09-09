@@ -11,7 +11,8 @@
  * than silently handing one tenant's session to another.
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
+import { seal as sealScoped, open as openScoped } from './secrets.js';
 import { readFile, writeFile, mkdir, readdir, unlink } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -21,25 +22,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIR = process.env.OYA_DATA_DIR
   ? join(process.env.OYA_DATA_DIR, 'profiles')
   : join(__dirname, '..', 'data', 'profiles');
-
-const SECRET = process.env.OYA_PROFILE_SECRET || '';
-const SALT = Buffer.from(process.env.OYA_PROFILE_SALT || 'oya-profile-kek-v1');
-
-let kek = null;
-function key() {
-  if (kek) return kek;
-  if (!SECRET) {
-    throw Object.assign(
-      new Error('OYA_PROFILE_SECRET is required to store browser profiles. Generate one with `openssl rand -hex 32`.'),
-      { status: 409 },
-    );
-  }
-  // scrypt is deliberate: the secret may be operator-chosen rather than random.
-  // N=2^15,r=8 needs 32MB, which is exactly Node's default maxmem ceiling, so
-  // maxmem is raised explicitly rather than left to trip at runtime.
-  kek = scryptSync(SECRET, SALT, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 96 * 1024 * 1024 });
-  return kek;
-}
 
 const safeName = (name) => {
   if (typeof name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) {
@@ -63,48 +45,9 @@ const safeOwner = (owner) => {
 const scopeOf = (owner, name) => `${safeOwner(owner)}__${safeName(name)}`;
 const fileFor = (owner, name) => join(DIR, `${scopeOf(owner, name)}.enc`);
 
-function seal(scope, value) {
-  const dek = randomBytes(32);
-  // The owner is inside the AAD, so a ciphertext copied into another tenant's
-  // namespace fails to open instead of decrypting.
-  const aad = Buffer.from(`profile:${scope}`);
+const seal = (scope, value) => sealScoped(`profile:${scope}`, value);
 
-  const nonce = randomBytes(12);
-  const c = createCipheriv('aes-256-gcm', dek, nonce);
-  c.setAAD(aad);
-  const body = Buffer.concat([c.update(JSON.stringify(value), 'utf8'), c.final()]);
-
-  const wrapNonce = randomBytes(12);
-  const w = createCipheriv('aes-256-gcm', key(), wrapNonce);
-  w.setAAD(aad);
-  const wrapped = Buffer.concat([w.update(dek), w.final()]);
-
-  return Buffer.concat([
-    Buffer.from([1]),                       // format version
-    wrapNonce, w.getAuthTag(), wrapped,     // 12 + 16 + 32
-    nonce, c.getAuthTag(), body,
-  ]);
-}
-
-function open(scope, buf) {
-  if (buf[0] !== 1) throw new Error('Unsupported profile format');
-  const aad = Buffer.from(`profile:${scope}`);
-  let o = 1;
-  const wrapNonce = buf.subarray(o, o += 12);
-  const wrapTag = buf.subarray(o, o += 16);
-  const wrapped = buf.subarray(o, o += 32);
-  const nonce = buf.subarray(o, o += 12);
-  const tag = buf.subarray(o, o += 16);
-  const body = buf.subarray(o);
-
-  const w = createDecipheriv('aes-256-gcm', key(), wrapNonce);
-  w.setAAD(aad); w.setAuthTag(wrapTag);
-  const dek = Buffer.concat([w.update(wrapped), w.final()]);
-
-  const c = createDecipheriv('aes-256-gcm', dek, nonce);
-  c.setAAD(aad); c.setAuthTag(tag);
-  return JSON.parse(Buffer.concat([c.update(body), c.final()]).toString('utf8'));
-}
+const open = (scope, buf) => openScoped(`profile:${scope}`, buf);
 
 // ── Concurrency lock ──
 // One writer per profile. Two sessions sharing a jar interleave writes and

@@ -19,6 +19,7 @@ process.env.OYA_LIMIT_COMMANDS_PER_MIN = '60';
 process.env.OYA_LIMIT_COMMANDS_BURST = '3';
 process.env.OYA_METRICS_TOKEN = 'scrape-token';
 process.env.OYA_OPERATOR_TOKEN = 'operator-token';
+process.env.OYA_PROFILE_SECRET = 'b'.repeat(64);   // read at module load
 
 const { router } = await import('./src/api.js');
 const { registry } = await import('./src/connection-registry.js');
@@ -245,6 +246,56 @@ try {
   assert(!theirs.body.personas.some((p) => p.id === created.body.id), 'and not for anyone else');
   assert((await call(`/api/personas/${created.body.id}`, { key: 'admin-key' })).status === 404,
     "another key gets 404, not another key's persona");
+
+  console.log('\n13. Proxies — an identity needs its own exit...');
+  const X = await import('./src/proxies.js');
+  const ownerFp = (await import('./src/audit.js')).fingerprint('tenant-key');
+
+  const px = X.register({ owner: ownerFp, label: 'us-1', url: 'http://u:p@px.example.com:8080', geo: 'US' });
+  assert(px.id.startsWith('px-'), 'a proxy can be registered');
+  assert(X.list(ownerFp).some((p) => p.id === px.id), 'and listed for its owner');
+  assert(X.list((await import('./src/audit.js')).fingerprint('admin-key')).every((p) => p.id !== px.id),
+    'but not for another key');
+
+  // Credentials are the whole reason this is encrypted at rest.
+  const shown = JSON.stringify(px.toJSON());
+  assert(!shown.includes('px.example.com') && !shown.includes('u:p'),
+    'the API view carries no host or credentials');
+  assert(X.credentials(px).url === 'http://px.example.com:8080', 'the server can still decrypt them');
+  assert(X.credentials(px).username === 'u', 'including the username');
+
+  // Chromium silently drops SOCKS5 auth, and that is what residential vendors
+  // sell — refusing beats handing back an exit that does not apply.
+  let socksRefused = false;
+  try { X.register({ owner: ownerFp, url: 'socks5://user:pw@px.example.com:1080' }); }
+  catch (e) { socksRefused = e.status === 400 && /SOCKS5/.test(e.message); }
+  assert(socksRefused, 'an authenticated SOCKS5 proxy is refused with the reason');
+
+  // Stickiness: a persona keeps its exit, or a returning login looks stolen.
+  const persona = P.create('tenant-key', { name: 'proxied' });
+  const first = X.forPersona(ownerFp, persona);
+  assert(first?.id === px.id, 'a persona is assigned a proxy');
+  assert(X.forPersona(ownerFp, persona)?.id === px.id, 'and keeps the same one');
+
+  // Capacity is per proxy, so two personas do not silently share one exit.
+  const second = P.create('tenant-key', { name: 'proxied-2' });
+  assert(X.forPersona(ownerFp, second) === null, 'a proxy at capacity is not handed to a second persona');
+
+  // Timezone that contradicts the exit country is a cheap detection.
+  const fp = P.fingerprintFor(persona);
+  const bad = X.coherence(persona, { ...fp, timezone: 'Europe/Berlin' }, { ...px, geo: 'US' });
+  assert(bad.checked && bad.ok === false, 'a Berlin timezone behind a US exit is flagged');
+  const good = X.coherence(persona, { ...fp, timezone: 'America/Denver' }, { ...px, geo: 'US' });
+  assert(good.checked && good.ok === true, 'a Denver timezone behind a US exit is fine');
+
+  console.log('\n14. Proxies over the API...');
+  const proxyViaApi = await call('/api/proxies', { method: 'POST', key: 'tenant-key',
+    body: { label: 'api', url: 'http://a:b@example.com:3128', geo: 'DE' } });
+  assert(proxyViaApi.status === 201, 'a proxy can be added over the API');
+  assert(!JSON.stringify(proxyViaApi.body).includes('example.com'), 'the response leaks no host');
+  const badSocks = await call('/api/proxies', { method: 'POST', key: 'tenant-key',
+    body: { url: 'socks5://u:p@h:1080' } });
+  assert(badSocks.status === 400, 'the SOCKS5 auth limitation is surfaced over the API too');
 
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack}`);

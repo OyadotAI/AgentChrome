@@ -10,6 +10,8 @@ import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from '
 import { metrics } from './metrics.js';
 import * as usage from './usage.js';
 import * as personas from './personas.js';
+import * as proxies from './proxies.js';
+import { fingerprint as personaOwner } from './audit.js';
 
 /** One place both client types report through, so the numbers are comparable. */
 function recordCommand(action, outcome, ms) {
@@ -127,6 +129,14 @@ export function handleConnection(ws, req) {
         return;
       }
       const fingerprint = personas.fingerprintFor(persona);
+
+      // The proxy is part of the identity, so it travels with the fingerprint.
+      const proxy = proxies.forPersona(personaOwner(apiKey), persona);
+      if (proxy) {
+        fingerprint.proxy = proxies.credentials(proxy);
+        const coherent = proxies.coherence(persona, fingerprint, proxy);
+        if (coherent.checked && !coherent.ok) console.warn(`[proxies] ${coherent.detail}`);
+      }
 
       ws.send(JSON.stringify({
         type: 'auth_ok',

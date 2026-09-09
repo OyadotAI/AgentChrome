@@ -164,6 +164,10 @@ export const metrics = {
   personasActive: gauge('oya_personas_active_browsers', 'Browsers currently running as some persona'),
   personaCapped: counter('oya_persona_capped_total', 'Starts refused by a persona concurrency cap'),
 
+  // Proxies
+  proxyFailures: counter('oya_proxy_failures_total', 'Proxy health check failures'),
+  proxyIncoherent: counter('oya_proxy_incoherent_total', 'Personas whose timezone contradicts their exit country'),
+
   // Enforcement
   rateLimited: counter('oya_rate_limited_total', 'Requests rejected by a rate limit'),
   quotaExceeded: counter('oya_quota_exceeded_total', 'Requests rejected by a quota'),
