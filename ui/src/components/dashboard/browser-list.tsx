@@ -117,7 +117,7 @@ export default function BrowserList({ browsers, selectedBrowser, onSelect, class
               <Monitor className="w-5 h-5 text-text-dim mb-2" />
               <p className="text-sm text-text-dim font-medium">No browsers connected</p>
               <p className="text-xs text-text-dim mt-1">
-                Install the extension and open Chrome
+                Start one above, or connect the desktop browser
               </p>
             </motion.div>
           ) : (

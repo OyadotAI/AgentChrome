@@ -12,6 +12,7 @@
 
 import { createHmac } from 'crypto';
 import { sealText, openText } from './secrets.js';
+import { assertSafeTarget } from './net-guard.js';
 import { metrics } from './metrics.js';
 
 /** personaId -> sealed config */
@@ -53,7 +54,7 @@ export function totp(secret, at = Math.floor(Date.now() / 1000), { digits = 6, p
 
 // ── Configuration ──
 
-export function set(personaId, config) {
+export async function set(personaId, config) {
   const { type } = config || {};
   if (!['totp', 'email', 'sms'].includes(type)) {
     throw Object.assign(new Error('mfa type must be totp, email or sms'), { status: 400 });
@@ -61,6 +62,12 @@ export function set(personaId, config) {
   if (type === 'totp') {
     if (!config.secret) throw Object.assign(new Error('a TOTP secret is required'), { status: 400 });
     totp(config.secret);            // fail now, not at the login prompt
+  } else {
+    // The relay URL is caller-supplied and the server fetches it, so it is an
+    // SSRF primitive: rejected here so the tenant sees why, and again at fetch
+    // time because a public name can be re-pointed at an internal address.
+    if (!config.url) throw Object.assign(new Error(`a ${type} relay url is required`), { status: 400 });
+    await assertSafeTarget(config.url, { protocols: ['http:', 'https:'], label: 'mfa relay url' });
   }
   configs.set(personaId, sealText(scopeFor(personaId), config));
   return describe(personaId);
@@ -142,8 +149,12 @@ async function fetchRelayCode(config) {
 
   while (Date.now() < deadline) {
     try {
+      // Re-checked every poll: the name was safe when it was stored, which
+      // says nothing about where it resolves now.
+      await assertSafeTarget(config.url, { protocols: ['http:', 'https:'], label: 'mfa relay url' });
       const res = await fetch(config.url, {
         headers: config.headers || {},
+        redirect: 'error',        // a 30x into an internal address would bypass the check above
         signal: AbortSignal.timeout(15_000),
       });
       if (res.ok) {

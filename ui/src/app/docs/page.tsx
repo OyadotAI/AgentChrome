@@ -651,7 +651,7 @@ analyze_page()`}</CodeBlock>
             Create and manage browser profiles with unique fingerprints, proxy routing, and isolated cookie stores. Each profile is a complete identity — different canvas hash, WebGL renderer, navigator properties, and session storage. Switch identities with a single MCP call.
           </p>
           <NoteBox>
-            Anonymity features are available in the Oya Browser desktop app. The Chrome extension does not include fingerprint or proxy management.
+            Every browser runs as a persona: a fingerprint, cookie jar and proxy bound together and stable for its life. Rotation means choosing a different persona, never re-rolling one.
           </NoteBox>
 
           <h3 id="fingerprint" className="text-base font-semibold mt-6 mb-2 text-text">Fingerprint Spoofing</h3>

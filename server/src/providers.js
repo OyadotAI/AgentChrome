@@ -31,6 +31,14 @@ const PRESETS = {
     idPath: ['id', 'data.id'],
     deleteUrl: (id) => `https://api.browserbase.com/v1/sessions/${id}`,
   },
+  browseruse: {
+    createUrl: 'https://api.browser-use.com/api/v2/sessions',
+    headers: (key) => ({ 'X-Browser-Use-API-Key': key, 'Content-Type': 'application/json' }),
+    body: () => ({}),
+    wsPath: ['cdpUrl', 'data.cdpUrl', 'cdp_url'],
+    idPath: ['id', 'data.id'],
+    deleteUrl: (id) => `https://api.browser-use.com/api/v2/sessions/${id}`,
+  },
   steel: {
     createUrl: 'https://api.steel.dev/v1/sessions',
     headers: (key) => ({ 'steel-api-key': key, 'Content-Type': 'application/json' }),

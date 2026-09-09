@@ -71,6 +71,7 @@ function loadConfig() {
   // Provisioned sandboxes are given their id up front so the server can
   // correlate the sandbox it created with the browser that enrolls.
   if (process.env.OYA_BROWSER_ID) browserId = process.env.OYA_BROWSER_ID;
+  if (process.env.OYA_PERSONA) config.persona = process.env.OYA_PERSONA;
 }
 
 function saveConfig() {
@@ -614,10 +615,72 @@ async function setupBrowserSession() {
   await configureProxy(ses, activeProfile?.proxy);
 }
 
+// ─── One-click sign-in (oya:// deep links) ───
+//
+// The dashboard hands out `oya://connect?key=...&server=...` so a customer can
+// go from "pick Oya Browsers" to a signed-in desktop browser without copying a
+// key by hand. Cookies gathered here are what the remote browsers reuse, so
+// this is the step that makes an agent arrive already logged in.
+
+function applyDeepLink(rawUrl) {
+  let url;
+  try { url = new URL(rawUrl); } catch { return false; }
+  if (url.protocol !== 'oya:') return false;
+
+  const key = url.searchParams.get('key');
+  const server = url.searchParams.get('server');
+  if (!key) return false;
+
+  // Only ws/wss, and only a URL — a deep link is attacker-reachable input.
+  if (server) {
+    try {
+      const parsed = new URL(server);
+      if (!['ws:', 'wss:'].includes(parsed.protocol)) return false;
+      config.serverUrl = parsed.href;
+    } catch { return false; }
+  }
+  config.apiKey = key;
+  saveConfig();
+  // connect() emits ws-status, which is how the renderer learns about this.
+  disconnect();
+  connect();
+  mainWindow?.show();
+  return true;
+}
+
+// Windows and Linux deliver the link as an argv entry to a second launch;
+// without the single-instance lock that launch becomes a second browser with
+// its own session, and the cookies land in the wrong place.
+const pendingDeepLinks = [];
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const link = argv.find((a) => a.startsWith('oya://'));
+    if (link) applyDeepLink(link);
+    mainWindow?.show();
+  });
+}
+
+// macOS delivers it as an event, which can fire before the app is ready.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (mainWindow) applyDeepLink(url);
+  else pendingDeepLinks.push(url);
+});
+
 // ─── App Lifecycle ───
 
 app.whenReady().then(async () => {
   loadConfig();
+
+  // Registering in dev needs the interpreter and script path, or the OS
+  // registers the wrong executable.
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('oya', process.execPath, [path.resolve(process.argv[1])]);
+  } else {
+    app.setAsDefaultProtocolClient('oya');
+  }
 
   // Initialize profile store and load active profile
   profileStore = new ProfileStore(app.getPath('userData'));
@@ -630,6 +693,10 @@ app.whenReady().then(async () => {
   createWindow();
   startCookieChangeListener();
   if (config.apiKey || process.env.OYA_AUTO_CONNECT === 'true') connect();
+
+  const queued = pendingDeepLinks.splice(0)
+    .concat(process.argv.filter((a) => a.startsWith('oya://')));
+  for (const link of queued) applyDeepLink(link);
 });
 
 app.on('window-all-closed', () => { disconnect(); app.quit(); });
@@ -1287,6 +1354,7 @@ function connect() {
       socket.send(JSON.stringify({
         type: 'auth', api_key: config.apiKey,
         browser_id: browserId, browser_name: config.browserName,
+        persona: config.persona,
       }));
     });
 

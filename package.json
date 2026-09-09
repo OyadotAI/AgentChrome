@@ -1,0 +1,9 @@
+{
+  "name": "oya-browser-workspace",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "cd server && for t in test-security test-pool test-sandbox test-cdp test-control-plane test-gateway test-anonymity test-challenges; do node $t.js || exit 1; done"
+  }
+}

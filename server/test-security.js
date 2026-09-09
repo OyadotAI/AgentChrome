@@ -263,17 +263,29 @@ try {
     assert(ok.status === 200, `Valid key on pool MCP returns 200 (got ${ok.status})`);
   }
 
-  console.log('\n4️⃣  No key can rewrite the host default config');
+  console.log('\n4️⃣  Settings follow the API key, and no key can rewrite the host default');
   {
-    // Reading resolves what this key would use; writing the host default is a
-    // host operation and needs OYA_OPERATOR_TOKEN, which is not an API key.
+    // Reading resolves what this key would use; writing stores against this key
+    // alone. Changing the deployment-wide default is a host operation and needs
+    // OYA_OPERATOR_TOKEN, which is not an API key.
     const tenantGet = await request('GET', '/api/config', { key: keyA });
     assert(tenantGet.status === 200, `Any key can read its effective config (got ${tenantGet.status})`);
     assert(tenantGet.data.openai_api_key === undefined || String(tenantGet.data.openai_api_key).startsWith('\u2022')
       || tenantGet.data.openai_api_key === '', 'The key itself is never returned in clear');
 
+    const mine = await request('POST', '/api/config', {
+      key: keyA,
+      body: { openai_api_key: 'sk-keya-private-value', chat_model: 'keya-model' },
+    });
+    assert(mine.status === 200, `A key can store its own settings (got ${mine.status})`);
+    assert(!JSON.stringify(mine.data).includes('sk-keya-private-value'),
+      'A stored credential is never echoed back in clear');
+
+    const others = await request('GET', '/api/config', { key: keyB });
+    assert(others.data.chat_model !== 'keya-model', "One key's settings do not leak to another");
+
     for (const key of [keyA, adminKey]) {
-      const post = await request('POST', '/api/config', {
+      const post = await request('POST', '/api/config/host', {
         key,
         body: { openai_api_key: 'attacker-key-aaaaaaaaaaaaaaaaaaaaaaaa' },
       });

@@ -75,7 +75,7 @@ function isNotFound(err) {
  * Create one cloud browser. Resolves once the sandbox is starting — the browser
  * enrolls on its own and shows up in the registry within ~90s.
  */
-export async function createSandbox({ apiKey, name } = {}) {
+export async function createSandbox({ apiKey, name, persona } = {}) {
   const config = settings();
   if (!config) throw unconfigured();
   if (!apiKey) throw Object.assign(new Error('An API key is required'), { status: 400 });
@@ -93,6 +93,8 @@ export async function createSandbox({ apiKey, name } = {}) {
       OYA_BROWSER_ID: browserId,
       OYA_BROWSER_NAME: name || `Cloud browser ${browserId.slice(0, 8)}`,
       OYA_AUTO_CONNECT: 'true',
+      // Which identity it runs as: fingerprint, cookie jar and proxy together.
+      ...(persona ? { OYA_PERSONA: persona } : {}),
     },
     autoStopInterval: config.ttlMinutes,
     autoDeleteInterval: 0,

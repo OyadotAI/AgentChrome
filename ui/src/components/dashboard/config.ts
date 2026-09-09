@@ -1,0 +1,66 @@
+import { apiUrl, apiKeyHeaders } from '@/lib/api';
+
+/** What GET /api/config returns. Settings belong to the API key, not an account. */
+export interface KeyConfig {
+  llm_provider: string;
+  openai_api_key: string;       // masked
+  openai_base_url: string;
+  chat_model: string;
+  browser_provider: string;
+  anchor_api_key: string;
+  browserbase_api_key: string;
+  browserbase_project_id: string;
+  steel_api_key: string;
+  browseruse_api_key: string;
+  captcha_solver: string;
+  captcha_api_key: string;
+  onboarded: string;
+  has_openai_key: boolean;
+  inherited: boolean;
+  effective: { baseUrl: string; model: string; hasLlmKey: boolean };
+  providers: Array<{ id: string; label: string; needs: string[]; configured: boolean }>;
+}
+
+/** Prefer the server's own reason — it explains what a bare status code cannot. */
+async function reason(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body?.error === 'string' && body.error) return body.error;
+  } catch { /* not JSON */ }
+  return `${fallback} (${res.status})`;
+}
+
+export async function loadConfig(apiKey: string): Promise<KeyConfig> {
+  const res = await fetch(apiUrl('/config'), { headers: apiKeyHeaders(apiKey) });
+  if (!res.ok) throw new Error(await reason(res, 'Could not load settings'));
+  return res.json();
+}
+
+export async function saveConfig(apiKey: string, values: Record<string, string>): Promise<KeyConfig> {
+  const res = await fetch(apiUrl('/config'), {
+    method: 'POST',
+    headers: apiKeyHeaders(apiKey),
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) throw new Error(await reason(res, 'Could not save'));
+  return res.json();
+}
+
+export const LLM_PRESETS = [
+  { id: 'anthropic', label: 'Claude', model: 'claude-sonnet-4-5', hint: 'sk-ant-...' },
+  { id: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'sk-...' },
+];
+
+/** Whether a provider runs on our own infrastructure, and so can reuse desktop cookies. */
+export const isOyaProvider = (id: string) => id === 'oya-cloud' || id === 'oya-selfhosted';
+
+/**
+ * One-click desktop sign-in. The installed browser registers `oya://`, so this
+ * hands it the key and the server to dial without anyone copying a key by hand.
+ */
+export function desktopSignInUrl(apiKey: string): string {
+  const ws = typeof window === 'undefined'
+    ? ''
+    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+  return `oya://connect?key=${encodeURIComponent(apiKey)}&server=${encodeURIComponent(ws)}`;
+}

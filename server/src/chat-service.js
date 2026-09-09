@@ -4,8 +4,7 @@
 
 import { sendCommand } from './ws-handler.js';
 import { BROWSER_TOOLS } from './chat-tools.js';
-import { userConfig } from './runtime-config.js';
-import { getKeyOwner } from './auth.js';
+import * as keyConfig from './key-config.js';
 import { metrics } from './metrics.js';
 import * as usage from './usage.js';
 import { checkHourly } from './limits.js';
@@ -138,10 +137,6 @@ async function executeTool(browserId, name, args) {
  * Streams the final text response.
  */
 export async function runChat(browserId, messages, { apiKey, onToolCall, onText } = {}) {
-  // Settings belong to the account that owns the calling API key; keys with no
-  // account fall back to the server-wide values.
-  const userId = apiKey ? await getKeyOwner(apiKey) : null;
-
   // A runaway agent loop is the most expensive thing this control plane can do
   // on someone else's behalf, so the ceiling is checked before the first call.
   const budget = checkHourly('chatTokensPerHour', apiKey);
@@ -153,9 +148,11 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
     );
   }
 
-  const { openaiKey, baseUrl, model } = await userConfig.resolve(userId);
+  // Settings belong to the calling API key; a key that has set none falls
+  // back to the deployment-wide values.
+  const { openaiKey, baseUrl, model } = keyConfig.resolve(apiKey);
   if (!openaiKey) {
-    throw new Error('OpenAI API key not configured. Open Settings in the dashboard to add one for your account, or set OPENAI_API_KEY env var.');
+    throw new Error('No LLM key configured for this API key. Add one in Settings, run `oya init`, or POST /api/config.');
   }
   const OPENAI_BASE = baseUrl;
   const MODEL = model;

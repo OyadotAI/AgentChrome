@@ -6,8 +6,8 @@
  *  - POST /browsers/provision returns 409 (not 500) when Daytona is unconfigured
  *  - a sandbox is only deletable by the API key that created it, whether or not
  *    the browser is currently connected
- *  - userConfig.resolve never pairs the server-wide OpenAI key with an
- *    account-supplied base URL (credential exfiltration)
+ *  - keyConfig.resolve never pairs the deployment-wide OpenAI key with a
+ *    tenant-supplied base URL (credential exfiltration)
  *
  * Usage:
  *   node test-sandbox.js
@@ -35,7 +35,8 @@ delete process.env.OYA_PUBLIC_WS_URL;
 
 const { router } = await import('./src/api.js');
 const { isConfigured } = await import('./src/sandbox.js');
-const { userConfig, runtimeConfig } = await import('./src/runtime-config.js');
+const { runtimeConfig } = await import('./src/runtime-config.js');
+const keyConfig = await import('./src/key-config.js');
 
 let passed = 0;
 let failed = 0;
@@ -86,35 +87,54 @@ try {
   const del = await call('/browsers/does-not-exist/sandbox', 'DELETE');
   assert(del.status === 409, `delete without Daytona configured returns 409 (got ${del.status})`);
 
-  console.log('\n3.  The server-wide OpenAI key never reaches an account endpoint...');
+  console.log('\n3.  The deployment-wide OpenAI key never reaches a tenant endpoint...');
   const serverKey = runtimeConfig.getOpenAIKey();
   const serverBase = runtimeConfig.getOpenAIBase();
 
-  // An account that sets a base URL but has no key of its own must NOT get the
-  // server-wide key pointed at its endpoint -- that would ship the deployment's
-  // credential to an address the account controls.
-  await userConfig.set('acct-no-key', { openai_base_url: 'https://exfil.test/v1' });
-  const exfil = await userConfig.resolve('acct-no-key');
-  assert(exfil.baseUrl !== 'https://exfil.test/v1', 'a keyless account cannot redirect the server-wide key');
-  assert(exfil.baseUrl === serverBase, 'it falls back to the server-wide base URL');
-  assert(exfil.openaiKey === serverKey, 'it still resolves the server-wide key');
+  // A key that sets a base URL but has no LLM credential of its own must NOT
+  // get the deployment-wide key pointed at its endpoint -- that would ship the
+  // deployment's credential to an address the tenant controls.
+  keyConfig.set('k-no-key', { openai_base_url: 'https://exfil.test/v1' });
+  const exfil = keyConfig.resolve('k-no-key');
+  assert(exfil.baseUrl !== 'https://exfil.test/v1', 'a keyless tenant cannot redirect the deployment key');
+  assert(exfil.baseUrl === serverBase, 'it falls back to the deployment-wide base URL');
+  assert(exfil.openaiKey === serverKey, 'it still resolves the deployment-wide key');
 
-  // With its own key, the account's own endpoint is honoured.
-  await userConfig.set('acct-own-key', { openai_api_key: 'sk-own', openai_base_url: 'https://own.test/v1' });
-  const own = await userConfig.resolve('acct-own-key');
-  assert(own.openaiKey === 'sk-own', "an account's own key is used");
-  assert(own.baseUrl === 'https://own.test/v1', "an account's own base URL is honoured with its own key");
+  // With its own credential, the key's own endpoint is honoured.
+  keyConfig.set('k-own', { openai_api_key: 'sk-own', openai_base_url: 'https://own.test/v1' });
+  const own = keyConfig.resolve('k-own');
+  assert(own.openaiKey === 'sk-own', "a key's own LLM credential is used");
+  assert(own.baseUrl === 'https://own.test/v1', "a key's own base URL is honoured with its own credential");
 
   // A blank own base URL must be ignored by BOTH layers. Before the fix get()
   // used ?? and resolve() used ||, so the dashboard showed blank while requests
   // used the server-wide value.
-  await userConfig.set('acct-blank', { openai_base_url: '' });
-  const shown = await userConfig.get('acct-blank');
-  const used = await userConfig.resolve('acct-blank');
-  assert(shown.openai_base_url === 'https://server-wide.test/v1', 'a blank own base URL is ignored by get()');
-  assert(used.baseUrl === 'https://server-wide.test/v1', 'a blank own base URL is ignored by resolve()');
+  keyConfig.set('k-blank', { openai_base_url: '' });
+  assert(keyConfig.get('k-blank').openai_base_url === 'https://server-wide.test/v1',
+    'a blank own base URL is ignored by get()');
+  assert(keyConfig.resolve('k-blank').baseUrl === 'https://server-wide.test/v1',
+    'a blank own base URL is ignored by resolve()');
 
-  console.log('\n4.  An account base URL cannot point the control plane inward (SSRF)...');
+  // Credentials are sealed at rest and never handed back in the clear.
+  keyConfig.set('k-secret', { openai_api_key: 'sk-supersecret-tail' });
+  const shownSecret = keyConfig.get('k-secret').openai_api_key;
+  assert(!shownSecret.includes('supersecret') && shownSecret.endsWith('tail'),
+    'a stored LLM credential reads back masked');
+  assert(keyConfig.resolve('k-secret').openaiKey === 'sk-supersecret-tail',
+    'the server still resolves the plaintext');
+  assert(keyConfig.envFor('k-secret').OPENAI_API_KEY === 'sk-supersecret-tail',
+    'envFor layers the key\'s credential over the environment');
+
+  // Re-saving the masked value the dashboard displays must not destroy the key.
+  keyConfig.set('k-secret', { openai_api_key: shownSecret });
+  assert(keyConfig.resolve('k-secret').openaiKey === 'sk-supersecret-tail',
+    'saving the masked placeholder leaves the real credential intact');
+
+  // One key's settings are invisible to another.
+  assert(keyConfig.resolve('k-other').openaiKey === serverKey,
+    "another key sees none of this key's settings");
+
+  console.log('\n4.  A tenant base URL cannot point the control plane inward (SSRF)...');
   const blocked = [
     'http://169.254.169.254/latest/meta-data',   // cloud metadata
     'https://127.0.0.1/v1', 'https://localhost/v1', 'https://[::1]/v1',
@@ -126,13 +146,13 @@ try {
   ];
   let blockedCount = 0;
   for (const bad of blocked) {
-    try { await userConfig.set('acct-ssrf', { openai_base_url: bad }); }
+    try { keyConfig.set('k-ssrf', { openai_base_url: bad }); }
     catch (e) { if (e.status === 400) blockedCount++; else console.log('    unexpected:', bad, e.message); }
   }
   assert(blockedCount === blocked.length, `all ${blocked.length} hostile base URLs rejected (got ${blockedCount})`);
 
-  await userConfig.set('acct-ok', { openai_api_key: 'sk-x', openai_base_url: 'https://api.groq.com/openai/v1' });
-  const good = await userConfig.resolve('acct-ok');
+  keyConfig.set('k-ok', { openai_api_key: 'sk-x', openai_base_url: 'https://api.groq.com/openai/v1' });
+  const good = keyConfig.resolve('k-ok');
   assert(good.baseUrl === 'https://api.groq.com/openai/v1', 'a legitimate https endpoint is still accepted');
 
   const src = (await import('fs')).readFileSync('./src/chat-service.js', 'utf8');

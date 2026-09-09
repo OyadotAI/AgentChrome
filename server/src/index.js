@@ -26,6 +26,7 @@ import {
 } from './gateway.js';
 import * as usage from './usage.js';
 import * as personas from './personas.js';
+import * as keyConfig from './key-config.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
 import { validateApiKey } from './auth.js';
@@ -162,6 +163,7 @@ registry.on('browser:disconnected', ({ id, name }) => {
 // reset by bouncing the process.
 usage.restore().catch(() => {});
 personas.restore().catch(() => {});
+keyConfig.restore().catch(() => {});
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, async () => {
@@ -169,7 +171,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     // End gateway sessions cleanly so profiles are captured and recordings
     // get their manifest, rather than being cut off mid-write.
     await Promise.allSettled([...gatewaySessions.values()].map((s) => s.destroy('server shutting down')));
-    await Promise.allSettled([drainAudit(), usage.drain(), personas.drain()]);
+    await Promise.allSettled([drainAudit(), usage.drain(), personas.drain(), keyConfig.drain()]);
     process.exit(0);
   });
 }

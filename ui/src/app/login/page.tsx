@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
+import { apiUrl, apiKeyHeaders } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,12 +17,38 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // A self-hosted deployment has API keys and no accounts, so a key is a
+  // first-class way in — it is the identity the whole dashboard is scoped to.
+  const [mode, setMode] = useState<'account' | 'key'>('account');
+  const [apiKey, setApiKey] = useState('');
+
   // Redirect if already logged in
   useEffect(() => {
     if (!authLoading && user) {
       router.replace('/dashboard');
     }
   }, [authLoading, user, router]);
+
+  async function handleKeySubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    const key = apiKey.trim();
+    if (!key) { setError('Enter an API key'); return; }
+
+    setSubmitting(true);
+    try {
+      // Prove the server accepts it before storing it, so a wrong key fails
+      // here rather than as an empty dashboard.
+      const res = await fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) });
+      if (!res.ok) throw new Error(res.status === 401 ? 'That key was rejected' : `Could not verify the key (${res.status})`);
+      localStorage.setItem('oya_api_key', key);
+      router.replace('/dashboard');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not verify the key');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -85,10 +112,41 @@ export default function LoginPage() {
           <h1 className="mb-1 font-display text-2xl font-bold text-text">
             Welcome back
           </h1>
-          <p className="mb-8 text-sm text-text-muted">
-            Sign in to your account to continue
+          <p className="mb-6 text-sm text-text-muted">
+            {mode === 'account' ? 'Sign in to your account to continue' : 'Paste an API key from this deployment'}
           </p>
 
+          <div className="mb-6 grid grid-cols-2 gap-1 rounded-lg border border-border p-1">
+            {(['account', 'key'] as const).map((m) => (
+              <button key={m} type="button" onClick={() => { setMode(m); setError(''); }}
+                className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  mode === m ? 'bg-accent/10 text-text' : 'text-text-dim hover:text-text-muted'}`}>
+                {m === 'account' ? 'Account' : 'API key'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'key' ? (
+            <form onSubmit={handleKeySubmit} className="space-y-5">
+              <div className="space-y-1.5">
+                <label htmlFor="apiKey" className="block text-sm font-medium text-text-muted">API key</label>
+                <input
+                  id="apiKey"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Paste your key"
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); if (error) setError(''); }}
+                  className="block w-full rounded-lg border border-border bg-bg-input px-3.5 py-2.5 text-sm text-text placeholder:text-text-dim focus:border-border-focus focus:outline-none focus:ring-1 focus:ring-border-focus"
+                />
+              </div>
+              {error && <p className="text-sm text-red" role="alert">{error}</p>}
+              <button type="submit" disabled={submitting}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-[#0c0c0a] shadow-lg shadow-accent/25 hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60">
+                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Checking...</> : <>Continue<ArrowRight className="h-4 w-4" /></>}
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
             <div className="space-y-1.5">
@@ -174,6 +232,7 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+          )}
         </div>
 
         {/* Footer link */}

@@ -165,9 +165,40 @@ const KEY_CODES = {
 
 export const CDP_CAPABILITIES = new Set([
   'navigate', 'reload', 'back', 'forward', 'screenshot', 'analyze', 'read_page',
-  'click', 'click-coords', 'hover', 'type', 'press-key', 'scroll-up', 'scroll-down',
-  'select', 'wait', 'list-tabs', 'new-tab', 'close-tab', 'cookies',
+  'click', 'click-coords', 'hover', 'type', 'select', 'wait', 'cookies',
+  // Both spellings, because normalise() accepts both. A caller checking this
+  // set must not conclude that press_key is unsupported when it is.
+  'press-key', 'press_key',
+  'scroll', 'scroll-up', 'scroll-down', 'scroll-top', 'scroll-bottom',
+  'list-tabs', 'list_tabs', 'new-tab', 'open_tab', 'switch-tab', 'switch_tab',
+  'close-tab', 'close_tab',
 ]);
+
+/**
+ * One action vocabulary, two spellings. Underscored names come from the Oya
+ * client and the agent tools; hyphenated ones are this driver's own.
+ */
+const ACTION_ALIASES = {
+  press_key: 'press-key',
+  list_tabs: 'list-tabs',
+  open_tab: 'new-tab',
+  new_tab: 'new-tab',
+  switch_tab: 'switch-tab',
+  close_tab: 'close-tab',
+  read_elements: 'read_page',
+};
+
+function normalise(action, params = {}) {
+  // `scroll` carries its direction in the params; this driver has it in the name.
+  if (action === 'scroll') {
+    const direction = String(params.direction || 'down');
+    return { action: `scroll-${direction}`, params };
+  }
+  const mapped = ACTION_ALIASES[action] || action;
+  // The Oya client names tabs `tab_id`; every Target.* call here wants `id`.
+  const id = params.tab_id ?? params.id;
+  return { action: mapped, params: id === undefined ? params : { ...params, id } };
+}
 
 export class CDPDriver {
   clientType = 'cdp';
@@ -265,9 +296,16 @@ export class CDPDriver {
     return (await this.evaluate('({width: innerWidth, height: innerHeight})')) || { width: 1280, height: 800 };
   }
 
-  /** Same action vocabulary as the Oya client, so callers never branch on client type. */
+  /**
+   * Same action vocabulary as the Oya client, so callers never branch on client
+   * type. The two grew apart — the Oya client speaks `press_key`, `list_tabs`,
+   * `open_tab` and `scroll {direction}`, this driver grew hyphenated names —
+   * so both spellings are accepted and normalised here rather than in every
+   * caller. The SDK, the agent tools and the MCP server all go through this.
+   */
   async send(action, params = {}, timeoutMs = 30000) {
     if (!this.isAlive()) throw new Error('Browser not connected');
+    ({ action, params } = normalise(action, params));
     const deadline = Date.now() + timeoutMs;
     const remaining = () => Math.max(1000, deadline - Date.now());
 
@@ -336,6 +374,11 @@ export class CDPDriver {
         await this.conn.send('Input.dispatchKeyEvent', { type: 'keyUp', ...spec }, this.sessionId);
         return { ok: true };
       }
+      case 'scroll-top':
+      case 'scroll-bottom': {
+        await this.evaluate(`window.scrollTo({ top: ${action === 'scroll-top' ? '0' : 'document.body.scrollHeight'} })`);
+        return { ok: true };
+      }
       case 'scroll-up':
       case 'scroll-down': {
         const { height } = await this.viewport();
@@ -376,7 +419,12 @@ export class CDPDriver {
       case 'new-tab': {
         const { targetId } = await this.conn.send('Target.createTarget', { url: params.url || 'about:blank' });
         await this.attach(targetId);
-        return { ok: true, data: { id: targetId } };
+        return { ok: true, data: { id: targetId, tab_id: targetId } };
+      }
+      case 'switch-tab': {
+        if (!params.id) return { ok: false, error: 'tab id required' };
+        await this.attach(params.id);
+        return { ok: true, data: { id: params.id } };
       }
       case 'close-tab': {
         const id = params.id || this.targetId;

@@ -1,10 +1,9 @@
 /**
- * Runtime configuration — persisted to DB, editable from dashboard.
+ * Deployment-wide configuration — persisted to DB, editable by the operator.
  *
- * Two layers, resolved most-specific first:
- *   1. per-account  (oya_browser.user_settings) — each user's own key/model
- *   2. server-wide  (oya_browser.settings)      — admin default for everyone
- *   3. environment  (OPENAI_API_KEY, ...)       — last resort
+ * This is the fallback layer only. Per-tenant settings live in key-config.js,
+ * keyed by the API key, because the API key is the identity for everything
+ * else in this control plane. Resolution is key -> here -> environment.
  *
  * Fallback: local file (data/config.json) when Supabase is not configured.
  */
@@ -129,15 +128,7 @@ export const runtimeConfig = {
 };
 
 
-// ── Per-account layer ──────────────────────────────────────────────────────
-//
-// Keyed by user id. Read-through cache, invalidated on write; a miss falls back
-// to the server-wide values above, so an account that has never saved anything
-// behaves exactly as it did before.
-
-const SETTING_KEYS = ['openai_api_key', 'openai_base_url', 'chat_model'];
-
-// The control plane fetches whatever base URL an account saves, so an
+// The control plane fetches whatever base URL a tenant saves, so an
 // unvalidated value is a server-side request forgery primitive: cloud metadata,
 // internal services, anything routable from this host.
 const PRIVATE_HOST = new RegExp(
@@ -146,7 +137,7 @@ const PRIVATE_HOST = new RegExp(
   + '|172\\.(1[6-9]|2[0-9]|3[01])\\.'
   + '|::1$|::$|fc|fd|fe80)', 'i');
 
-function validateBaseUrl(value) {
+export function validateBaseUrl(value) {
   const raw = String(value).trim();
   if (!raw) return '';
   let url;
@@ -166,99 +157,3 @@ function validateBaseUrl(value) {
   // covers the cheap redirect-to-internal variant.
   return url.href.replace(/\/+$/, '');
 }
-
-const userCache = new Map();
-
-async function loadUserConfig(userId) {
-  if (userCache.has(userId)) return userCache.get(userId);
-  let values = {};
-  if (db) {
-    try {
-      const { data, error } = await db
-        .from('user_settings')
-        .select('key, value')
-        .eq('user_id', userId);
-      if (error) throw error;
-      for (const row of data) values[row.key] = row.value;
-    } catch (e) {
-      console.error('[config] Failed to load user settings:', e.message);
-      return {}; // don't cache a failed read
-    }
-  }
-  userCache.set(userId, values);
-  return values;
-}
-
-export const userConfig = {
-  /** Masked view for the dashboard — same shape as runtimeConfig.get(). */
-  async get(userId) {
-    const own = await loadUserConfig(userId);
-    const global = runtimeConfig.get();
-    const key = own.openai_api_key;
-    return {
-      openai_api_key: key ? '\u2022\u2022\u2022\u2022' + key.slice(-4) : global.openai_api_key,
-      openai_base_url: own.openai_base_url || global.openai_base_url,
-      chat_model: own.chat_model || global.chat_model,
-      has_openai_key: !!key || global.has_openai_key,
-      /** True when the values shown come from the server-wide default, not this account. */
-      inherited: !key && global.has_openai_key,
-    };
-  },
-
-  async set(userId, updates) {
-    const own = { ...(await loadUserConfig(userId)) };
-    const rows = [];
-    for (const field of SETTING_KEYS) {
-      let value = updates[field];
-      if (value === undefined) continue;
-      // Never persist the masked placeholder back over a real key.
-      if (field === 'openai_api_key' && String(value).startsWith('\u2022')) continue;
-      if (field === 'openai_base_url') value = validateBaseUrl(value);
-      own[field] = value;
-      rows.push({
-        user_id: userId,
-        key: field,
-        value: String(value),
-        updated_at: new Date().toISOString(),
-      });
-    }
-    if (rows.length === 0) return;
-    userCache.set(userId, own);
-    if (db) {
-      try {
-        const { error } = await db
-          .from('user_settings')
-          .upsert(rows, { onConflict: 'user_id,key' });
-        if (error) throw error;
-      } catch (e) {
-        userCache.delete(userId); // re-read next time rather than trust the cache
-        throw e;
-      }
-    }
-  },
-
-  /**
-   * Effective config for a request, given the API key it arrived with.
-   * Keys with no account (env admin keys, fleet token) get the server-wide values.
-   */
-  async resolve(userId) {
-    if (!userId) {
-      return {
-        openaiKey: runtimeConfig.getOpenAIKey(),
-        baseUrl: runtimeConfig.getOpenAIBase(),
-        model: runtimeConfig.getChatModel(),
-      };
-    }
-    const own = await loadUserConfig(userId);
-    // An account's base URL is only honoured alongside that account's own key.
-    // Pairing a user-supplied endpoint with the server-wide key would ship the
-    // deployment's OpenAI credential to an address the user controls.
-    return {
-      openaiKey: own.openai_api_key || runtimeConfig.getOpenAIKey(),
-      baseUrl: own.openai_api_key
-        ? (own.openai_base_url || runtimeConfig.getOpenAIBase())
-        : runtimeConfig.getOpenAIBase(),
-      model: own.chat_model || runtimeConfig.getChatModel(),
-    };
-  },
-};

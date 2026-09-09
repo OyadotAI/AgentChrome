@@ -6,6 +6,17 @@ services:
     environment:
       - PORT=3100
       - API_KEYS=${API_KEYS:-}
+      # The KEK for credentials at rest. Left unset, the server generates one
+      # into the data volume — which is why that volume must outlive the
+      # container, or every stored credential becomes unreadable.
+      - OYA_PROFILE_SECRET=${OYA_PROFILE_SECRET:-}
+      - OYA_OPERATOR_TOKEN=${OYA_OPERATOR_TOKEN:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+    volumes:
+      # Personas, key settings, cookies and the generated secret. Without
+      # Supabase this is the only durable state there is.
+      - oya-data:/app/data
     restart: unless-stopped
 
   browser:
@@ -25,3 +36,6 @@ services:
       - server
     shm_size: '2gb'
     restart: unless-stopped
+
+volumes:
+  oya-data:

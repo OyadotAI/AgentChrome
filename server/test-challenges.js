@@ -136,7 +136,7 @@ try {
 
   console.log('\n5️⃣  TOTP end to end...');
   const persona = 'p-test-persona';
-  mfa.set(persona, { type: 'totp', secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' });
+  await mfa.set(persona, { type: 'totp', secret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' });
   assert(mfa.describe(persona).type === 'totp', 'the factor is configured');
   assert(JSON.stringify(mfa.describe(persona)).includes('GEZDG') === false, 'the secret is never returned');
 

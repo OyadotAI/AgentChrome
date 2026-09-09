@@ -18,14 +18,16 @@ class ConnectionRegistry extends EventEmitter {
    * @param {object}    [opts.driver]    outbound driver (CDP) — we dialled it
    * @param {string}    [opts.clientType] 'oya' | 'cdp'
    * @param {string}    [opts.provider]  which vendor supplied a hosted browser
+   * @param {object}    [opts.persona]   the identity it is running as
    */
-  add(browserId, { ws, apiKey, name, driver = null, clientType = 'oya', provider = null, release = null }) {
+  add(browserId, { ws, apiKey, name, driver = null, clientType = 'oya', provider = null, release = null, persona = null }) {
     this.browsers.set(browserId, {
       ws,
       driver,
       clientType,
       provider,
       release,
+      persona,
       apiKey: apiKey || '',
       name: name || 'Unknown Browser',
       connectedAt: new Date(),
@@ -119,6 +121,7 @@ class ConnectionRegistry extends EventEmitter {
         name: b.name,
         clientType: b.clientType,
         provider: b.provider,
+        persona: b.persona?.id || null,
         connectedAt: b.connectedAt.toISOString(),
         lastSeen: b.lastSeen.toISOString(),
         currentUrl: b.currentUrl,

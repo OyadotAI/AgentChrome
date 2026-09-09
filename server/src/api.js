@@ -7,13 +7,13 @@ import { randomBytes, timingSafeEqual } from 'crypto';
 import {
   authMiddleware, userAuthMiddleware,
   registerApiKey, listApiKeys, deleteApiKey,
-  provisionKeys, getKeyOwner,
+  provisionKeys,
   signup, login, getProfile,
 } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
-import { runtimeConfig, userConfig } from './runtime-config.js';
+import { runtimeConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
 import { getAll as getAllCookies, clear as clearCookies } from './cookie-store.js';
 import { isConfigured as sandboxConfigured, createSandbox, removeSandbox } from './sandbox.js';
@@ -33,6 +33,7 @@ import * as personas from './personas.js';
 import * as proxies from './proxies.js';
 import * as captcha from './captcha.js';
 import * as mfa from './mfa.js';
+import * as keyConfig from './key-config.js';
 
 export const router = Router();
 
@@ -328,7 +329,7 @@ router.post('/operator/drain', operatorOnly, (req, res) => {
 // ─── Browser providers (CDP) ─────────────────────────────────────────────────
 
 router.get('/providers', authMiddleware, (req, res) => {
-  res.json({ providers: availableProviders(), daytona: sandboxConfigured() });
+  res.json({ providers: availableProviders(keyConfig.envFor(getKey(req))), daytona: sandboxConfigured() });
 });
 
 /**
@@ -439,6 +440,102 @@ router.delete('/personas/:id', authMiddleware, (req, res) => {
   }
 });
 
+// ─── Start a browser ─────────────────────────────────────────────────────────
+
+/**
+ * The one endpoint a developer needs. Which provider runs the browser is
+ * configuration, not the caller's problem — /browsers/connect and
+ * /browsers/provision remain as the explicit escape hatches.
+ */
+router.post('/browsers/start', authMiddleware, enforce('provision'), async (req, res) => {
+  const key = getKey(req);
+  const wanted = String(req.body?.provider || keyConfig.providerFor(key));
+
+  let persona;
+  try {
+    persona = personas.resolve(key, req.body?.persona);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key).length;
+  const quota = checkQuota('browsers', key, mine);
+  if (!quota.allowed) return res.status(429).json({ error: `Browser quota reached (${quota.quota})`, ...quota });
+
+  const done = (body) => {
+    audit({ action: 'browser.start', actorKey: key, targetType: 'browser', targetId: body.id,
+      meta: { provider: body.provider, persona: persona.id }, req });
+    res.status(201).json(body);
+  };
+
+  try {
+    // Oya browsers dial in on their own once the sandbox is up.
+    if (wanted === 'oya-cloud' || wanted === 'oya-selfhosted') {
+      if (!sandboxConfigured()) {
+        return res.status(409).json({
+          error: 'Cloud browsers are not configured. Set DAYTONA_API_KEY, DAYTONA_SNAPSHOT and OYA_PUBLIC_WS_URL.',
+        });
+      }
+      const created = await createSandbox({ apiKey: key, name: req.body?.name, persona: persona.id });
+      return done({
+        id: created.browserId, provider: wanted, persona: persona.id, status: 'starting',
+        note: 'The browser connects on its own; it appears in GET /browsers within ~90s.',
+      });
+    }
+
+    // Everything else is a CDP browser we dial out to.
+    if (wanted === 'cdp' && req.body?.wsUrl) await assertSafeTarget(req.body.wsUrl, { label: 'wsUrl' });
+    const session = await acquireBrowser({
+      provider: wanted, wsUrl: req.body?.wsUrl, env: keyConfig.envFor(key),
+    });
+    const browserId = uuidv4();
+    // The concurrency slot is taken before the vendor session is driven, so a
+    // capped persona does not leave a paid-for browser running with nothing
+    // holding it.
+    try {
+      personas.acquire(persona, browserId);
+    } catch (capped) {
+      await session.release().catch(() => {});
+      throw capped;
+    }
+    let driver;
+    try {
+      driver = await new CDPDriver({
+        wsUrl: session.wsUrl,
+        provider: session.provider,
+        fingerprint: personas.fingerprintFor(persona),
+        onClose: () => { if (registry.get(browserId)) registry.remove(browserId); },
+      }).connect();
+    } catch (connectErr) {
+      personas.release(persona, browserId);
+      await session.release().catch(() => {});
+      throw connectErr;
+    }
+
+    registry.add(browserId, {
+      apiKey: key,
+      name: (req.body?.name || `${session.provider} browser`).slice(0, 100),
+      driver, clientType: 'cdp', provider: session.provider, persona,
+      release: () => { personas.release(persona, browserId); return session.release(); },
+    });
+
+    usage.browserConnected(key, browserId);
+    metrics.browsersConnected.set({}, registry.browsers.size);
+
+    const host = req.headers.host || `localhost:${process.env.PORT || 3100}`;
+    const scheme = (req.headers['x-forwarded-proto'] || '').includes('https') ? 'wss' : 'ws';
+    return done({
+      id: browserId, provider: session.provider, persona: persona.id, status: 'ready',
+      // Our gateway URL, not the vendor's: an agent handed this gets routing,
+      // profiles and recording without knowing any of that exists.
+      cdpUrl: `${scheme}://${host}/connect?token=${encodeURIComponent(key)}`,
+    });
+  } catch (err) {
+    audit({ action: 'browser.start', actorKey: key, outcome: 'error', meta: { provider: wanted, error: err.message }, req });
+    res.status(err.status || 502).json({ error: err.message });
+  }
+});
+
 // ─── Challenges: CAPTCHA and MFA ─────────────────────────────────────────────
 
 /** Run a script in a browser we control, whichever kind it is. */
@@ -459,6 +556,7 @@ router.post('/browsers/:browserId/captcha', authMiddleware, enforce('command'), 
       // Anchor, Browserbase and Steel solve natively; solving again pays twice
       // and can race their own attempt.
       providerSolves: ['anchor', 'browserbase', 'steel', 'browseruse'].includes(browser.provider),
+      env: keyConfig.envFor(getKey(req)),
     });
     if (result.present) {
       audit({ action: 'captcha.handle', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
@@ -492,11 +590,11 @@ router.post('/browsers/:browserId/mfa', authMiddleware, enforce('command'), asyn
 });
 
 /** Configure a persona's second factor. The secret is write-only. */
-router.put('/personas/:id/mfa', authMiddleware, (req, res) => {
+router.put('/personas/:id/mfa', authMiddleware, async (req, res) => {
   const p = personas.get(getKey(req), req.params.id);
   if (!p) return res.status(404).json({ error: 'No such persona' });
   try {
-    const described = mfa.set(p.id, req.body);
+    const described = await mfa.set(p.id, req.body);
     audit({ action: 'mfa.configure', actorKey: getKey(req), targetType: 'persona', targetId: p.id,
       meta: { type: described.type }, req });
     res.json(described);
@@ -727,47 +825,40 @@ router.delete('/browsers/:browserId/sandbox', authMiddleware, async (req, res) =
 
 // Runtime config — server-wide settings (OpenAI key, model, base URL).
 // Admin only: anyone who can write this can hijack every tenant's chat requests.
-// A key that belongs to an account reads and writes that account's own
-// settings. Keys with no account (env API_KEYS, fleet token) act on the
-// server-wide defaults, which stays admin-only — writing those affects
-// every tenant that has not set their own.
-router.get('/config', authMiddleware, async (req, res) => {
-  const key = getKey(req);
+// Settings belong to the API key that presents them — the same identity that
+// owns the browsers, personas and cookies. Nothing is inherited from an
+// account, and nothing has to be in the environment; a key that has set
+// nothing falls back to the host defaults.
+router.get('/config', authMiddleware, (req, res) => {
   try {
-    const userId = await getKeyOwner(key);
-    if (userId) return res.json(await userConfig.get(userId));
-    // A key with no account reads the host defaults it would resolve against.
-    res.json(runtimeConfig.get());
+    res.json(keyConfig.get(getKey(req)));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
-router.post('/config', authMiddleware, async (req, res) => {
+router.post('/config', authMiddleware, (req, res) => {
   const key = getKey(req);
   try {
-    const userId = await getKeyOwner(key);
-    if (userId) {
-      await userConfig.set(userId, req.body);
-      audit({ action: 'config.update', actorKey: key, actorUser: userId, targetType: 'config',
-        meta: { scope: 'account', fields: Object.keys(req.body || {}) }, req });
-      return res.json({ ok: true, scope: 'account' });
-    }
-    // Writing the host default affects every key that has not set its own,
-    // so it needs the operator token rather than any API key.
-    const operator = process.env.OYA_OPERATOR_TOKEN || process.env.OYA_METRICS_TOKEN;
-    if (!operator || key !== operator) {
-      return res.status(403).json({
-        error: 'This key has no account. Sign in to store settings for your account, '
-          + 'or present OYA_OPERATOR_TOKEN to change the host default.',
-      });
-    }
-    runtimeConfig.set(req.body);
+    keyConfig.set(key, req.body);
     audit({ action: 'config.update', actorKey: key, targetType: 'config',
-      meta: { scope: 'host', fields: Object.keys(req.body || {}) }, req });
-    res.json({ ok: true, scope: 'host' });
+      meta: { fields: Object.keys(req.body || {}) }, req });
+    res.json({ ok: true, ...keyConfig.get(key) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Writing the deployment-wide default affects every key that has not set its
+// own, so it stays behind the operator token.
+router.post('/config/host', operatorOnly, (req, res) => {
+  try {
+    runtimeConfig.set(req.body);
+    audit({ action: 'config.update', actorKey: getKey(req), targetType: 'config',
+      meta: { scope: 'host', fields: Object.keys(req.body || {}) }, req });
+    res.json({ ok: true, scope: 'host', ...runtimeConfig.get() });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

@@ -9,26 +9,54 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SECRET_FILE = join(process.env.OYA_DATA_DIR || join(__dirname, '..', 'data'), '.secret');
+
+/**
+ * A self-hoster's first action is onboarding, which stores an LLM key — so a
+ * missing OYA_PROFILE_SECRET generates one on disk rather than refusing.
+ * An operator-supplied secret is still better (the key then lives somewhere
+ * other than next to the ciphertext), but a generated one beats the two
+ * alternatives: plaintext credentials, or a product that cannot be set up.
+ */
+function fileSecret() {
+  try { return readFileSync(SECRET_FILE, 'utf8').trim(); } catch {}
+  const generated = randomBytes(32).toString('hex');
+  try {
+    mkdirSync(dirname(SECRET_FILE), { recursive: true });
+    writeFileSync(SECRET_FILE, generated, { mode: 0o600, flag: 'wx' });
+    console.warn(`[secrets] OYA_PROFILE_SECRET not set — generated one at ${SECRET_FILE}. `
+      + 'Back it up: losing it makes stored credentials unrecoverable.');
+    return generated;
+  } catch (e) {
+    // Lost a race with another worker, or the directory is read-only.
+    try { return readFileSync(SECRET_FILE, 'utf8').trim(); } catch {}
+    throw Object.assign(
+      new Error(`Cannot store secrets: set OYA_PROFILE_SECRET (${e.message})`), { status: 409 });
+  }
+}
 
 const SECRET = process.env.OYA_PROFILE_SECRET || '';
 const SALT = Buffer.from(process.env.OYA_PROFILE_SALT || 'oya-profile-kek-v1');
 
 let kek = null;
 
-export function haveSecret() { return !!SECRET; }
+/** Always true now — kept because callers guard on it before storing credentials. */
+export function haveSecret() {
+  try { return !!(SECRET || fileSecret()); } catch { return false; }
+}
 
 function key() {
   if (kek) return kek;
-  if (!SECRET) {
-    throw Object.assign(
-      new Error('OYA_PROFILE_SECRET is required to store secrets at rest. Generate one with `openssl rand -hex 32`.'),
-      { status: 409 },
-    );
-  }
+  const secret = SECRET || fileSecret();
   // scrypt is deliberate: the secret may be operator-chosen rather than random.
   // N=2^15,r=8 needs 32MB, exactly Node's default maxmem ceiling, so maxmem is
   // raised explicitly rather than left to trip at runtime.
-  kek = scryptSync(SECRET, SALT, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 96 * 1024 * 1024 });
+  kek = scryptSync(secret, SALT, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 96 * 1024 * 1024 });
   return kek;
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "oya-browser",
   "version": "1.0.45",
-  "description": "AI-controlled browser — your real browser as an MCP server",
+  "description": "AI-controlled browser \u2014 your real browser as an MCP server",
   "main": "main.js",
   "author": "Oya <hello@oya.ai>",
   "scripts": {
@@ -47,7 +47,17 @@
             "universal"
           ]
         }
-      ]
+      ],
+      "extendInfo": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "Oya Browser",
+            "CFBundleURLSchemes": [
+              "oya"
+            ]
+          }
+        ]
+      }
     },
     "win": {
       "icon": "build/icon.png",
@@ -86,6 +96,14 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "protocols": [
+      {
+        "name": "Oya Browser",
+        "schemes": [
+          "oya"
+        ]
+      }
+    ]
   }
 }

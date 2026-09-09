@@ -19,6 +19,11 @@ RUN npm ci --omit=dev
 # Server source
 COPY server/src/ ./src/
 
+# The page analyzer, which drivers/cdp.js injects into CDP browsers. It resolves
+# it relative to its own file (../../../browser/scripts), so the layout matters:
+# without this, analyze and click-by-element-id silently degrade in the image.
+COPY browser/scripts/ /browser/scripts/
+
 # Static UI from build stage
 COPY --from=ui-build /ui/out/ ./ui-static/
 

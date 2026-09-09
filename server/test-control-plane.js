@@ -297,6 +297,67 @@ try {
     body: { url: 'socks5://u:p@h:1080' } });
   assert(badSocks.status === 400, 'the SOCKS5 auth limitation is surfaced over the API too');
 
+  console.log('\n15. Settings follow the API key...');
+  {
+    const keyConfig = await import('./src/key-config.js');
+
+    const saved = await call('/api/config', { method: 'POST', key: 'tenant-key',
+      body: { browser_provider: 'steel', steel_api_key: 'steel-secret-9999', chat_model: 'tenant-model' } });
+    assert(saved.status === 200, `a key stores its own settings (got ${saved.status})`);
+    assert(saved.body.steel_api_key === '••••9999', 'a stored provider credential comes back masked');
+
+    const mine = await call('/api/config', { key: 'tenant-key' });
+    assert(mine.body.browser_provider === 'steel', 'the key reads back its own provider');
+    assert(!JSON.stringify(mine.body).includes('steel-secret-9999'), 'no clear credential in the response');
+
+    const other = await call('/api/config', { key: 'admin-key' });
+    assert(other.body.browser_provider !== 'steel', "another key sees none of it");
+
+    // This is what makes the whole thing per-key: providers.js reads an env
+    // object, so a key's credentials become that key's environment.
+    assert(keyConfig.envFor('tenant-key').STEEL_API_KEY === 'steel-secret-9999',
+      "envFor layers the key's provider credential over process.env");
+    assert(keyConfig.envFor('admin-key').STEEL_API_KEY === undefined,
+      "another key's environment is untouched");
+
+    assert(keyConfig.providerFor('tenant-key') === 'steel', 'providerFor reads the stored provider');
+    assert(keyConfig.providerFor('admin-key') === 'cdp', 'a key that set nothing falls back to cdp');
+
+    // Only the operator can move the deployment-wide default.
+    const hostByTenant = await call('/api/config/host', { method: 'POST', key: 'tenant-key',
+      body: { chat_model: 'hijacked' } });
+    assert(hostByTenant.status === 403, `an API key cannot write the host default (got ${hostByTenant.status})`);
+  }
+
+  console.log('\n16. POST /browsers/start hides the provider...');
+  {
+    const noAuth = await fetch(`${base}/api/browsers/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    assert(noAuth.status === 401, `start requires auth (got ${noAuth.status})`);
+
+    // tenant-key's stored provider is steel, with a credential that is not real:
+    // reaching the vendor at all proves the key's own settings drove the call.
+    const viaSettings = await call('/api/browsers/start', { method: 'POST', key: 'tenant-key' });
+    assert(viaSettings.status === 502 || viaSettings.status === 409,
+      `the stored provider is used without the caller naming it (got ${viaSettings.status})`);
+    assert(!/cdp/.test(viaSettings.body.error || ''), 'it did not silently fall back to cdp');
+
+    // An explicit provider still wins, and cdp still needs a URL.
+    const explicit = await call('/api/browsers/start', { method: 'POST', key: 'tenant-key',
+      body: { provider: 'cdp' } });
+    assert(explicit.status === 400 && /wsUrl/.test(explicit.body.error || ''),
+      'an explicit provider overrides the stored one');
+
+    // A wsUrl pointing inward is refused before anything is dialled.
+    const ssrf = await call('/api/browsers/start', { method: 'POST', key: 'tenant-key',
+      body: { provider: 'cdp', wsUrl: 'ws://169.254.169.254/devtools/browser/x' } });
+    assert(ssrf.status >= 400, `start refuses an internal wsUrl (got ${ssrf.status})`);
+
+    const unknownPersona = await call('/api/browsers/start', { method: 'POST', key: 'tenant-key',
+      body: { provider: 'cdp', wsUrl: 'ws://example.com:9222/x', persona: 'not-mine' } });
+    assert(unknownPersona.status === 404, `an unowned persona is refused (got ${unknownPersona.status})`);
+  }
+
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack}`);
   failed++;
