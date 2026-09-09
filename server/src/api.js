@@ -16,6 +16,7 @@ import { runChat } from './chat-service.js';
 import { runtimeConfig, userConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
 import { getAll as getAllCookies, getAllByKey as getAllCookiesByKey, clear as clearCookies, clearAll as clearAllCookies } from './cookie-store.js';
+import { isConfigured as sandboxConfigured, createSandbox, removeSandbox } from './sandbox.js';
 
 export const router = Router();
 
@@ -147,6 +148,51 @@ router.post('/fleet/provision', authMiddleware, async (req, res) => {
   const count = Math.min(Math.max(parseInt(req.query.count || req.body?.count) || 1, 1), 10000);
   const keys = await provisionKeys(count);
   res.json({ ok: true, count: keys.length, keys });
+});
+
+// ─── Cloud browser provisioning (Daytona) ───
+//
+// Launches sandboxed browsers that enroll over the normal WebSocket with the
+// caller's own key, so they join that caller's pool as ordinary browsers.
+
+router.post('/browsers/provision', authMiddleware, async (req, res) => {
+  if (!sandboxConfigured()) {
+    return res.status(409).json({
+      error: 'Cloud browsers are not configured. Set DAYTONA_API_KEY, DAYTONA_SNAPSHOT and OYA_PUBLIC_WS_URL.',
+    });
+  }
+  const key = getKey(req);
+  const count = Math.min(Math.max(parseInt(req.body?.count) || 1, 1), 10);
+  const name = typeof req.body?.name === 'string' ? req.body.name.slice(0, 100) : undefined;
+
+  const results = await Promise.allSettled(
+    Array.from({ length: count }, () => createSandbox({ apiKey: key, name })),
+  );
+  const created = results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
+  const failed = results.filter((r) => r.status === 'rejected').map((r) => r.reason?.message || 'unknown error');
+
+  if (failed.length) console.error(`[sandbox] ${failed.length}/${count} failed:`, failed.join('; '));
+
+  res.status(created.length ? 202 : 502).json({
+    ok: created.length > 0,
+    requested: count,
+    browsers: created,
+    failed,
+    note: 'Browsers connect on their own; they appear in GET /browsers within ~90s.',
+  });
+});
+
+router.delete('/browsers/:browserId/sandbox', authMiddleware, async (req, res) => {
+  const { browserId } = req.params;
+  try {
+    // Ownership is enforced by the sandbox's owner label, which works whether or
+    // not the browser is currently connected.
+    const removed = await removeSandbox(browserId, getKey(req));
+    res.json({ ok: true, removed });
+  } catch (err) {
+    console.error('[sandbox] delete failed:', err.message);
+    res.status(err.status || 502).json({ error: err.message });
+  }
 });
 
 // Runtime config — server-wide settings (OpenAI key, model, base URL).
