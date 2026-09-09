@@ -12,6 +12,7 @@ import * as usage from './usage.js';
 import * as personas from './personas.js';
 import * as proxies from './proxies.js';
 import * as keyConfig from './key-config.js';
+import { isProvisioned } from './sandbox.js';
 import { fingerprint as personaOwner } from './audit.js';
 
 /** One place both client types report through, so the numbers are comparable. */
@@ -135,7 +136,8 @@ export function handleConnection(ws, req) {
       // A cloud sandbox says so at enrol time (OYA_PROVIDER in its env); the
       // dashboard's Stop needs to know, because for a cloud browser stopping
       // means destroying the sandbox, not just dropping the socket.
-      const provider = ['oya-cloud', 'oya-selfhosted', 'oya-desktop'].includes(msg.provider) ? msg.provider : 'oya-desktop';
+      const claimed = ['oya-cloud', 'oya-selfhosted', 'oya-desktop'].includes(msg.provider) ? msg.provider : 'oya-desktop';
+      const provider = isProvisioned(browserId) ? 'oya-cloud' : claimed;
       registry.add(browserId, {
         ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona, provider,
       });

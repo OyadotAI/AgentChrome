@@ -315,9 +315,14 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
   const browser = registry.get(browserId);
   if (!browser || !canAccess(req, browserId)) return { id: browserId, ok: false, error: 'Browser not connected' };
 
+  // Whether a sandbox exists is decided by asking Daytona, not by what the
+  // browser said about itself: an older image sends no provider, and a stop
+  // that trusts the claim leaves a sandbox running and billing. removeSandbox
+  // looks the sandbox up by this browser's name and this key's owner label,
+  // so for a desktop browser it simply finds nothing.
   let sandboxRemoved = null;
-  const isCloud = browser.provider === 'oya-cloud' || sandbox === true;
-  if (isCloud && browser.clientType === 'oya') {
+  const mightHaveSandbox = browser.clientType === 'oya' && (sandboxConfigured() || sandbox === true);
+  if (mightHaveSandbox) {
     try {
       sandboxRemoved = await removeSandbox(browserId, key);
     } catch (err) {
@@ -331,7 +336,11 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
   audit({ action: 'browser.stop', actorKey: key, targetType: 'browser', targetId: browserId,
     meta: { clientType: browser.clientType, provider: browser.provider, sandboxRemoved }, req });
   metrics.browsersConnected.set({}, registry.browsers.size);
-  return { id: browserId, ok: true, provider: browser.provider, sandboxRemoved };
+  return {
+    id: browserId, ok: true, sandboxRemoved,
+    // If Daytona had a sandbox for it, it was a cloud browser whatever it claimed.
+    provider: sandboxRemoved ? 'oya-cloud' : browser.provider,
+  };
 }
 
 router.post('/browsers/:browserId/stop', authMiddleware, async (req, res) => {

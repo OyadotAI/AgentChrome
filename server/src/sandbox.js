@@ -39,6 +39,15 @@ export function isConfigured(env = process.env) {
   return settings(env) !== null;
 }
 
+/**
+ * Browser ids this process created sandboxes for. The browser's own claim
+ * about its provider is a courtesy, not a source of truth: an older image
+ * does not send one, and a client could say anything. Not persisted — after a
+ * restart the Daytona lookup by name in removeSandbox is the authority.
+ */
+const provisioned = new Set();
+export const isProvisioned = (browserId) => provisioned.has(browserId);
+
 /** Name what is actually missing. Listing all three when two are set sends
  *  people to re-check settings that were never the problem. */
 export function missingSettings(env = process.env) {
@@ -136,6 +145,7 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
     runAsync: true,
   });
 
+  provisioned.add(browserId);
   return { browserId, sandboxId: sandbox.id, sandboxName: PREFIX + browserId };
 }
 
