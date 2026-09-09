@@ -69,6 +69,7 @@ class ConnectionRegistry extends EventEmitter {
     browser.lastFrame = dataUrl;
     browser.lastFrameAt = Date.now();
     for (const res of browser.streamViewers) {
+      if (res.writableLength > 1024 * 1024) continue;
       try { res.write(`data: ${dataUrl}\n\n`); } catch { browser.streamViewers.delete(res); }
     }
   }

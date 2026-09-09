@@ -163,7 +163,7 @@ export function handleConnection(ws) {
     // ── Command result ──
     if (msg.type === 'cmd_result') {
       const pending = pendingCommands.get(msg.id);
-      if (pending) {
+      if (pending && pending.browserId === browserId && registry.get(browserId)?.ws === ws) {
         console.log(`[ws] ← cmd_result from ${browserId}: id=${msg.id} ok=${msg.ok}`);
         clearTimeout(pending.timer);
         pendingCommands.delete(msg.id);
