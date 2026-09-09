@@ -6,6 +6,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiUrl, apiKeyHeaders } from '@/lib/api';
 import { useToast } from './toast';
 
+/** Prefer the server's own reason — /config is admin-gated, so "Admin key required" matters. */
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body?.error === 'string' && body.error) return body.error;
+  } catch { /* not JSON — fall through */ }
+  return `${fallback} (${res.status})`;
+}
+
 interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
@@ -30,7 +39,10 @@ export default function SettingsDialog({ open, onClose, apiKey }: SettingsDialog
     const load = async () => {
       try {
         const res = await fetch(apiUrl('/config'), { headers: headers() });
-        if (!res.ok) return;
+        if (!res.ok) {
+          toast(await errorMessage(res, 'Could not load settings'), 'error');
+          return;
+        }
         const cfg = await res.json();
         setOpenaiKeyPlaceholder(cfg.has_openai_key ? (cfg.openai_api_key || 'Configured') : 'sk-...');
         setChatModel(cfg.chat_model || '');
@@ -38,10 +50,13 @@ export default function SettingsDialog({ open, onClose, apiKey }: SettingsDialog
       } catch { /* noop */ }
     };
     load();
-  }, [open, apiKey, headers]);
+  }, [open, apiKey, headers, toast]);
 
   const saveField = async (field: string, value: string) => {
-    if (!value && field === 'openai_api_key') return;
+    if (!value && field === 'openai_api_key') {
+      toast('Enter a key first', 'error');
+      return;
+    }
     setSaving(field);
     try {
       const res = await fetch(apiUrl('/config'), {
@@ -52,7 +67,7 @@ export default function SettingsDialog({ open, onClose, apiKey }: SettingsDialog
       if (res.ok) {
         toast('Setting saved', 'success');
       } else {
-        toast('Failed to save', 'error');
+        toast(await errorMessage(res, 'Failed to save'), 'error');
       }
     } catch {
       toast('Error saving setting', 'error');

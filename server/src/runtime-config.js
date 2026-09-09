@@ -1,8 +1,11 @@
 /**
  * Runtime configuration — persisted to DB, editable from dashboard.
- * Values here override environment variables.
  *
- * Primary storage: Supabase (oya_browser.settings)
+ * Two layers, resolved most-specific first:
+ *   1. per-account  (oya_browser.user_settings) — each user's own key/model
+ *   2. server-wide  (oya_browser.settings)      — admin default for everyone
+ *   3. environment  (OPENAI_API_KEY, ...)       — last resort
+ *
  * Fallback: local file (data/config.json) when Supabase is not configured.
  */
 
@@ -118,5 +121,109 @@ export const runtimeConfig = {
 
   getChatModel() {
     return config.chat_model || process.env.CHAT_MODEL || 'gpt-4o-mini';
+  },
+};
+
+
+// ── Per-account layer ──────────────────────────────────────────────────────
+//
+// Keyed by user id. Read-through cache, invalidated on write; a miss falls back
+// to the server-wide values above, so an account that has never saved anything
+// behaves exactly as it did before.
+
+const SETTING_KEYS = ['openai_api_key', 'openai_base_url', 'chat_model'];
+
+const userCache = new Map();
+
+async function loadUserConfig(userId) {
+  if (userCache.has(userId)) return userCache.get(userId);
+  let values = {};
+  if (db) {
+    try {
+      const { data, error } = await db
+        .from('user_settings')
+        .select('key, value')
+        .eq('user_id', userId);
+      if (error) throw error;
+      for (const row of data) values[row.key] = row.value;
+    } catch (e) {
+      console.error('[config] Failed to load user settings:', e.message);
+      return {}; // don't cache a failed read
+    }
+  }
+  userCache.set(userId, values);
+  return values;
+}
+
+export const userConfig = {
+  /** Masked view for the dashboard — same shape as runtimeConfig.get(). */
+  async get(userId) {
+    const own = await loadUserConfig(userId);
+    const global = runtimeConfig.get();
+    const key = own.openai_api_key;
+    return {
+      openai_api_key: key ? '\u2022\u2022\u2022\u2022' + key.slice(-4) : global.openai_api_key,
+      openai_base_url: own.openai_base_url || global.openai_base_url,
+      chat_model: own.chat_model || global.chat_model,
+      has_openai_key: !!key || global.has_openai_key,
+      /** True when the values shown come from the server-wide default, not this account. */
+      inherited: !key && global.has_openai_key,
+    };
+  },
+
+  async set(userId, updates) {
+    const own = { ...(await loadUserConfig(userId)) };
+    const rows = [];
+    for (const field of SETTING_KEYS) {
+      const value = updates[field];
+      if (value === undefined) continue;
+      // Never persist the masked placeholder back over a real key.
+      if (field === 'openai_api_key' && String(value).startsWith('\u2022')) continue;
+      own[field] = value;
+      rows.push({
+        user_id: userId,
+        key: field,
+        value: String(value),
+        updated_at: new Date().toISOString(),
+      });
+    }
+    if (rows.length === 0) return;
+    userCache.set(userId, own);
+    if (db) {
+      try {
+        const { error } = await db
+          .from('user_settings')
+          .upsert(rows, { onConflict: 'user_id,key' });
+        if (error) throw error;
+      } catch (e) {
+        userCache.delete(userId); // re-read next time rather than trust the cache
+        throw e;
+      }
+    }
+  },
+
+  /**
+   * Effective config for a request, given the API key it arrived with.
+   * Keys with no account (env admin keys, fleet token) get the server-wide values.
+   */
+  async resolve(userId) {
+    if (!userId) {
+      return {
+        openaiKey: runtimeConfig.getOpenAIKey(),
+        baseUrl: runtimeConfig.getOpenAIBase(),
+        model: runtimeConfig.getChatModel(),
+      };
+    }
+    const own = await loadUserConfig(userId);
+    // An account's base URL is only honoured alongside that account's own key.
+    // Pairing a user-supplied endpoint with the server-wide key would ship the
+    // deployment's OpenAI credential to an address the user controls.
+    return {
+      openaiKey: own.openai_api_key || runtimeConfig.getOpenAIKey(),
+      baseUrl: own.openai_api_key
+        ? (own.openai_base_url || runtimeConfig.getOpenAIBase())
+        : runtimeConfig.getOpenAIBase(),
+      model: own.chat_model || runtimeConfig.getChatModel(),
+    };
   },
 };

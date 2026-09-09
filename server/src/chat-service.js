@@ -4,7 +4,8 @@
 
 import { sendCommand } from './ws-handler.js';
 import { BROWSER_TOOLS } from './chat-tools.js';
-import { runtimeConfig } from './runtime-config.js';
+import { userConfig } from './runtime-config.js';
+import { getKeyOwner } from './auth.js';
 
 const SYSTEM_PROMPT = `You control a real browser via tools. The browser belongs to the user — it has their cookies, logins, and sessions.
 
@@ -133,13 +134,16 @@ async function executeTool(browserId, name, args) {
  * Run the agentic loop: LLM → tool calls → execute → feed back → repeat until done.
  * Streams the final text response.
  */
-export async function runChat(browserId, messages, { onToolCall, onText } = {}) {
-  const openaiKey = runtimeConfig.getOpenAIKey();
+export async function runChat(browserId, messages, { apiKey, onToolCall, onText } = {}) {
+  // Settings belong to the account that owns the calling API key; keys with no
+  // account fall back to the server-wide values.
+  const userId = apiKey ? await getKeyOwner(apiKey) : null;
+  const { openaiKey, baseUrl, model } = await userConfig.resolve(userId);
   if (!openaiKey) {
-    throw new Error('OpenAI API key not configured. Go to Settings on the landing page or set OPENAI_API_KEY env var.');
+    throw new Error('OpenAI API key not configured. Open Settings in the dashboard to add one for your account, or set OPENAI_API_KEY env var.');
   }
-  const OPENAI_BASE = runtimeConfig.getOpenAIBase();
-  const MODEL = runtimeConfig.getChatModel();
+  const OPENAI_BASE = baseUrl;
+  const MODEL = model;
 
   const allMessages = [
     { role: 'system', content: SYSTEM_PROMPT },

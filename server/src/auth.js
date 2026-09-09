@@ -88,8 +88,39 @@ export function validateApiKey(key) {
   return envKeys.has(key) || keyCache.has(key) || isFleetToken(key);
 }
 
+/**
+ * Resolve the account that owns an API key, or null for keys with no account
+ * (env API_KEYS admin keys, the fleet token, or an unknown key).
+ * Cached — this sits on the chat request path.
+ */
+const ownerCache = new Map();
+
+export async function getKeyOwner(key) {
+  if (!key || envKeys.has(key) || isFleetToken(key)) return null;
+  if (ownerCache.has(key)) return ownerCache.get(key);
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('api_keys')
+      .select('user_id')
+      .eq('key', key)
+      .maybeSingle();
+    if (error) throw error;
+    const owner = data?.user_id || null;
+    // Only cache a hit. Caching null would pin a key registered on another
+    // instance to "no account" for the life of the process, silently falling
+    // back to the server-wide OpenAI config.
+    if (owner) ownerCache.set(key, owner);
+    return owner;
+  } catch (e) {
+    console.error('[auth] Failed to resolve key owner:', e.message);
+    return null;
+  }
+}
+
 export async function registerApiKey(key, userId, label) {
   keyCache.add(key);
+  if (userId) ownerCache.set(key, userId);
   if (supabase && userId) {
     const { error } = await supabase.from('api_keys').upsert(
       { key, user_id: userId, label: label || 'Default', created_at: new Date().toISOString() },
@@ -111,6 +142,7 @@ export async function listApiKeys(userId) {
 }
 
 export async function deleteApiKey(key, userId) {
+  ownerCache.delete(key);
   keyCache.delete(key);
   if (supabase) {
     const { error } = await supabase

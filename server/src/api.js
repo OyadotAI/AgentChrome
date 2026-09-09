@@ -7,13 +7,13 @@ import { randomBytes } from 'crypto';
 import {
   authMiddleware, userAuthMiddleware,
   registerApiKey, listApiKeys, deleteApiKey,
-  isAdminKey, provisionKeys,
+  isAdminKey, provisionKeys, getKeyOwner,
   signup, login, getProfile,
 } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
-import { runtimeConfig } from './runtime-config.js';
+import { runtimeConfig, userConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
 import { getAll as getAllCookies, getAllByKey as getAllCookiesByKey, clear as clearCookies, clearAll as clearAllCookies } from './cookie-store.js';
 
@@ -151,19 +151,40 @@ router.post('/fleet/provision', authMiddleware, async (req, res) => {
 
 // Runtime config — server-wide settings (OpenAI key, model, base URL).
 // Admin only: anyone who can write this can hijack every tenant's chat requests.
-router.get('/config', authMiddleware, (req, res) => {
-  if (!isAdminKey(getKey(req))) {
-    return res.status(403).json({ error: 'Admin key required' });
+// A key that belongs to an account reads and writes that account's own
+// settings. Keys with no account (env API_KEYS, fleet token) act on the
+// server-wide defaults, which stays admin-only — writing those affects
+// every tenant that has not set their own.
+router.get('/config', authMiddleware, async (req, res) => {
+  const key = getKey(req);
+  try {
+    const userId = await getKeyOwner(key);
+    if (userId) return res.json(await userConfig.get(userId));
+    if (!isAdminKey(key)) {
+      return res.status(403).json({ error: 'Admin key required' });
+    }
+    res.json(runtimeConfig.get());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(runtimeConfig.get());
 });
 
-router.post('/config', authMiddleware, (req, res) => {
-  if (!isAdminKey(getKey(req))) {
-    return res.status(403).json({ error: 'Admin key required' });
+router.post('/config', authMiddleware, async (req, res) => {
+  const key = getKey(req);
+  try {
+    const userId = await getKeyOwner(key);
+    if (userId) {
+      await userConfig.set(userId, req.body);
+      return res.json({ ok: true, scope: 'account' });
+    }
+    if (!isAdminKey(key)) {
+      return res.status(403).json({ error: 'Admin key required' });
+    }
+    runtimeConfig.set(req.body);
+    res.json({ ok: true, scope: 'server' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  runtimeConfig.set(req.body);
-  res.json({ ok: true });
 });
 
 // List connected browsers — scoped to caller's API key (admin sees all)
@@ -250,6 +271,7 @@ router.post('/browsers/:browserId/chat', authMiddleware, async (req, res) => {
   const toolCalls = [];
   try {
     const result = await runChat(browserId, messages, {
+      apiKey: getKey(req),
       onToolCall: ({ name, args }) => toolCalls.push({ name, args }),
       onText: () => {},
     });
