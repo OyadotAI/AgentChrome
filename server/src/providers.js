@@ -8,10 +8,9 @@
  *            returns.
  *
  * Hosted providers are described by config rather than code, so a vendor
- * changing its API is an env change, not a patch. The presets below are
- * starting points: verify each against your provider's current docs and
- * override with OYA_BROWSER_PROVIDERS if anything has moved. Nothing here is
- * load-bearing for the 'cdp' path.
+ * changing its API can be handled with OYA_BROWSER_PROVIDERS overrides.
+ * deleteUrl also accepts a URL template containing {id}; deleteMethod and
+ * deleteBody describe the vendor's release operation.
  */
 
 const PRESETS = {
@@ -23,6 +22,7 @@ const PRESETS = {
     idPath: ['data.id', 'id'],
     deleteUrl: (id) => `https://api.anchorbrowser.io/v1/sessions/${id}`,
   },
+  // https://docs.browserbase.com/reference/api/update-a-session
   browserbase: {
     createUrl: 'https://api.browserbase.com/v1/sessions',
     headers: (key) => ({ 'x-bb-api-key': key, 'Content-Type': 'application/json' }),
@@ -30,22 +30,31 @@ const PRESETS = {
     wsPath: ['connectUrl', 'data.connectUrl'],
     idPath: ['id', 'data.id'],
     deleteUrl: (id) => `https://api.browserbase.com/v1/sessions/${id}`,
+    deleteMethod: 'POST',
+    deleteBody: { status: 'REQUEST_RELEASE' },
   },
+  // https://docs.browser-use.com/cloud/api-v2/browsers/create-browser-session
   browseruse: {
-    createUrl: 'https://api.browser-use.com/api/v2/sessions',
+    createUrl: 'https://api.browser-use.com/api/v2/browsers',
     headers: (key) => ({ 'X-Browser-Use-API-Key': key, 'Content-Type': 'application/json' }),
     body: () => ({}),
     wsPath: ['cdpUrl', 'data.cdpUrl', 'cdp_url'],
     idPath: ['id', 'data.id'],
-    deleteUrl: (id) => `https://api.browser-use.com/api/v2/sessions/${id}`,
+    deleteUrl: (id) => `https://api.browser-use.com/api/v2/browsers/${id}`,
+    deleteMethod: 'PATCH',
+    deleteBody: { action: 'stop' },
   },
+  // https://docs.steel.dev/overview/authentication
+  // https://github.com/steel-dev/steel-node/blob/main/src/resources/sessions/sessions.ts
   steel: {
     createUrl: 'https://api.steel.dev/v1/sessions',
     headers: (key) => ({ 'steel-api-key': key, 'Content-Type': 'application/json' }),
     body: () => ({}),
     wsPath: ['websocketUrl', 'data.websocketUrl', 'connectUrl'],
     idPath: ['id', 'data.id'],
-    deleteUrl: (id) => `https://api.steel.dev/v1/sessions/${id}`,
+    deleteUrl: (id) => `https://api.steel.dev/v1/sessions/${id}/release`,
+    deleteMethod: 'POST',
+    wsQueryKey: 'apiKey',
   },
 };
 
@@ -111,39 +120,59 @@ export async function acquire({ provider = 'cdp', wsUrl, env = process.env } = {
   const key = keyFor(provider, env);
   if (!key) fail(`${provider} is not configured — set ${provider.toUpperCase()}_API_KEY`, 409);
 
-  const res = await fetch(cfg.createUrl, {
-    method: 'POST',
-    headers: typeof cfg.headers === 'function' ? cfg.headers(key) : cfg.headers,
-    body: JSON.stringify(typeof cfg.body === 'function' ? cfg.body(env) : (cfg.body || {})),
-    signal: AbortSignal.timeout(30000),
-  });
+  let res;
+  try {
+    res = await fetch(cfg.createUrl, {
+      method: 'POST',
+      headers: typeof cfg.headers === 'function' ? cfg.headers(key) : cfg.headers,
+      body: JSON.stringify(typeof cfg.body === 'function' ? cfg.body(env) : (cfg.body || {})),
+      signal: AbortSignal.timeout(30000),
+      redirect: 'error',
+    });
+  } catch { fail(`${provider} session create request failed. Check the provider configuration and connection.`, 502); }
   const text = await res.text();
   let payload;
   try { payload = JSON.parse(text); } catch { payload = {}; }
-  if (!res.ok) fail(`${provider} session create failed (${res.status}): ${text.slice(0, 200)}`, 502);
-
-  const url = firstPath(payload, cfg.wsPath || []);
-  if (!url) {
-    fail(`${provider} responded without a CDP URL at ${(cfg.wsPath || []).join(' / ')}. `
-      + 'Override the provider config via OYA_BROWSER_PROVIDERS.', 502);
-  }
+  // Vendor responses can echo connection URLs or credentials. Keep them out
+  // of public errors and audit records.
+  if (!res.ok) fail(`${provider} session create failed (${res.status}). Check its API key, quota, and account status.`, 502);
   const sessionId = firstPath(payload, cfg.idPath || []);
-
-  return {
-    wsUrl: url,
-    provider,
-    sessionId,
-    async release() {
-      if (!sessionId || !cfg.deleteUrl) return;
-      try {
-        await fetch(cfg.deleteUrl(sessionId), {
-          method: 'DELETE',
-          headers: typeof cfg.headers === 'function' ? cfg.headers(key) : cfg.headers,
-          signal: AbortSignal.timeout(15000),
-        });
-      } catch (e) {
-        console.error(`[providers] ${provider} session ${sessionId} release failed:`, e.message);
-      }
-    },
+  let releasePromise;
+  const release = () => {
+    if (!sessionId || !cfg.deleteUrl) return Promise.resolve();
+    if (!releasePromise) {
+      releasePromise = (async () => {
+        const id = encodeURIComponent(sessionId);
+        const endpoint = typeof cfg.deleteUrl === 'function' ? cfg.deleteUrl(id) : cfg.deleteUrl.replace('{id}', id);
+        let released;
+        try {
+          released = await fetch(endpoint, {
+            method: cfg.deleteMethod || 'DELETE',
+            headers: typeof cfg.headers === 'function' ? cfg.headers(key) : cfg.headers,
+            ...(cfg.deleteBody ? { body: JSON.stringify(cfg.deleteBody) } : {}),
+            signal: AbortSignal.timeout(15000),
+            redirect: 'error',
+          });
+        } catch { fail(`${provider} session ${sessionId} release request failed`, 502); }
+        if (!released.ok && released.status !== 404 && released.status !== 410) {
+          fail(`${provider} session ${sessionId} release failed (${released.status})`, 502);
+        }
+      })().catch((err) => { releasePromise = null; throw err; });
+    }
+    return releasePromise;
   };
+  try {
+    const raw = firstPath(payload, cfg.wsPath || []);
+    let url;
+    try { url = new URL(raw); } catch { /* handled below */ }
+    if (!url || !['ws:', 'wss:'].includes(url.protocol)) {
+      fail(`${provider} responded without a valid CDP URL. Check the provider configuration.`, 502);
+    }
+    if (cfg.wsQueryKey) url.searchParams.set(cfg.wsQueryKey, key);
+    return { wsUrl: url.href, provider, sessionId, release };
+  } catch (err) {
+    try { await release(); }
+    catch (cleanup) { err.message += ` Cleanup also failed: ${cleanup.message}`; }
+    throw err;
+  }
 }

@@ -1,0 +1,63 @@
+{
+  "fixtureId": "carelon-sinus-ct-001",
+  "synthetic": true,
+  "executionStatus": "not_run",
+  "portalUrl": null,
+  "submissionMode": "preview_only",
+  "credentials": {
+    "usernameEnv": "CARELON_TEST_USERNAME",
+    "passwordEnv": "CARELON_TEST_PASSWORD",
+    "verificationMethod": "email",
+    "verificationCodeSource": "runtime_input"
+  },
+  "member": {
+    "firstName": "Jamie",
+    "lastName": "Testmember",
+    "memberId": "REPLACE_WITH_SEEDED_TEST_MEMBER_ID",
+    "dateOfBirth": "1985-01-15",
+    "serviceDate": null,
+    "expectedHealthPlan": "REPLACE_WITH_SEEDED_TEST_PLAN"
+  },
+  "orderingProvider": {
+    "name": "Taylor Testphysician",
+    "identifier": "REPLACE_WITH_SEEDED_TEST_PROVIDER_ID",
+    "address": "REPLACE_WITH_SEEDED_TEST_PROVIDER_ADDRESS",
+    "fax": "202-555-0101"
+  },
+  "exam": {
+    "name": "Maxillofacial Area (Sinus) - CT",
+    "contrast": "without contrast",
+    "procedureCode": null,
+    "expectedCount": 1
+  },
+  "diagnosis": {
+    "code": "J32.0",
+    "description": "Chronic maxillary sinusitis",
+    "clinicalScenario": "Sinusitis"
+  },
+  "clinicalAnswers": {
+    "mainReason": "Preoperative planning",
+    "functionalEndoscopicSinusSurgeryPlanned": "No",
+    "treatmentsForEpisode": ["No treatment"],
+    "concernForComplicationOfSinusitis": "No"
+  },
+  "additionalInformation": {
+    "contactFirstName": "Morgan",
+    "contactLastName": "Testcontact",
+    "phone": "202-555-0100",
+    "extension": "",
+    "fax": "202-555-0101",
+    "clinicalText": ""
+  },
+  "servicingFacility": {
+    "name": "Test Imaging Center",
+    "identifier": "REPLACE_WITH_SEEDED_TEST_FACILITY_ID",
+    "address": "REPLACE_WITH_SEEDED_TEST_FACILITY_ADDRESS"
+  },
+  "expectedSubmission": {
+    "orderId": "generated_at_runtime",
+    "status": "capture_from_portal_do_not_assume_approval",
+    "anticipatedDeterminationDate": "capture_if_displayed",
+    "matchingOrderCount": 1
+  }
+}

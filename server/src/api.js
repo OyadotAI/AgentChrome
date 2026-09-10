@@ -26,7 +26,7 @@ import { CDPDriver } from './drivers/cdp.js';
 import { assertSafeTarget } from './net-guard.js';
 import { v4 as uuidv4 } from 'uuid';
 import { listSessions, killSession, sessions as gatewaySessions } from './gateway.js';
-import { pool, STRATEGIES } from './routing.js';
+import { pool, STRATEGIES, validateProviderConfig } from './routing.js';
 import * as profiles from './profiles.js';
 import * as recorder from './recorder.js';
 import * as personas from './personas.js';
@@ -356,6 +356,11 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
       console.warn(`[stop] sandbox for ${browserId} not removed: ${err.message}`);
     }
   }
+  if (browser.release) {
+    try { await browser.release(); }
+    catch (err) { return { id: browserId, ok: false, status: 502, error: err.message }; }
+    browser.release = null;
+  }
   try { browser.ws?.close(4008, 'Stopped by operator'); } catch {}
   registry.remove(browserId);
   usage.browserDisconnected(key, browserId);
@@ -371,7 +376,7 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
 
 router.post('/browsers/:browserId/stop', authMiddleware, async (req, res) => {
   const result = await stopBrowser(req, req.params.browserId, { sandbox: req.body?.sandbox });
-  res.status(result.ok ? 200 : 404).json(result);
+  res.status(result.ok ? 200 : (result.status || 404)).json(result);
 });
 
 /** Bulk stop: `{ids: [...]}` or `{all: true}`. Each id reports separately. */
@@ -468,7 +473,7 @@ router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req,
   let session;
   try {
     if (provider === 'cdp' && req.body?.wsUrl) await assertSafeTarget(req.body.wsUrl, { label: 'wsUrl' });
-    session = await acquireBrowser({ provider, wsUrl: req.body?.wsUrl });
+    session = await acquireBrowser({ provider, wsUrl: req.body?.wsUrl, env: keyConfig.envFor(key) });
   } catch (err) {
     audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'error',
       meta: { provider, error: err.message }, req });
@@ -500,7 +505,7 @@ router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req,
 
     res.status(201).json({ id: browserId, provider: session.provider, clientType: 'cdp' });
   } catch (err) {
-    await session.release().catch(() => {});
+    await session.release().catch((err) => console.error('[providers] cleanup:', err.message));
     audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'error',
       meta: { provider, error: err.message }, req });
     res.status(502).json({ error: `Could not attach to the CDP browser: ${err.message}` });
@@ -508,13 +513,12 @@ router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req,
 });
 
 /** Detach a CDP browser and release the vendor session. */
-router.delete('/browsers/:browserId/connection', authMiddleware, (req, res) => {
+router.delete('/browsers/:browserId/connection', authMiddleware, async (req, res) => {
   const { browserId } = req.params;
   const browser = registry.get(browserId);
   if (!browser || !canAccess(req, browserId)) return res.status(404).json({ error: 'Browser not found' });
-  usage.browserDisconnected(browser.apiKey, browserId);
-  registry.remove(browserId);   // closes the driver and releases the session
-  metrics.browsersConnected.set({}, registry.browsers.size);
+  const result = await stopBrowser(req, browserId);
+  if (!result.ok) return res.status(result.status || 404).json(result);
   audit({ action: 'browser.disconnect', actorKey: getKey(req), targetType: 'browser', targetId: browserId,
     meta: { clientType: browser.clientType, provider: browser.provider }, req });
   res.json({ ok: true });
@@ -711,7 +715,7 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
     try {
       personas.acquire(persona, browserId);
     } catch (capped) {
-      await session.release().catch(() => {});
+      await session.release().catch((err) => console.error('[providers] cleanup:', err.message));
       throw capped;
     }
     let driver;
@@ -726,7 +730,7 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
       }).connect();
     } catch (connectErr) {
       personas.release(persona, browserId);
-      await session.release().catch(() => {});
+      await session.release().catch((err) => console.error('[providers] cleanup:', err.message));
       throw connectErr;
     }
 
@@ -734,7 +738,7 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
       apiKey: key,
       name: (req.body?.name || `${session.provider} browser`).slice(0, 100),
       driver, clientType: 'cdp', provider: session.provider, persona,
-      release: () => { personas.release(persona, browserId); return session.release(); },
+      release: async () => { await session.release(); personas.release(persona, browserId); },
     });
 
     usage.browserConnected(key, browserId);
@@ -895,14 +899,27 @@ router.get('/gateway/providers', authMiddleware, (req, res) =>
 
 router.post('/gateway/providers', authMiddleware, async (req, res) => {
   try {
-    const cfg = { ...(req.body || {}), owner: fingerprint(getKey(req)) };
+    const key = getKey(req);
+    const cfg = validateProviderConfig({ ...(req.body || {}), owner: fingerprint(key) });
+    const env = keyConfig.envFor(key);
+    const credentialField = `${cfg.type}_api_key`;
+    const credential = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+    if (credential && keyConfig.FIELDS[credentialField]?.secret) env[`${cfg.type.toUpperCase()}_API_KEY`] = credential;
+    const supported = availableProviders(env).find(p => p.name === cfg.type);
+    if (!supported) return res.status(400).json({ error: 'Unknown browser provider.' });
+    if (!supported.configured) return res.status(409).json({ error: 'Add an API key for this provider, or save one in Settings → Browsers.' });
+    if (pool.get(cfg.owner, cfg.name)) return res.status(409).json({ error: 'A provider with this name already exists. Choose another name.' });
     // The host dials this URL, using its network position rather than the
     // caller's. Unvalidated, that is a server-side request forgery primitive.
     if (cfg.wsUrl) {
       const safe = await assertSafeTarget(cfg.wsUrl, { label: 'wsUrl' });
       cfg.wsUrl = safe.href;
     }
+    // Recheck after DNS validation, which can yield to a concurrent addition.
+    if (pool.get(cfg.owner, cfg.name)) return res.status(409).json({ error: 'A provider with this name already exists. Choose another name.' });
     const provider = pool.register(cfg);
+    if (credential && keyConfig.FIELDS[credentialField]?.secret) keyConfig.set(key, { [credentialField]: credential });
+    await keyConfig.saveRouting(key, pool);
     audit({ action: 'provider.upsert', actorKey: getKey(req), targetType: 'provider', targetId: provider.name,
       meta: { type: provider.type, maxConcurrent: provider.maxConcurrent, priority: provider.priority }, req });
     res.json(provider.toJSON());
@@ -911,14 +928,17 @@ router.post('/gateway/providers', authMiddleware, async (req, res) => {
   }
 });
 
-router.delete('/gateway/providers/:name', authMiddleware, (req, res) => {
-  // Only your own; shared host providers are not yours to remove.
-  const removed = pool.remove(fingerprint(getKey(req)), req.params.name);
-  if (removed) audit({ action: 'provider.remove', actorKey: getKey(req), targetType: 'provider', targetId: req.params.name, req });
-  res.json({ ok: removed });
+router.delete('/gateway/providers/:name', authMiddleware, async (req, res) => {
+  try {
+    // Only your own; shared host providers are not yours to remove.
+    const removed = pool.remove(fingerprint(getKey(req)), req.params.name);
+    if (removed) audit({ action: 'provider.remove', actorKey: getKey(req), targetType: 'provider', targetId: req.params.name, req });
+    if (removed) await keyConfig.saveRouting(getKey(req), pool);
+    res.status(removed ? 200 : 404).json(removed ? { ok: true } : { error: 'Provider not found.' });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
-router.post('/gateway/strategy', authMiddleware, (req, res) => {
+router.post('/gateway/strategy', authMiddleware, async (req, res) => {
   const strategy = String(req.body?.strategy || '');
   if (!STRATEGIES.includes(strategy)) {
     return res.status(400).json({ error: `strategy must be one of ${STRATEGIES.join(', ')}` });
@@ -927,6 +947,7 @@ router.post('/gateway/strategy', authMiddleware, (req, res) => {
   const owner = fingerprint(getKey(req));
   const previous = pool.strategyFor(owner);
   pool.setStrategy(owner, strategy);
+  await keyConfig.saveRouting(getKey(req), pool);
   audit({ action: 'routing.strategy', actorKey: getKey(req), targetType: 'routing',
     meta: { from: previous, to: strategy }, req });
   res.json({ ok: true, strategy });

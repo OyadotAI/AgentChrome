@@ -33,6 +33,7 @@ import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
 import { validateApiKey, authReady } from './auth.js';
 import { registry } from './connection-registry.js';
+import { pool } from './routing.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3100', 10);
@@ -43,6 +44,8 @@ const [authLoaded] = await Promise.all([
   authReady, usage.restore(), personas.restore(), keyConfig.restore(),
 ]);
 if (!authLoaded) throw new Error('API keys could not be loaded; refusing to accept browser connections');
+
+keyConfig.restoreRouting(pool);
 
 const app = express();
 

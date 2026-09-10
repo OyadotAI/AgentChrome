@@ -22,6 +22,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import { validateApiKey } from './auth.js';
 import { pool } from './routing.js';
+import * as keyConfig from './key-config.js';
 import { acquire as acquireProvider } from './providers.js';
 import { metrics } from './metrics.js';
 import { audit } from './audit.js';
@@ -299,14 +300,20 @@ export async function handleUpgrade(req, socket, head) {
       connect: async (provider) => {
         const target = provider.type === 'cdp' && provider.wsUrl
           ? { wsUrl: provider.wsUrl, provider: provider.name, sessionId: null, release: async () => {} }
-          : await acquireProvider({ provider: provider.type });
-        const upstream = new WebSocket(target.wsUrl, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: 20_000 });
-        await new Promise((resolve, reject) => {
-          const t = setTimeout(() => reject(new Error('upstream connect timed out')), 20_000);
-          upstream.once('open', () => { clearTimeout(t); resolve(); });
-          upstream.once('error', (e) => { clearTimeout(t); reject(e); });
-        });
-        return { upstream, target };
+          : await acquireProvider({ provider: provider.type, env: provider.owner === null ? process.env : keyConfig.envFor(token) });
+        let upstream;
+        try {
+          upstream = new WebSocket(target.wsUrl, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: 20_000 });
+          await new Promise((resolve, reject) => {
+            upstream.once('open', resolve);
+            upstream.once('error', reject);
+          });
+          return { upstream, target };
+        } catch {
+          upstream?.terminate();
+          await target.release().catch((err) => console.error('[gateway] cleanup:', err.message));
+          throw new Error('Provider browser connection failed');
+        }
       },
     });
   } catch (err) {
@@ -323,7 +330,7 @@ export async function handleUpgrade(req, socket, head) {
     upstream,
     release: () => {
       release();
-      target.release?.().catch(() => {});
+      target.release?.().catch((err) => console.error('[gateway] release:', err.message));
       if (profileName) profiles.unlock(owner, profileName);
     },
   });

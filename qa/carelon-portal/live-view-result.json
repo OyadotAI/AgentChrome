@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-09-10T04:22:06.992Z",
+  "caseId": "CARELON-022",
+  "status": "partial",
+  "checks": {
+    "realFrameRendered": true,
+    "credentialAbsentFromViewerUrl": true,
+    "frameSize": {
+      "width": 2560,
+      "height": 1516
+    }
+  },
+  "notes": "Real Oya desktop stream; no mocked frames. No patient fields changed."
+}

@@ -1,0 +1,32 @@
+{
+  "id": "CARELON-DEMO-001",
+  "title": "Carelon sinus CT lookup and existing-request check",
+  "type": "guided_live_demo",
+  "portalUrl": "https://www.providerportal.com",
+  "authentication": "reuse_existing_desktop_session",
+  "submissionMode": "preview_only",
+  "runtimeInputs": ["memberName", "dateOfBirth", "memberId", "healthPlan", "confirmedServiceDate"],
+  "procedure": {"code": "70486", "description": "CT scan of face without contrast"},
+  "diagnosis": {"code": "J32.0", "description": "Chronic maxillary sinusitis", "liveEntryVerified": false},
+  "providerSelection": "available_listed_provider",
+  "facilitySelection": "available_listed_facility",
+  "steps": [
+    {"action": "Open live viewer", "expect": "Actual connected desktop frame renders"},
+    {"action": "Reuse authenticated Carelon tab", "expect": "Portal session is signed in"},
+    {"action": "Find member using runtime inputs", "expect": "Returned identifiers and plan match"},
+    {"action": "Select exact 70486 autocomplete result", "expect": "CT scan of face without contrast selected"},
+    {"action": "Select Diagnostic Imaging and review prefilled contact", "expect": "Start Order Request is available"},
+    {"action": "Open request workflow and inspect Member History", "expect": "Existing requests reviewed before continuing"}
+  ],
+  "matchingRequestBehavior": "stop_and_present_existing_request_status",
+  "noMatchingRequestBehavior": "follow_CARELON_001_with_supported_inputs_and_stop_at_review",
+  "lastExecution": {
+    "date": "2026-09-10",
+    "status": "partial",
+    "serviceDate": "2026-09-20",
+    "serviceDateSource": "PDF assumption; reconfirm for replay",
+    "endpoint": "Member History displayed an existing matching In Progress request",
+    "finalSubmissionPerformed": false,
+    "endToEndOrderPassed": false
+  }
+}

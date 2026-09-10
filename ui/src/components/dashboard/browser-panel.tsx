@@ -191,7 +191,7 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
         <div className="flex flex-wrap items-center gap-2">
           <button className="btn-ghost" onClick={screenshot} disabled={busy === 'screenshot'}><Camera className="h-3.5 w-3.5" /> Screenshot <Kbd>S</Kbd></button>
           <button className="btn-ghost" onClick={analyze} disabled={busy === 'analyze'}><ScanSearch className="h-3.5 w-3.5" /> Elements</button>
-          <a className="btn-ghost" href={apiUrl(`/live/${browserId}?key=${encodeURIComponent(apiKey)}`)} target="_blank" rel="noreferrer" title="Raw frame stream">
+          <a className="btn-ghost" href={`/live/${encodeURIComponent(browserId)}`} target="_blank" rel="noreferrer" title="Open live browser in a new tab">
             <ExternalLink className="h-3.5 w-3.5" /> Stream
           </a>
         </div>

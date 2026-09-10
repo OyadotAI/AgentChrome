@@ -75,7 +75,7 @@ export default function FleetTable({
       { label: 'Open', icon: <PanelRightOpen />, shortcut: '↵', onSelect: () => onSelect(r.id) },
       { label: 'Connect… (code, Playwright, MCP)', icon: <Plug />, onSelect: () => onConnect(r.id) },
       { label: 'Screenshot', icon: <Camera />, shortcut: 'S', onSelect: () => onScreenshot(r.id) },
-      { label: 'Open live stream in a tab', icon: <ExternalLink />, onSelect: () => window.open(`${http}/api/live/${r.id}?key=${encodeURIComponent(apiKey)}`, '_blank') },
+      { label: 'Open live stream in a tab', icon: <ExternalLink />, onSelect: () => window.open(`/live/${encodeURIComponent(r.id)}`, '_blank', 'noopener,noreferrer') },
       { label: 'Copy browser id', icon: <Copy />, separator: true, onSelect: () => copy(r.id) },
       { label: 'Copy MCP URL', icon: <Copy />, onSelect: () => copy(`${http}/mcp/${r.id}`) },
       { label: r.clientType === 'cdp' ? 'Copy CDP attach URL (with key)' : 'Copy CDP attach URL — not a CDP browser', icon: <Copy />,

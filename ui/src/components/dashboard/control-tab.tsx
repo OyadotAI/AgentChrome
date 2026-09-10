@@ -23,6 +23,7 @@ type Fleet = {
 };
 type Session = { id: string; provider: string; profile: string | null; connected: boolean; seconds: number; bytesUp: number; bytesDown: number; recording: boolean };
 type Provider = { name: string; type: string; shared?: boolean; owner?: string | null; active: number; maxConcurrent: number; priority: number; weight: number; healthy: boolean; available: boolean; latencyMs: number | null; cooldownMsRemaining: number; totalSessions: number; totalFailures: number };
+type ProviderChoice = { name: string; configured: boolean };
 type Routing = { strategy: string; queueDepth: number; capacity: number; active: number; healthy: number; providers: Provider[] };
 type AuditEvent = { ts: string; action: string; actor: string | null; target_type: string | null; target_id: string | null; outcome: string; ip: string | null; meta: Record<string, unknown> | null };
 type Recording = { sessionId: string; provider?: string; profile?: string | null; startedAt?: string; durationMs?: number; frameCount?: number; bytes?: number; live?: boolean; truncated?: boolean };
@@ -81,11 +82,13 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [choices, setChoices] = useState<ProviderChoice[]>([]);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
   const [player, setPlayer] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [draft, setDraft] = useState({ name: '', type: 'cdp', wsUrl: '', maxConcurrent: '5', priority: '100', weight: '1' });
+  const [draft, setDraft] = useState({ name: '', type: 'cdp', wsUrl: '', apiKey: '', maxConcurrent: '5', priority: '100', weight: '1' });
   const polling = useRef(false);
 
   const headers = useMemo(() => apiKeyHeaders(apiKey), [apiKey]);
@@ -102,10 +105,11 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
     try {
       // Everything here is scoped to the connected API key. There is no admin
       // tier: the key is the identity.
-      const [f, s, a, rec] = await Promise.all([
-        get('/fleet'), get('/gateway/sessions'), get('/audit?limit=200'), get('/gateway/recordings'),
+      const [f, s, a, rec, providerOptions] = await Promise.all([
+        get('/fleet'), get('/gateway/sessions'), get('/audit?limit=200'), get('/gateway/recordings'), get('/providers'),
       ]);
       setFleet(f);
+      setChoices(providerOptions.providers || []);
       setRouting(f.routing);
       setSessions(s.sessions || []);
       setAudit(a.events || []);
@@ -126,9 +130,9 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
   }, [apiKey, refresh]);
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
-    setBusy(label); setError(''); setNotice('');
+    setBusy(label); setActionError(''); setNotice('');
     try { await fn(); await refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Action failed'); }
+    catch (e) { setActionError(e instanceof Error ? e.message : 'Action failed'); }
     finally { setBusy(''); }
   };
 
@@ -179,17 +183,17 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
         </button>
       </div>
 
-      {(error || notice) && (
-        <div className={`px-4 lg:px-6 py-2 text-xs flex items-center gap-2 shrink-0 ${error ? 'text-red' : 'text-accent'}`}>
-          {error ? <AlertTriangle className="w-3.5 h-3.5" /> : <Circle className="w-3 h-3 fill-current" />}
-          {error || notice}
+      {(actionError || error || notice) && (
+        <div role={actionError || error ? 'alert' : 'status'} className={`px-4 lg:px-6 py-2 text-xs flex items-center gap-2 shrink-0 ${(actionError || error) ? 'text-red' : 'text-accent'}`}>
+          {(actionError || error) ? <AlertTriangle className="w-3.5 h-3.5" /> : <Circle className="w-3 h-3 fill-current" />}
+          {actionError || error || notice}
         </div>
       )}
 
       <div className="control-content min-w-0 flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div><p className="eyebrow mb-3 text-text-dim">Workspace control</p><h2 className="text-[28px] font-medium tracking-tight">{views.find(item => item.key === view)?.label}</h2>
-          <p className="mt-2 max-w-2xl text-[13px] leading-6 text-text-muted">{{ health: 'A clear view of browser health, capacity, and usage.', sessions: 'Persistent CDP connections from clients such as Playwright and Puppeteer. Individual REST or curl commands do not create a session; find them in the browser’s Activity history.', providers: 'Choose where your browsers run and how connections are distributed.', usage: 'Commands, browser time, and model usage for the current hour.', audit: 'A timeline of workspace changes and administrative actions.', recordings: 'Review recordings captured from your CDP sessions.' }[view]}</p></div>
+          <p className="mt-2 max-w-2xl text-[13px] leading-6 text-text-muted">{{ health: 'A clear view of browser health, capacity, and usage.', sessions: 'Persistent CDP connections from clients such as Playwright and Puppeteer. Individual REST or curl commands do not create a session; find them in the browser’s Activity history.', providers: 'Route new Playwright and Puppeteer connections through your providers. The Start browser default is managed separately in Settings.', usage: 'Commands, browser time, and model usage for the current hour.', audit: 'A timeline of workspace changes and administrative actions.', recordings: 'Review recordings captured from your CDP sessions.' }[view]}</p></div>
         </div>
         {view === 'health' && (
           !fleet ? (
@@ -298,14 +302,14 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={() => setShowAdd((v) => !v)}
+                disabled={!!busy} onClick={() => { setShowAdd((v) => !v); setDraft(d => ({ ...d, apiKey: '' })); setActionError(''); }}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-md text-[12px] font-medium bg-accent text-bg hover:opacity-90"
               >
                 <Plus className="w-3.5 h-3.5" /> Add provider
               </button>
               <span className="text-xs text-text-dim uppercase tracking-wider">Strategy</span>
               <select
-                value={routing.strategy}
+                aria-label="Routing strategy" disabled={!!busy} value={routing.strategy}
                 onChange={(e) => void act('strategy', () => post('/gateway/strategy', { strategy: e.target.value }))}
                 className="bg-bg-elevated border border-border rounded px-2 py-1 text-sm"
               >
@@ -318,21 +322,22 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
 
             {showAdd && (
               <form
-                className="border border-border rounded-lg p-4 space-y-3 bg-bg-elevated/30"
+                aria-label="Add provider" className="border border-border rounded-xl p-5 space-y-5 bg-bg-card/45"
                 onSubmit={(e) => {
                   e.preventDefault();
                   void act('add-provider', async () => {
                     await post('/gateway/providers', {
                       name: draft.name.trim(),
+                      ...(draft.type !== 'cdp' && draft.apiKey.trim() ? { apiKey: draft.apiKey.trim() } : {}),
                       type: draft.type,
                       ...(draft.type === 'cdp' ? { wsUrl: draft.wsUrl.trim() } : {}),
-                      maxConcurrent: Number(draft.maxConcurrent) || 5,
-                      priority: Number(draft.priority) || 100,
-                      weight: Number(draft.weight) || 1,
+                      maxConcurrent: Number(draft.maxConcurrent),
+                      priority: Number(draft.priority),
+                      weight: Number(draft.weight),
                     });
                     setShowAdd(false);
-                    setDraft({ name: '', type: 'cdp', wsUrl: '', maxConcurrent: '5', priority: '100', weight: '1' });
-                    setNotice('Provider added.');
+                    setDraft({ name: '', type: 'cdp', wsUrl: '', apiKey: '', maxConcurrent: '5', priority: '100', weight: '1' });
+                    setNotice('Provider saved. Its first CDP connection will verify that the endpoint and credentials work.');
                   });
                 }}
               >
@@ -340,21 +345,22 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                   <label className="text-xs text-text-dim space-y-1 block">
                     <span>Name</span>
                     <input
-                      required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                      required maxLength={80} disabled={!!busy} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                       placeholder="my-chrome"
-                      className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm text-text"
+                      className="settings-input"
                     />
                   </label>
                   <label className="text-xs text-text-dim space-y-1 block">
                     <span>Type</span>
                     <select
-                      value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}
-                      className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm text-text"
+                      aria-label="Type" disabled={!!busy} value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value, apiKey: '' })}
+                      className="settings-input"
                     >
                       <option value="cdp">cdp — your own CDP endpoint</option>
-                      <option value="anchor">anchor</option>
-                      <option value="browserbase">browserbase</option>
-                      <option value="steel">steel</option>
+                      <option value="anchor">Anchor</option>
+                      <option value="browserbase">Browserbase</option>
+                      <option value="steel">Steel</option>
+                      <option value="browseruse">Browser Use</option>
                     </select>
                   </label>
                 </div>
@@ -363,9 +369,9 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                   <label className="text-xs text-text-dim space-y-1 block">
                     <span>CDP WebSocket URL</span>
                     <input
-                      required value={draft.wsUrl} onChange={(e) => setDraft({ ...draft, wsUrl: e.target.value })}
+                      required disabled={!!busy} value={draft.wsUrl} onChange={(e) => setDraft({ ...draft, wsUrl: e.target.value })}
                       placeholder="ws://127.0.0.1:9222/devtools/browser/…"
-                      className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm font-mono text-text"
+                      className="settings-input font-mono"
                     />
                     <span className="block text-text-dim">
                       From <code className="font-mono">http://host:9222/json/version</code> →{' '}
@@ -374,10 +380,18 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                     </span>
                   </label>
                 ) : (
-                  <p className="text-xs text-text-dim">
-                    A session is opened per connection using the host&apos;s{' '}
-                    <code className="font-mono">{draft.type.toUpperCase()}_API_KEY</code>.
-                  </p>
+                  <label className="text-xs text-text-muted space-y-2 block">
+                    <span>Provider API key</span>
+                    <input type="password" autoComplete="new-password" spellCheck={false}
+                      disabled={!!busy} required={!choices.some(p => p.name === draft.type && p.configured)}
+                      value={draft.apiKey} onChange={e => setDraft({ ...draft, apiKey: e.target.value })}
+                      placeholder={choices.some(p => p.name === draft.type && p.configured) ? 'Use saved credential' : 'Paste your provider API key'}
+                      className="settings-input font-mono" />
+                    <span className="block leading-5">{choices.some(p => p.name === draft.type && p.configured)
+                      ? 'Leave blank to use the saved credential. Pasting a key replaces this vendor’s credential for your Oya key.'
+                      : 'Saved securely for your Oya key and also available in Settings → Browsers.'}
+                      {' '}Each CDP connection starts a browser with this vendor.</span>
+                  </label>
                 )}
 
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -385,9 +399,9 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                     <label key={k} className="text-xs text-text-dim space-y-1 block">
                       <span>{label}</span>
                       <input
-                        type="number" min={0} value={draft[k]}
+                        required disabled={!!busy} type="number" min={k === 'priority' ? 0 : 1} step={1} value={draft[k]}
                         onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-                        className="w-full bg-bg border border-border rounded px-2 py-1.5 text-sm font-mono text-text"
+                        className="settings-input font-mono"
                       />
                     </label>
                   ))}
@@ -398,7 +412,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                     className="px-3 py-1.5 rounded text-xs font-medium bg-accent text-bg disabled:opacity-40">
                     {busy === 'add-provider' ? 'Adding…' : 'Add provider'}
                   </button>
-                  <button type="button" onClick={() => setShowAdd(false)}
+                  <button type="button" disabled={!!busy} onClick={() => { setShowAdd(false); setDraft(d => ({ ...d, apiKey: '' })); setActionError(''); }}
                     className="px-3 py-1.5 rounded text-xs text-text-dim hover:text-text">Cancel</button>
                 </div>
               </form>
@@ -406,7 +420,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
 
             <div className="grid gap-3 md:grid-cols-2">
               {routing.providers.map((p) => (
-                <div key={p.name} className="border border-border rounded-lg p-4 space-y-3">
+                <div key={`${p.owner ?? 'shared'}:${p.name}`} className="border border-border rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <Circle className={`w-2.5 h-2.5 shrink-0 fill-current ${p.healthy ? 'text-accent' : 'text-red'}`} />
@@ -417,13 +431,14 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                       <span className="text-text-dim text-xs" title="Declared by the host via OYA_PROVIDERS">shared</span>
                     ) : (
                       <button
-                        disabled={!!busy}
-                        onClick={() => void act(p.name, () => del(`/gateway/providers/${p.name}`))}
+                        disabled={!!busy || p.active > 0}
+                        onClick={() => void act(p.name, () => del(`/gateway/providers/${encodeURIComponent(p.name)}`))}
                         className="text-text-dim hover:text-red disabled:opacity-40"
-                        title="Remove provider"
+                        title={p.active ? 'End active sessions before removing' : 'Remove provider'} aria-label={`Remove ${p.name}`}
                       ><Trash2 className="w-3.5 h-3.5" /></button>
                     )}
                   </div>
+                  <p className="text-xs text-text-muted">{p.totalSessions === 0 && p.totalFailures === 0 ? 'Not yet connected' : p.healthy ? 'Ready for connections' : 'Connection failed · retrying after cooldown'}</p>
                   <Bar used={p.active} capacity={p.maxConcurrent} />
                   <div className="grid grid-cols-2 gap-y-1 text-xs text-text-dim">
                     <span>Slots <span className="text-text font-mono">{p.active}/{p.maxConcurrent}</span></span>

@@ -93,15 +93,17 @@ class ConnectionRegistry extends EventEmitter {
   remove(browserId) {
     const browser = this.browsers.get(browserId);
     if (browser) {
+      // Remove before closing: a synchronous close callback can re-enter.
+      this.browsers.delete(browserId);
       // An outbound browser does not disconnect itself; close what we opened
       // and hand the vendor session back so it stops billing.
       try { browser.driver?.close(); } catch {}
-      if (browser.release) Promise.resolve(browser.release()).catch(() => {});
+      const release = browser.release;
+      if (release) Promise.resolve().then(() => release.call(browser)).catch((err) => console.error('[registry] release:', err.message));
       for (const res of browser.streamViewers) {
         try { res.end(); } catch {}
       }
       browser.streamViewers.clear();
-      this.browsers.delete(browserId);
       this.emit('browser:disconnected', { id: browserId, name: browser.name });
     }
   }

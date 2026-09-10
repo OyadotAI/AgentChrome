@@ -188,9 +188,35 @@ export function providerFor(apiKey) {
     || 'cdp';
 }
 
+// Private routing settings use the existing encrypted key-settings store.
+// They are deliberately absent from FIELDS, so /config cannot overwrite them.
+export async function saveRouting(apiKey, pool) {
+  const owner = ownerOf(apiKey);
+  const value = JSON.stringify({ providers: pool.configs(owner), strategy: pool.strategyFor(owner) });
+  store.set(owner, { ...(store.get(owner) || {}), _routing: sealText(scopeFor(owner), value) });
+  dirty = true;
+  await flush();
+}
+
+export function restoreRouting(pool) {
+  for (const [owner, fields] of store) {
+    if (!fields._routing) continue;
+    try {
+      const saved = JSON.parse(openText(scopeFor(owner), fields._routing));
+      for (const cfg of saved.providers || []) pool.register({ ...cfg, owner });
+      if (saved.strategy) pool.setStrategy(owner, saved.strategy);
+    } catch (err) { console.error('[routing] restore failed:', err.message); }
+  }
+}
+
 // ── Persistence ──
 
-async function flush() {
+let writeQueue = Promise.resolve();
+function flush() {
+  writeQueue = writeQueue.catch(() => {}).then(flushOnce);
+  return writeQueue;
+}
+async function flushOnce() {
   if (!dirty) return;
   dirty = false;
   const rows = [...store.entries()].flatMap(([owner, fields]) =>
@@ -200,7 +226,10 @@ async function flush() {
       // Deleting first is what makes a cleared field actually clear; upsert
       // alone would leave the old row behind.
       const owners = [...store.keys()];
-      if (owners.length) await db.from('key_settings').delete().in('owner', owners);
+      if (owners.length) {
+        const { error } = await db.from('key_settings').delete().in('owner', owners);
+        if (error) throw new Error(error.message);
+      }
       if (rows.length) {
         const { error } = await db.from('key_settings')
           .upsert(rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),

@@ -10,7 +10,7 @@ async function dashboard(page: Page, cloudReady = false) {
     connectedAt: new Date().toISOString(), lastSeen: new Date().toISOString(),
     commands: 0, errors: 0, pending: 0, streaming: true, activity: [],
   };
-  await page.addInitScript(() => {
+  await page.context().addInitScript(() => {
     localStorage.setItem('oya_api_key', 'isolated-ui-test');
     // A deterministic frame; no real browser session or credentials are used.
     const frame = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600"><rect width="1000" height="600" fill="#eee"/><text x="40" y="60">Test browser</text></svg>');
@@ -21,7 +21,7 @@ async function dashboard(page: Page, cloudReady = false) {
     }
     Object.defineProperty(window, 'EventSource', { value: Frames });
   });
-  await page.route('**/api/**', async route => {
+  await page.context().route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, '');
     let body: unknown = {};
     if (path === '/config') body = {
@@ -32,6 +32,7 @@ async function dashboard(page: Page, cloudReady = false) {
         { id: 'steel', label: 'Steel', configured: true, needs: ['steel_api_key'] },
       ],
     };
+    if (path === '/providers') body = { providers: [{ name: 'cdp', configured: true }, { name: 'steel', configured: true }, { name: 'browseruse', configured: false }] };
     if (path === '/browsers') body = [browser];
     if (path === '/browsers/qa-browser') body = browser;
     if (path === '/personas') body = { personas: [{ id: 'profile-qa', name: 'Research workspace', isDefault: false, createdAt: '2026-09-01T12:00:00Z', lastUsedAt: null, activeBrowsers: 1, maxConcurrent: 3, proxy: null, exit: null, prefs: null, fingerprint: { platform: 'MacIntel', timezone: 'America/Indiana/Indianapolis', screen: '1920 × 1080' }, mfa: { configured: false }, login: { sites: ['example.com', 'shop.example'], cookies: 8, updatedAt: null } }] };
@@ -241,4 +242,72 @@ test('profiles and control have bounded layouts and explain CDP sessions', async
   await expect(profiles).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('profiles-mobile.png') });
+});
+
+test('adding providers preserves priority zero and clears credentials when switching vendor', async ({ page }, testInfo) => {
+  await dashboard(page);
+  let submitted: Record<string, unknown> | undefined;
+  await page.route('**/api/gateway/providers', async route => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ json: { name: submitted?.name } });
+  });
+  await page.getByRole('button', { name: 'Control', exact: true }).click();
+  await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+  const form = page.getByRole('form', { name: 'Add provider' });
+  await form.getByLabel('Name', { exact: true }).fill('My browser');
+  await form.getByLabel('Type', { exact: true }).selectOption('steel');
+  await expect(form.getByLabel('Provider API key')).toHaveAttribute('placeholder', 'Use saved credential');
+  await form.getByLabel('Provider API key').fill('steel-draft');
+  await form.getByLabel('Type', { exact: true }).selectOption('browseruse');
+  await expect(form.getByLabel('Provider API key')).toHaveValue('');
+  await expect(form.getByLabel('Provider API key')).toHaveAttribute('required', '');
+  await form.getByLabel('Provider API key').fill('browseruse-draft');
+  await form.getByLabel('Priority (lower wins)').fill('0');
+  await page.screenshot({ path: testInfo.outputPath('provider-form.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await form.getByRole('button', { name: 'Add provider', exact: true }).click();
+  await expect(form).toHaveCount(0);
+  expect(submitted).toMatchObject({ name: 'My browser', type: 'browseruse', apiKey: 'browseruse-draft', priority: 0, maxConcurrent: 5 });
+  await expect(page.getByRole('status')).toContainText('Provider saved');
+});
+
+test('provider errors remain visible across refresh and cancel clears the credential draft', async ({ page }) => {
+  await dashboard(page);
+  await page.route('**/api/gateway/providers', route => route.fulfill({ status: 409, json: { error: 'A provider with this name already exists.' } }));
+  await page.getByRole('button', { name: 'Control', exact: true }).click();
+  await page.getByRole('tab', { name: 'Providers', exact: true }).click();
+  const add = page.getByRole('button', { name: 'Add provider', exact: true }).first();
+  await add.click();
+  const form = page.getByRole('form', { name: 'Add provider' });
+  await form.getByLabel('Name', { exact: true }).fill('Duplicate');
+  await form.getByLabel('Type', { exact: true }).selectOption('steel');
+  await form.getByLabel('Provider API key').fill('draft-only');
+  await form.getByRole('button', { name: 'Add provider', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'already exists' })).toBeVisible();
+  await page.waitForTimeout(4500);
+  await expect(page.getByRole('alert').filter({ hasText: 'already exists' })).toBeVisible();
+  await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await add.click();
+  await expect(form.getByLabel('Provider API key')).toHaveValue('');
+});
+
+test('opening a stream in a tab renders live frames and accepts browser input', async ({ page }, testInfo) => {
+  const commands = await dashboard(page);
+  await page.getByText('QA browser', { exact: true }).click();
+  const stream = page.getByRole('link', { name: 'Stream', exact: true });
+  await expect(stream).toHaveAttribute('href', '/live/qa-browser');
+  const popupPromise = page.waitForEvent('popup');
+  await stream.click();
+  const viewer = await popupPromise;
+  await expect(viewer.getByRole('heading', { name: 'QA browser' })).toBeVisible();
+  const live = viewer.getByLabel('Live view — click to control, Esc to release the keyboard');
+  await expect.poll(() => live.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1000);
+  await viewer.screenshot({ path: testInfo.outputPath('live-tab.png') });
+  await live.locator('img').click();
+  await viewer.keyboard.type('hello');
+  await expect.poll(() => commands.some(c => c.action === 'keyboard_type')).toBe(true);
+  expect(viewer.url()).not.toContain('key=');
+  await viewer.close();
 });

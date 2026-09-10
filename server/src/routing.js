@@ -17,6 +17,30 @@ const COOLDOWN_MAX_MS = 5 * 60_000;
 /** `|| fallback` would turn a deliberate 0 into the default. */
 const numOr = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 
+export function validateProviderConfig(cfg) {
+  const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
+  if (!cfg || typeof cfg.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9 ._-]{0,79}$/.test(cfg.name.trim())) {
+    fail('Use a provider name of 1–80 letters, numbers, spaces, dots, underscores, or hyphens.');
+  }
+  const type = cfg.type || 'cdp';
+  if (typeof type !== 'string' || !/^[a-z][a-z0-9_-]*$/.test(type)) fail('Invalid provider type');
+  let wsUrl = null;
+  if (type === 'cdp') {
+    try {
+      const url = new URL(cfg.wsUrl);
+      if (!['ws:', 'wss:'].includes(url.protocol)) throw new Error();
+      wsUrl = url.href;
+    } catch { fail('A ws:// or wss:// CDP WebSocket URL is required.'); }
+  }
+  const result = { name: cfg.name.trim(), owner: cfg.owner ?? null, type, wsUrl, enabled: cfg.enabled !== false };
+  for (const [field, fallback, min] of [['maxConcurrent', 10, 1], ['priority', 100, 0], ['weight', 1, 1]]) {
+    const value = cfg[field] === undefined ? fallback : Number(cfg[field]);
+    if (cfg[field] === null || cfg[field] === '' || !Number.isSafeInteger(value) || value < min) fail(`${field} must be an integer of at least ${min}.`);
+    result[field] = value;
+  }
+  return result;
+}
+
 class Provider {
   constructor(cfg) {
     this.name = cfg.name;
@@ -106,12 +130,15 @@ export class ProviderPool {
   key(owner, name) { return `${owner ?? '@shared'}::${name}`; }
 
   register(cfg) {
-    if (!cfg?.name) throw Object.assign(new Error('Provider needs a name'), { status: 400 });
+    cfg = validateProviderConfig(cfg);
     const id = this.key(cfg.owner ?? null, cfg.name);
     const existing = this.providers.get(id);
     if (existing) {
       // Keep live counters across an edit; only settings change.
-      Object.assign(existing, { ...cfg, active: existing.active, failures: existing.failures });
+      if (existing.active && (existing.type !== cfg.type || existing.wsUrl !== cfg.wsUrl)) {
+        throw Object.assign(new Error('End active sessions before changing this provider.'), { status: 409 });
+      }
+      Object.assign(existing, cfg);
       return existing;
     }
     const p = new Provider(cfg);
@@ -119,7 +146,13 @@ export class ProviderPool {
     return p;
   }
 
-  remove(owner, name) { return this.providers.delete(this.key(owner, name)); }
+  remove(owner, name) {
+    if (this.get(owner, name)?.active) throw Object.assign(new Error('End active sessions before removing this provider.'), { status: 409 });
+    return this.providers.delete(this.key(owner, name));
+  }
+  configs(owner) {
+    return this.visible(owner).filter(p => p.owner === owner).map(p => validateProviderConfig(p));
+  }
   get(owner, name) { return this.providers.get(this.key(owner, name)); }
 
   /** What this key can see: its own providers plus shared host infrastructure. */
@@ -133,7 +166,7 @@ export class ProviderPool {
   candidates(owner) { return this.visible(owner).filter((p) => p.available); }
 
   pick(owner, strategy = this.strategyFor(owner), exclude = new Set()) {
-    const pool = this.candidates(owner).filter((p) => !exclude.has(p.name));
+    const pool = this.candidates(owner).filter((p) => !exclude.has(this.key(p.owner, p.name)));
     if (!pool.length) return null;
 
     switch (strategy) {
@@ -186,12 +219,12 @@ export class ProviderPool {
         return {
           provider,
           session,
-          release: () => this.release(provider),
+          release: (() => { let released = false; return () => { if (!released) { released = true; this.release(provider); } }; })(),
         };
       } catch (err) {
         provider.active -= 1;
         provider.fail();
-        excluded.add(provider.name);
+        excluded.add(this.key(provider.owner, provider.name));
         console.error(`[routing] ${provider.name} failed (${err.message}); failing over`);
         if (i === attempts - 1) {
           metrics.routingRejected.inc({ reason: 'all_failed' });
@@ -208,7 +241,7 @@ export class ProviderPool {
     const i = this.waiters.findIndex((w) => provider.owner === null || provider.owner === w.owner);
     if (i === -1) return;
     const [waiter] = this.waiters.splice(i, 1);
-    waiter.resolve(provider.available ? provider : this.pick(waiter.owner, waiter.strategy, waiter.exclude));
+    waiter.resolve(provider.available && !waiter.exclude.has(this.key(provider.owner, provider.name)) ? provider : this.pick(waiter.owner, waiter.strategy, waiter.exclude));
   }
 
   waitForSlot(timeoutMs, owner, strategy, exclude) {
