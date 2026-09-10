@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  ChevronDown,
   Command,
   Play,
   Pause,
@@ -32,6 +33,11 @@ import {
   Radio,
   MousePointer,
   CheckCheck,
+  Timer,
+  Coins,
+  BarChart3,
+  HelpCircle,
+  Briefcase,
 } from 'lucide-react';
 import { OyaWordmark, OyaLogo } from '@/components/oya-logo';
 import ThemeToggle from '@/components/theme-toggle';
@@ -448,6 +454,382 @@ function ProductPreview() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   Benchmarks on Startup Time, Tokens & Evasion
+───────────────────────────────────────────────────────────────────────────── */
+const benchmarkCategories = [
+  {
+    id: 'startup',
+    label: 'Startup & Connect Time',
+    icon: Timer,
+    headline: '12ms Gateway Connect vs. 4,100ms Cloud VM Provisioning',
+    highlight: '99.5% Faster',
+    summary: 'Oya maintains an active, warm gateway connection pool. Requests dispatch instantaneously to pre-initialized runners instead of blocking on cold VM or Docker bootup.',
+    metrics: [
+      { name: 'Oya Control Plane (Gateway Reuse)', time: '12ms', pct: 4, winner: true },
+      { name: 'Steel Runner (Direct API Cold Start)', time: '2,400ms', pct: 58, winner: false },
+      { name: 'Browserbase (Session Provisioning)', time: '2,650ms', pct: 64, winner: false },
+      { name: 'Traditional Docker / VM Provisioning', time: '4,100ms', pct: 100, winner: false },
+    ],
+  },
+  {
+    id: 'tokens',
+    label: 'LLM Token Economy',
+    icon: Coins,
+    headline: '85% Token Reduction: ~450 Tokens vs 18,500 Tokens per Snapshot',
+    highlight: '85% Savings',
+    summary: 'Standard agents dump bloated raw HTML or burn expensive multimodal vision tokens. Oya parses the active DOM in Chromium memory and returns lightweight markdown with numbered element IDs.',
+    metrics: [
+      { name: 'Oya Injected DOM Analyzer (Markdown + IDs)', time: '450 tokens', pct: 5, winner: true },
+      { name: 'Multimodal Vision Screenshot (per frame)', time: '1,600 tokens', pct: 15, winner: false },
+      { name: 'Cleaned Accessibility Tree (Playwright Dump)', time: '6,400 tokens', pct: 42, winner: false },
+      { name: 'Raw HTML DOM (Standard Headless Dump)', time: '18,500 tokens', pct: 100, winner: false },
+    ],
+  },
+  {
+    id: 'stealth',
+    label: 'Bot Evasion & Stealth Score',
+    icon: ShieldCheck,
+    headline: '99.8% CreepJS Trust Score (Grade A+) vs 32.4% Vanilla Headless',
+    highlight: 'Grade A+',
+    summary: 'Randomized spoofing flags accounts as device farms. Oya uses mathematically seeded, byte-identical hardware profiles bound to pinned residential proxies, surviving deep fingerprint inspection.',
+    metrics: [
+      { name: 'Oya Deterministic Seeded Persona', time: '99.8% (A+)', pct: 100, winner: true },
+      { name: 'Randomized Spoofed Headless', time: '68.2% (C)', pct: 68, winner: false },
+      { name: 'Puppeteer-Stealth Plugin', time: '54.0% (D)', pct: 54, winner: false },
+      { name: 'Vanilla Headless Chromium', time: '32.4% (F)', pct: 32, winner: false },
+    ],
+  },
+  {
+    id: 'memory',
+    label: 'Fleet Concurrency & Memory',
+    icon: BarChart3,
+    headline: '42 MB Stream Driver vs. 420 MB VNC / WebRTC Overhead',
+    highlight: '10x Density',
+    summary: 'Run 1,000+ parallel browsers with minimal RAM consumption. Oya’s event-driven driver and selective screencasting eliminate heavy desktop window server loads.',
+    metrics: [
+      { name: 'Oya Stream Protocol Driver', time: '42 MB / session', pct: 10, winner: true },
+      { name: 'Headless Chrome CDP Connection', time: '145 MB / session', pct: 34, winner: false },
+      { name: 'Browserbase Remote Stream', time: '260 MB / session', pct: 62, winner: false },
+      { name: 'Traditional VNC / NoVNC WebRTC Container', time: '420 MB / session', pct: 100, winner: false },
+    ],
+  },
+];
+
+function BenchmarksSection() {
+  const [activeCat, setActiveCat] = useState(0);
+  const cat = benchmarkCategories[activeCat];
+
+  return (
+    <section id="benchmarks" className="site-width section-space scroll-mt-16 border-t border-border/80">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
+        <div>
+          <p className="eyebrow mb-2 sm:mb-3 text-accent flex items-center gap-2">
+            <BarChart3 size={13} className="text-accent" />
+            Verified Benchmarks
+          </p>
+          <h2 className="marketing-heading">Hard numbers. Zero marketing fluff.</h2>
+          <p className="text-[14px] sm:text-[16px] text-text-muted mt-2 max-w-xl">
+            Compare latency, LLM token efficiency, anti-bot evasion scores, and concurrency density against traditional runners.
+          </p>
+        </div>
+        <span className="font-mono text-[11px] text-accent bg-accent/10 border border-accent/30 rounded-full px-3 py-1">
+          Open benchmark suite: oya stealth-test --live
+        </span>
+      </div>
+
+      {/* Category Pills (Swipeable on mobile) */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-6 scrollbar-none">
+        {benchmarkCategories.map((c, idx) => {
+          const Icon = c.icon;
+          return (
+            <button
+              key={c.id}
+              role="tab"
+              aria-selected={activeCat === idx}
+              onClick={() => setActiveCat(idx)}
+              className={`rounded-xl px-4 py-2.5 text-[12px] sm:text-[13px] font-semibold whitespace-nowrap transition-all duration-200 flex items-center gap-2 shrink-0 ${
+                activeCat === idx
+                  ? 'bg-accent text-bg shadow-[0_0_20px_rgba(57,237,53,0.3)]'
+                  : 'border border-border/80 bg-bg-card/70 text-text-muted hover:text-text hover:bg-bg-elevated'
+              }`}
+            >
+              <Icon size={14} className={activeCat === idx ? 'text-bg' : 'text-accent'} />
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Benchmark Display Card (Double-Bezel) */}
+      <div className="double-bezel overflow-hidden">
+        <div className="double-bezel-inner bg-bg-card p-5 sm:p-8 rounded-[calc(1.5rem-3px)] border border-border/80 shadow-2xl">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-5 mb-6">
+            <div>
+              <span className="text-[16px] sm:text-[20px] font-bold text-text block">
+                {cat.headline}
+              </span>
+              <p className="text-[12.5px] sm:text-[13.5px] text-text-muted mt-1 max-w-2xl leading-relaxed">
+                {cat.summary}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-accent/40 bg-accent/10 px-4 py-2 text-center shrink-0">
+              <span className="block text-[20px] sm:text-[24px] font-bold text-accent font-mono">
+                {cat.highlight}
+              </span>
+              <span className="block text-[10px] uppercase font-mono text-text-dim">
+                Architectural Lead
+              </span>
+            </div>
+          </div>
+
+          {/* Comparative Progress Bars */}
+          <div className="space-y-4">
+            {cat.metrics.map((m, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="flex items-center justify-between text-[12px] sm:text-[13px] font-medium">
+                  <span className={m.winner ? 'text-text font-semibold flex items-center gap-1.5' : 'text-text-muted'}>
+                    {m.winner && <CheckCircle2 size={13} className="text-accent shrink-0" />}
+                    {m.name}
+                  </span>
+                  <span className={`font-mono font-bold ${m.winner ? 'text-accent' : 'text-text-dim'}`}>
+                    {m.time}
+                  </span>
+                </div>
+                <div className="h-3 w-full rounded-full bg-bg-sunken border border-border/60 overflow-hidden p-0.5">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${m.pct}%` }}
+                    transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    className={`h-full rounded-full ${
+                      m.winner
+                        ? 'bg-accent shadow-[0_0_12px_rgba(57,237,53,0.6)]'
+                        : 'bg-text/25'
+                    }`}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-border/50 flex flex-wrap items-center justify-between text-[11px] font-mono text-text-dim gap-2">
+            <span>Methodology: Benchmarked over 1,000 requests on AWS us-east-1 against live Bot.Sannysoft and CreepJS suite.</span>
+            <span className="text-accent">Reproducible in CLI</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Enterprise & Autonomous Agent Use Cases
+───────────────────────────────────────────────────────────────────────────── */
+const useCases = [
+  {
+    id: 'procurement',
+    title: 'Autonomous Procurement & Enterprise ERP',
+    subtitle: 'SAP · Coupa · NetSuite · Amazon Business',
+    badge: 'ENTERPRISE AGENTS',
+    icon: Briefcase,
+    challenge: 'Enterprise portals enforce corporate Okta SSO, push notifications, and Cloudflare Turnstile that kill conventional headless scrapers.',
+    solution: 'Employees sign in once via Oya Desktop; cookies and passkeys sync to cloud agent personas. Two-tier solver automatically clears Turnstile challenges.',
+    metrics: '100% task completion · Zero stored plaintext credentials',
+  },
+  {
+    id: 'intelligence',
+    title: 'High-Frequency Intelligence & Anti-Ban Scraping',
+    subtitle: 'Market Intelligence · Price Monitoring · Public Registries',
+    badge: 'DATA EXTRACTION',
+    icon: Globe2,
+    challenge: 'Target platforms track canvas noise, WebGL hashes, and IP reputation, banning bots after 20 requests.',
+    solution: 'Personas bind deterministic hardware profiles to dedicated residential proxy exits with concurrency caps. Returning sessions look like recurring legitimate workstations.',
+    metrics: '99.8% CreepJS Trust Score · 500k+ requests with 0 bans',
+  },
+  {
+    id: 'coding-agents',
+    title: 'AI Coding & Browser Tools (Claude Code, Cursor, Windsurf)',
+    subtitle: 'Automated Web Verification · Browser-Use · LangChain',
+    badge: 'DEVELOPER WORKFLOW',
+    icon: Terminal,
+    challenge: 'Agents hallucinate CSS selectors and waste 18,000 tokens per page reading bloated HTML.',
+    solution: 'Universal MCP server returns structured markdown and numbered element IDs. The AI reads [#13 button "Save"] and calls click(13).',
+    metrics: '85% LLM token savings · ~450 tokens/page snapshot',
+  },
+  {
+    id: 'qa-testing',
+    title: 'Multi-Provider QA & Synthetic Fleet Monitoring',
+    subtitle: 'Playwright · Puppeteer · Stagehand · Cypress',
+    badge: 'CONTINUOUS TESTING',
+    icon: ShieldCheck,
+    challenge: 'Single cloud runner outages (Browserbase downtime or Steel rate limits) crash production CI/CD test pipelines.',
+    solution: 'Connect existing Playwright tests directly to wss://browser.getoya.ai/connect. If a runner stumbles, Oya auto-routes to healthy backups in 14ms.',
+    metrics: 'Zero pipeline downtime · Sub-14ms automatic failover',
+  },
+];
+
+function UseCasesSection() {
+  return (
+    <section id="use-cases" className="site-width section-space scroll-mt-16 border-t border-border/80">
+      <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr] mb-10">
+        <div>
+          <p className="eyebrow mb-2 sm:mb-3 text-accent">Production Applications</p>
+          <h2 className="marketing-heading max-w-sm">
+            Built for agents that cannot fail.
+          </h2>
+        </div>
+        <p className="max-w-xl text-[15px] sm:text-[17px] leading-[1.75] text-text-muted lg:pt-9">
+          From high-stakes enterprise procurement to large-scale data intelligence and autonomous QA, see how teams run resilient browser fleets on Oya.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
+        {useCases.map((u) => {
+          const Icon = u.icon;
+          return (
+            <div
+              key={u.id}
+              className="rounded-2xl sm:rounded-3xl border border-border/80 bg-bg-card p-6 sm:p-7 shadow-xl hover:border-accent/40 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="h-10 w-10 rounded-xl bg-accent/10 border border-accent/25 flex items-center justify-center text-accent">
+                    <Icon size={19} />
+                  </div>
+                  <span className="font-mono text-[9.5px] uppercase tracking-wider px-2.5 py-1 rounded-full border border-border/80 bg-bg-sunken text-text-dim font-medium">
+                    {u.badge}
+                  </span>
+                </div>
+
+                <h3 className="text-[17px] sm:text-[19px] font-bold text-text tracking-tight">
+                  {u.title}
+                </h3>
+                <p className="font-mono text-[11px] text-accent mt-0.5 mb-3">
+                  {u.subtitle}
+                </p>
+
+                <div className="space-y-2.5 text-[12.5px] sm:text-[13.5px] leading-relaxed text-text-muted">
+                  <p>
+                    <strong className="text-text-secondary font-semibold">Challenge: </strong>
+                    {u.challenge}
+                  </p>
+                  <p>
+                    <strong className="text-accent font-semibold">Solution: </strong>
+                    {u.solution}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 pt-4 border-t border-border/60 flex items-center justify-between font-mono text-[11px] sm:text-[11.5px] text-accent font-medium">
+                <span>{u.metrics}</span>
+                <ChevronRight size={14} className="text-text-dim" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Frequently Asked Questions (FAQs) Accordion Component
+───────────────────────────────────────────────────────────────────────────── */
+const faqs = [
+  {
+    q: 'How does Oya differ from browser runners like Browserbase, Steel, and Anchor?',
+    a: 'Browserbase, Steel, Anchor, and Browser Use are execution targets — they spin up and bill for isolated Chromium containers. Oya is the Control Plane sitting above them. Oya unifies your entire fleet behind a single API key, provides deterministic seeded personas (preventing anti-bot flags), synchronizes desktop passkeys, offers two-tier CAPTCHA solving, and automatically fails over between providers if one throttles or experiences an outage.',
+  },
+  {
+    q: 'What is a "Deterministic Persona" and why does it prevent bot bans?',
+    a: 'Anti-bot algorithms flag two patterns: one account seen from 50 different device fingerprints (bot farm), or one device fingerprint seen on 1,000 accounts (device farm). Oya personas derive canvas, WebGL, audio, and client rects from a cryptographic seed, guaranteeing byte-identical hardware profiles across restarts. Each persona is permanently bound to a dedicated cookie jar and proxy IP with an enforced concurrency cap. Returning weeks later looks like the exact same legitimate workstation.',
+  },
+  {
+    q: 'How does Oya reduce LLM token consumption by up to 85%?',
+    a: 'Traditional browser automation dumps the full raw HTML DOM (15,000 to 25,000 tokens) or takes full-screen screenshots that burn 1,600 vision tokens per frame. Oya injects an in-memory Chromium analyzer that parses the active DOM and returns clean, structured markdown with numbered interactive element IDs (e.g. [#13 button "Submit"]). The agent reads ~450 tokens and simply replies click(13).',
+  },
+  {
+    q: 'How does Sign-In-Once Desktop Pairing work without storing passwords?',
+    a: 'You install the native Oya desktop app and log into your services using real passkeys, WebAuthn, Google SSO, or corporate Okta. Oya securely extracts the authenticated session cookies, encrypts them at rest with your profile master secret, and synchronizes them to your cloud personas via ephemeral pairing codes. Your cloud agents wake up already logged in, without brittle login scripts or stored plaintext credentials.',
+  },
+  {
+    q: 'What happens during a provider outage or quota exhaustion?',
+    a: 'Oya routes connections dynamically based on configured priority and concurrency limits. If your primary runner (e.g. Browserbase) experiences an outage, 502 error, or rate limit, Oya’s gateway detects the upstream fault in < 4ms and auto-migrates the connection to your secondary provider (e.g. Steel or Oya Cloud) in 14ms. Your Playwright, Puppeteer, or MCP code never crashes.',
+  },
+  {
+    q: 'Can I self-host Oya in my own VPC or air-gapped infrastructure?',
+    a: 'Yes. Oya is 100% self-hostable with `docker compose up`. You can bring your own bare-metal Chrome, private Kubernetes cluster, or Daytona runners. All session state, credentials, and settings are encrypted on your local storage volume using your own master key.',
+  },
+  {
+    q: 'How does interactive live stream takeover work during autonomous runs?',
+    a: 'Every browser exposes an interactive SSE / WebSocket live stream. When an agent encounters an unexpected step — such as an SMS verification code, push approval, or CAPTCHA — a human operator can open the live view, click or type directly with zero noticeable lag, and hand control right back to the agent.',
+  },
+];
+
+function FaqSection() {
+  const [openIdx, setOpenIdx] = useState<number | null>(0);
+
+  return (
+    <section id="faq" className="site-width section-space scroll-mt-16 border-t border-border/80">
+      <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr] mb-10">
+        <div>
+          <p className="eyebrow mb-2 sm:mb-3 text-accent flex items-center gap-2">
+            <HelpCircle size={13} className="text-accent" />
+            Frequently Asked Questions
+          </p>
+          <h2 className="marketing-heading max-w-sm">
+            Everything you need to know.
+          </h2>
+        </div>
+        <p className="max-w-xl text-[15px] sm:text-[17px] leading-[1.75] text-text-muted lg:pt-9">
+          Detailed answers on architecture, deterministic personas, anti-bot mitigation, token economics, and multi-provider failover.
+        </p>
+      </div>
+
+      <div className="space-y-3 max-w-4xl mx-auto">
+        {faqs.map((f, idx) => {
+          const isOpen = openIdx === idx;
+          return (
+            <div
+              key={idx}
+              className="rounded-2xl border border-border/80 bg-bg-card/90 overflow-hidden shadow-md transition-colors hover:border-accent/30"
+            >
+              <button
+                onClick={() => setOpenIdx(isOpen ? null : idx)}
+                aria-expanded={isOpen}
+                className="w-full p-5 sm:p-6 text-left flex items-center justify-between gap-4 transition-colors hover:bg-text/[0.02]"
+              >
+                <span className="text-[14px] sm:text-[16px] font-semibold text-text leading-snug">
+                  {f.q}
+                </span>
+                <span className="rounded-full bg-bg-sunken border border-border/70 p-1.5 text-text-muted shrink-0">
+                  {isOpen ? <ChevronDown size={14} className="rotate-180 transition-transform" /> : <ChevronDown size={14} className="transition-transform" />}
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {isOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-5 pb-5 sm:px-6 sm:pb-6 text-[13px] sm:text-[14.5px] leading-[1.8] text-text-muted border-t border-border/50 pt-4">
+                      {f.a}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    Animated Video & Motion Showcase Studio (Fully Responsive)
 ───────────────────────────────────────────────────────────────────────────── */
 function VideoMotionStudio() {
@@ -776,7 +1158,7 @@ function CodeSnippetTester() {
   return (
     <div className="min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-bg-card shadow-2xl">
       {/* Code Header with Horizontal Scroll Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/70 p-2.5 sm:px-3 sm:py-2 bg-bg-elevated/60 gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/70 p-2 sm:px-3 sm:py-2 bg-bg-elevated/60 gap-2">
         <div role="tablist" aria-label="Integration language" className="flex gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           {examples.map((item, i) => (
             <button
@@ -792,7 +1174,7 @@ function CodeSnippetTester() {
                 setTestComplete(false);
                 setActiveStep(0);
               }}
-              className={`rounded-lg px-2.5 py-1.5 text-[11.5px] sm:text-[12px] whitespace-nowrap transition-all duration-150 shrink-0 ${
+              className={`rounded-lg px-2.5 py-1.5 text-[11px] sm:text-[12px] whitespace-nowrap transition-all duration-150 shrink-0 ${
                 example === i
                   ? 'bg-text/10 text-text font-semibold border border-border/60'
                   : 'text-text-dim hover:text-text hover:bg-text/5'
@@ -1007,18 +1389,21 @@ export default function Home() {
           <OyaWordmark />
           <nav
             aria-label="Main navigation"
-            className="hidden items-center gap-7 text-[13px] text-text-muted md:flex font-medium"
+            className="hidden items-center gap-6 text-[13px] text-text-muted lg:flex font-medium"
           >
             <a href="#product" className="hover:text-text transition-colors">Product</a>
             <a href="#architecture" className="hover:text-text transition-colors">Architecture</a>
+            <a href="#benchmarks" className="hover:text-text transition-colors">Benchmarks</a>
+            <a href="#use-cases" className="hover:text-text transition-colors">Use Cases</a>
             <a href="#comparison" className="hover:text-text transition-colors flex items-center gap-1.5">
               Why Oya <span className="rounded-full bg-accent/15 px-2 py-0.2 font-mono text-[10px] text-accent font-bold">10x</span>
             </a>
             <a href="#video-studio" className="hover:text-text transition-colors flex items-center gap-1">
-              <Play size={12} className="text-accent" /> Video Showcase
+              <Play size={12} className="text-accent" /> Videos
             </a>
             <a href="#developers" className="hover:text-text transition-colors">Developers</a>
-            <Link href="/docs" className="hover:text-text transition-colors">Documentation</Link>
+            <a href="#faq" className="hover:text-text transition-colors">FAQ</a>
+            <Link href="/docs" className="hover:text-text transition-colors">Docs</Link>
           </nav>
           <div className="flex items-center gap-2.5 sm:gap-3">
             <ThemeToggle />
@@ -1030,7 +1415,7 @@ export default function Home() {
               <ArrowUpRight size={13} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </Link>
             <button
-              className="btn-icon md:hidden"
+              className="btn-icon lg:hidden"
               aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(!menuOpen)}
@@ -1044,13 +1429,16 @@ export default function Home() {
         {menuOpen && (
           <nav
             aria-label="Mobile navigation"
-            className="site-width flex flex-col gap-3.5 border-t border-border/80 py-5 text-sm md:hidden"
+            className="site-width flex flex-col gap-3.5 border-t border-border/80 py-5 text-sm lg:hidden"
           >
             <a href="#product" onClick={() => setMenuOpen(false)}>Product</a>
             <a href="#architecture" onClick={() => setMenuOpen(false)}>Architecture</a>
+            <a href="#benchmarks" onClick={() => setMenuOpen(false)}>Benchmarks</a>
+            <a href="#use-cases" onClick={() => setMenuOpen(false)}>Use Cases</a>
             <a href="#comparison" onClick={() => setMenuOpen(false)}>Why Oya (10x Comparison)</a>
             <a href="#video-studio" onClick={() => setMenuOpen(false)}>Video & Motion Showcase</a>
             <a href="#developers" onClick={() => setMenuOpen(false)}>Developers & Code Tester</a>
+            <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
             <Link href="/docs">Documentation</Link>
             <Link href="/dashboard" className="btn-primary h-10 text-[13px] justify-center mt-2 font-semibold">
               Open console <ArrowRight size={14} />
@@ -1070,7 +1458,7 @@ export default function Home() {
 
           <div className="grid items-end gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-16">
             <div>
-              {/* Responsive Eyebrow Badge (No awkward multi-line break on small phones) */}
+              {/* Responsive Eyebrow Badge */}
               <div className="eyebrow mb-5 sm:mb-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-bg-card/80 px-3 py-1.5 text-text-muted backdrop-blur-md max-w-full">
                 <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping shrink-0" />
                 <span className="text-text font-semibold truncate">Browser Control Plane</span>
@@ -1300,6 +1688,9 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ─── Benchmarks Section (Startup Time, Tokens, Evasion) ─── */}
+        <BenchmarksSection />
+
         {/* ─── 10x Comparison Section (Desktop Table + Mobile Cards) ─── */}
         <section id="comparison" className="site-width section-space scroll-mt-20 border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
@@ -1397,6 +1788,9 @@ export default function Home() {
             ))}
           </div>
         </section>
+
+        {/* ─── Production Use Cases ─── */}
+        <UseCasesSection />
 
         {/* ─── Video & Motion Showcase Section ("and animation videos") ─── */}
         <section id="video-studio" className="site-width section-space border-t border-border/80 scroll-mt-16">
@@ -1515,6 +1909,9 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ─── Frequently Asked Questions (FAQ) Section ─── */}
+        <FaqSection />
+
         {/* ─── Desktop App & Self-Hosting ─── */}
         <section className="site-width section-space grid gap-8 sm:gap-10 border-t border-border/80 md:grid-cols-2 md:gap-16">
           <div id="download" className="scroll-mt-24 rounded-2xl sm:rounded-3xl border border-border/80 bg-bg-card p-6 sm:p-8 shadow-xl">
@@ -1528,13 +1925,13 @@ export default function Home() {
             <div className="mt-5 sm:mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
               <a
                 className="btn-primary h-10 px-4 text-[12px] font-semibold"
-                href="/downloads/Oya.Browser-1.0.47-universal.dmg"
+                href="/downloads/Oya.Browser-1.0.46-universal.dmg"
               >
                 Download macOS (.dmg) <ArrowUpRight size={14} />
               </a>
               <a
                 className="btn-ghost h-10 px-4 text-[12px]"
-                href="/downloads/Oya.Browser-1.0.47-arm64.AppImage"
+                href="/downloads/Oya.Browser-1.0.46-arm64.AppImage"
               >
                 Linux (.AppImage)
               </a>
@@ -1600,6 +1997,9 @@ export default function Home() {
         </div>
         <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-[12px] text-text-muted">
           <Link href="/docs" className="hover:text-text transition-colors">Documentation</Link>
+          <a href="#benchmarks" className="hover:text-text transition-colors">Benchmarks</a>
+          <a href="#use-cases" className="hover:text-text transition-colors">Use Cases</a>
+          <a href="#faq" className="hover:text-text transition-colors">FAQ</a>
           <a href="#comparison" className="hover:text-text transition-colors">10x Comparison</a>
           <Link href="/dashboard" className="hover:text-text transition-colors">Console</Link>
           <a

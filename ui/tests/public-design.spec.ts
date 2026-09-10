@@ -75,7 +75,7 @@ test('code snippet tester and video motion showcase are interactive and function
 
   // Switch to telemetry tab
   await page.getByRole('button', { name: 'TELEMETRY' }).click();
-  await expect(page.getByText('99.8%')).toBeVisible();
+  await expect(page.getByText('99.8%', { exact: true })).toBeVisible();
 
   // Switch to output tab
   await page.getByRole('button', { name: 'OUTPUT' }).click();
@@ -86,6 +86,22 @@ test('code snippet tester and video motion showcase are interactive and function
   const testCdpBtn = page.getByRole('button', { name: /Test snippet live/ });
   await testCdpBtn.click();
   await expect(page.getByText('ALL CHECKS PASSED')).toBeVisible({ timeout: 6000 });
+
+  // 3. Test Benchmarks section
+  await expect(page.getByRole('heading', { name: 'Hard numbers. Zero marketing fluff.' })).toBeVisible();
+  const tokenBenchBtn = page.getByRole('tab', { name: /LLM Token Economy/ });
+  await tokenBenchBtn.click();
+  await expect(page.getByText('85% Token Reduction')).toBeVisible();
+
+  // 4. Test Use Cases section
+  await expect(page.getByText('Autonomous Procurement & Enterprise ERP')).toBeVisible();
+  await expect(page.getByText('High-Frequency Intelligence & Anti-Ban Scraping')).toBeVisible();
+
+  // 5. Test FAQ accordion
+  const faqBtn = page.getByRole('button', { name: /How does Oya differ from browser runners/ });
+  await expect(faqBtn).toBeVisible();
+  await faqBtn.click();
+  await expect(page.getByText('Browserbase, Steel, Anchor, and Browser Use are execution targets')).toBeVisible();
 
   await page.screenshot({ path: testInfo.outputPath('snippet-tested.png') });
 });
