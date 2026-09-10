@@ -35,8 +35,13 @@ applyTelemetryFlags(app);
 applyDNSLeakPrevention(app);
 
 // Set dock icon on macOS (needed for dev mode — built app uses icon from package.json)
+//
+// icon_1024, not icon.png: the latter is the 6250x6250 master electron-builder
+// resizes at build time. Handing it to nativeImage decodes 156MB per
+// representation, and macOS makes several — it was 596MB of CG image data in
+// the main process, most of this app's memory, for a dock icon.
 if (process.platform === 'darwin') {
-  const iconPath = path.join(__dirname, 'build', 'icon.png');
+  const iconPath = path.join(__dirname, 'build', 'icon_1024.png');
   if (fs.existsSync(iconPath)) {
     app.whenReady().then(() => {
       app.dock.setIcon(nativeImage.createFromPath(iconPath));
@@ -795,7 +800,7 @@ app.on('window-all-closed', () => { disconnect(); app.quit(); });
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280, height: 860, minWidth: 600, minHeight: 400,
-    icon: path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon.png'),
+    icon: path.join(__dirname, 'build', process.platform === 'darwin' ? 'icon.icns' : 'icon_1024.png'),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
     backgroundColor: '#ffffff',
