@@ -35,4 +35,8 @@ contextBridge.exposeInMainWorld('oyaBrowser', {
   saveProfile: () => ipcRenderer.invoke('save-profile'),
   onProfileSaved: (cb) => ipcRenderer.on('profile-saved', (e, state) => cb(state)),
   onFingerprintChanged: (cb) => ipcRenderer.on('fingerprint-changed', (e, fp) => cb(fp)),
+  // Updates
+  getVersion: () => ipcRenderer.invoke('get-version'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (e, status) => cb(status)),
 });

@@ -38,9 +38,9 @@ jobs:
     - name: Upload to GitHub release
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
-        SRC="browser/dist/Oya Browser-${VERSION}.AppImage"
+        # build.artifactName emits the dotted name directly now.
         DST="Oya.Browser-${VERSION}-x64.AppImage"
-        FOUND="$SRC"
+        FOUND="browser/dist/${DST}"
         if [ ! -f "$FOUND" ]; then
           FOUND=$(ls browser/dist/*.AppImage 2>/dev/null | head -1)
         fi
@@ -50,6 +50,13 @@ jobs:
           echo "Uploaded $DST to release ${GITHUB_REF_NAME}"
         else
           echo "WARNING: No AppImage found, skipping upload"
+        fi
+        # Without latest-linux.yml every installed AppImage stops updating.
+        if [ -f browser/dist/latest-linux.yml ]; then
+          gh release upload "${GITHUB_REF_NAME}" browser/dist/latest-linux.yml --clobber
+          echo "Uploaded latest-linux.yml"
+        else
+          echo "WARNING: latest-linux.yml missing — Linux auto-update will not work"
         fi
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

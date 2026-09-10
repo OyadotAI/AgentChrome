@@ -231,6 +231,24 @@
     }
     .url-bar:focus { border-color: #3b82f6; }
 
+    .update-pill {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      background: #e7f6e7;
+      border: 1px solid #a8d5a8;
+      border-radius: 8px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #246d21;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-app-region: no-drag;
+      font-family: inherit;
+    }
+    .update-pill.show { display: flex; }
+    .update-pill:hover { background: #d8efd8; }
     .conn-pill {
       display: flex;
       align-items: center;
@@ -752,6 +770,7 @@
     <button class="nav-btn" id="btn-forward" title="Forward">&#8594;</button>
     <button class="nav-btn" id="btn-reload" title="Reload">&#8635;</button>
     <input class="url-bar" id="url-bar" type="text" placeholder="Search or enter URL" spellcheck="false">
+    <button class="update-pill" id="update-pill" title="Restart to finish updating"></button>
     <div class="conn-pill" id="conn-pill" title="Not connected">
       <span class="dot"></span>
       <span id="conn-label">Offline</span>
@@ -976,6 +995,26 @@
 
     oyaBrowser.onUrlChanged(url => { urlBar.value = url; });
     oyaBrowser.onTitleChanged(title => { document.title = title ? `${title} — Oya Browser` : 'Oya Browser'; });
+
+    // ── Updates ──
+    //
+    // The update is already staged and applies on quit, so this is an offer to
+    // get it sooner, never a demand. Nothing here blocks browsing.
+    const updatePill = document.getElementById('update-pill');
+    oyaBrowser.onUpdateStatus(({ state, version }) => {
+      if (state === 'ready') {
+        updatePill.textContent = `Update ${version} ready — Restart`;
+        updatePill.classList.add('show');
+      } else if (state === 'downloading') {
+        updatePill.textContent = `Downloading ${version}…`;
+        updatePill.classList.add('show');
+      }
+    });
+    updatePill.addEventListener('click', () => {
+      if (!updatePill.textContent.includes('Restart')) return;
+      updatePill.textContent = 'Restarting…';
+      oyaBrowser.installUpdate();
+    });
 
     // ── Connection pill ──
 

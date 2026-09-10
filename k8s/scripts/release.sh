@@ -82,8 +82,8 @@ cd "$ROOT"
 log_info "Copying binaries to server/downloads/"
 mkdir -p server/downloads
 
-# electron-builder outputs "Oya Browser-*" (space), download links use "Oya.Browser-*" (dot)
-SRC_DMG="browser/dist/Oya Browser-${VERSION}-universal.dmg"
+# build.artifactName already emits the dotted name the download links use.
+SRC_DMG="browser/dist/Oya.Browser-${VERSION}-universal.dmg"
 DST_DMG="server/downloads/Oya.Browser-${VERSION}-universal.dmg"
 
 if [ -f "$SRC_DMG" ]; then
@@ -93,6 +93,18 @@ else
   log_err "macOS DMG not found — check build output"
   exit 1
 fi
+
+# Auto-update reads latest-mac.yml and downloads the zip; Squirrel.Mac cannot
+# install from a DMG. Miss either and every client silently stops updating.
+SRC_ZIP="browser/dist/Oya.Browser-${VERSION}-universal.zip"
+SRC_YML="browser/dist/latest-mac.yml"
+for f in "$SRC_ZIP" "$SRC_YML"; do
+  if [ ! -f "$f" ]; then
+    log_err "$(basename "$f") not found — auto-update would be dead on this release"
+    exit 1
+  fi
+done
+log_ok "Update feed ready: $(basename "$SRC_ZIP") + latest-mac.yml"
 
 log_info "Linux AppImage will be built by GitHub Actions"
 
@@ -129,9 +141,9 @@ log_ok "Pushed branch and tag"
 
 log_info "Creating GitHub release $TAG..."
 
-gh release create "$TAG" "$DST_DMG" \
+gh release create "$TAG" "$DST_DMG" "$SRC_ZIP" "$SRC_YML" \
   --title "Oya Browser $TAG" \
   --generate-notes
 
-log_ok "GitHub release $TAG created with macOS binary"
+log_ok "GitHub release $TAG created with macOS binary and update feed"
 log_ok "Linux build + prod deploy will be triggered by the tag push"

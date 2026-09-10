@@ -765,6 +765,52 @@ app.on('open-url', (event, url) => {
   else pendingDeepLinks.push(url);
 });
 
+// ─── Auto update ───
+//
+// Squirrel.Mac stages the new bundle and swaps it when the app quits, so an
+// update never interrupts a browsing session — it is simply there next launch.
+// Someone who wants it sooner gets a Restart button, wired to install-update.
+//
+// Cloud browsers are pinned to the snapshot they were provisioned from; one
+// that upgraded itself mid-run would no longer be the build the fleet expects.
+
+const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+let autoUpdater = null;
+
+function startAutoUpdate() {
+  if (!app.isPackaged || process.env.OYA_DOCKER === 'true') return;
+  // Required lazily so dev runs and cloud browsers never load it at all.
+  ({ autoUpdater } = require('electron-updater'));
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[update] downloading', info.version);
+    sendToRenderer('update-status', { state: 'downloading', version: info.version });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[update] ready, applies on quit:', info.version);
+    sendToRenderer('update-status', { state: 'ready', version: info.version });
+  });
+  autoUpdater.on('error', (err) => {
+    // A missed check is not worth interrupting anyone over; the next one retries.
+    console.log('[update] check failed:', err?.message || err);
+  });
+
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 10000).unref?.();          // let the first window settle
+  setInterval(check, UPDATE_CHECK_INTERVAL).unref?.();
+}
+
+ipcMain.handle('install-update', () => {
+  if (!autoUpdater) return false;
+  // Nothing else gets to run after this — it relaunches the app.
+  setImmediate(() => autoUpdater.quitAndInstall());
+  return true;
+});
+
+ipcMain.handle('get-version', () => app.getVersion());
+
 // ─── App Lifecycle ───
 
 app.whenReady().then(async () => {
@@ -789,6 +835,8 @@ app.whenReady().then(async () => {
   createWindow();
   startCookieChangeListener();
   if (config.apiKey || process.env.OYA_AUTO_CONNECT === 'true') connect();
+
+  startAutoUpdate();
 
   const queued = pendingDeepLinks.splice(0)
     .concat(process.argv.filter((a) => a.startsWith('oya://')));
