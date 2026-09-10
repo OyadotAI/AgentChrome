@@ -255,7 +255,7 @@ const demoBrowsers = [
 ];
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Interactive Live Product Preview Component
+   Interactive Live Product Preview Component (Responsive & Mobile-Refined)
 ───────────────────────────────────────────────────────────────────────────── */
 function ProductPreview() {
   const [selected, setSelected] = useState(0);
@@ -282,43 +282,45 @@ function ProductPreview() {
     <div className="double-bezel overflow-hidden">
       <div className="double-bezel-inner product-preview bg-bg-card/95 backdrop-blur-xl" aria-label="Interactive browser console preview">
         {/* Top Control Bar */}
-        <div className="flex flex-wrap items-center justify-between border-b border-border/80 px-5 py-3.5 bg-bg-elevated/40">
-          <div className="flex items-center gap-2.5">
-            <OyaLogo size={19} />
-            <span className="text-[13px] font-semibold tracking-tight">Control Plane</span>
-            <ChevronRight size={13} className="text-text-dim" />
-            <span className="text-[12px] text-text-muted">Fleet Console (1,000+ capacity)</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 font-mono text-[10px] font-medium text-accent">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-              CONTROL PLANE ACTIVE · 99.99%
+        <div className="flex flex-wrap items-center justify-between border-b border-border/80 px-4 py-3 sm:px-5 sm:py-3.5 bg-bg-elevated/40 gap-2">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <OyaLogo size={18} />
+            <span className="text-[12.5px] sm:text-[13px] font-semibold tracking-tight">Control Plane</span>
+            <ChevronRight size={12} className="text-text-dim shrink-0" />
+            <span className="text-[11.5px] sm:text-[12px] text-text-muted truncate max-w-[140px] sm:max-w-none">
+              Fleet Console (1,000+ cap)
             </span>
           </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 font-mono text-[9.5px] sm:text-[10px] font-medium text-accent">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+            ACTIVE · 99.99%
+          </span>
         </div>
 
-        <div className="grid min-w-0 md:grid-cols-[1.4fr_1.1fr]">
+        <div className="grid min-w-0 md:grid-cols-[1.35fr_1.15fr]">
           {/* Left: Active Fleet List */}
           <div className="min-w-0 md:border-r border-border/80">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-              <div>
-                <span className="text-[14px] font-semibold text-text">Active Fleet Browsers</span>
-                <span className="ml-2.5 rounded bg-text/10 px-1.5 py-0.5 font-mono text-[11px] text-text-dim">
-                  04 / 1,000
+            <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-4 border-b border-border/50">
+              <div className="flex items-center">
+                <span className="text-[13.5px] sm:text-[14px] font-semibold text-text">Fleet Browsers</span>
+                <span className="ml-2 rounded bg-text/10 px-1.5 py-0.2 font-mono text-[10.5px] text-text-dim">
+                  04 / 1k
                 </span>
               </div>
-              <span className="flex items-center gap-1.5 text-[11px] text-text-muted font-medium">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                Multi-Provider Auto-Routing
+              <span className="flex items-center gap-1.5 text-[10.5px] sm:text-[11px] text-text-muted font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent shrink-0" />
+                Auto-Routing
               </span>
             </div>
 
-            <div className="preview-columns border-b border-border/60 bg-bg-sunken/60 py-2 text-[10px] uppercase tracking-widest text-text-dim">
+            {/* Desktop Table Headers */}
+            <div className="preview-columns preview-columns-header border-b border-border/60 bg-bg-sunken/60 py-2 text-[10px] uppercase tracking-widest text-text-dim">
               <span>Browser / Persona</span>
               <span>Provider</span>
               <span>Status</span>
             </div>
 
+            {/* List Rows */}
             <div className="divide-y divide-border/50">
               {demoBrowsers.map((row, index) => (
                 <button
@@ -328,102 +330,108 @@ function ProductPreview() {
                     setIsTakeover(false);
                   }}
                   aria-pressed={index === selected}
-                  className={`preview-columns w-full py-3.5 text-left transition-all duration-200 ${
+                  className={`w-full px-4 py-3 sm:py-3.5 text-left transition-all duration-200 ${
                     index === selected
                       ? 'bg-accent/[0.09] border-l-2 border-l-accent'
                       : 'hover:bg-text/[0.04] border-l-2 border-l-transparent'
                   }`}
                 >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <Monitor
-                      size={15}
-                      className={index === selected ? 'text-accent shrink-0' : 'text-text-dim shrink-0'}
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[12.5px] font-medium text-text">{row.name}</span>
-                      <span className="mt-0.5 block truncate font-mono text-[10px] text-text-dim">
-                        {row.profile}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Monitor
+                        size={15}
+                        className={index === selected ? 'text-accent shrink-0' : 'text-text-dim shrink-0'}
+                      />
+                      <div className="min-w-0">
+                        <span className="block truncate text-[12.5px] font-medium text-text">{row.name}</span>
+                        <span className="block truncate font-mono text-[10px] text-text-dim">
+                          {row.profile}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-bg-sunken border border-border/60 text-text-muted">
+                        {row.provider}
                       </span>
-                    </span>
-                  </span>
-                  <span className="text-[11px] font-mono text-text-muted">{row.provider}</span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent">
-                    <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping" />
-                    {row.health}
-                  </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent">
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping" />
+                        <span className="hidden sm:inline">{row.health}</span>
+                      </span>
+                    </div>
+                  </div>
                 </button>
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center justify-between border-t border-border/50 px-5 py-3.5 text-[10.5px] text-text-dim bg-bg-sunken/40">
-              <span className="flex items-center gap-1.5">
-                <Command size={12} className="text-accent" /> Unified Gateway: One API key controls every provider
+            <div className="flex flex-wrap items-center justify-between border-t border-border/50 px-4 py-2.5 sm:px-5 sm:py-3 text-[10px] sm:text-[10.5px] text-text-dim bg-bg-sunken/40 gap-2">
+              <span className="flex items-center gap-1.5 truncate">
+                <Command size={11} className="text-accent shrink-0" /> Unified Gateway: One API key
               </span>
-              <span className="font-mono text-accent">Failover: ACTIVE</span>
+              <span className="font-mono text-accent shrink-0">Failover: ACTIVE</span>
             </div>
           </div>
 
           {/* Right: Live Interactive Viewport */}
-          <div className="flex min-w-0 flex-col p-5 bg-bg-elevated/20">
-            <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex min-w-0 flex-col p-4 sm:p-5 bg-bg-elevated/20 border-t md:border-t-0 border-border/80">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <div className="min-w-0">
-                <span className="truncate text-[13.5px] font-semibold text-text block">{browser.name}</span>
-                <span className="text-[10px] text-text-dim font-mono">{browser.routing}</span>
+                <span className="truncate text-[13px] sm:text-[13.5px] font-semibold text-text block">{browser.name}</span>
+                <span className="text-[9.5px] sm:text-[10px] text-text-dim font-mono">{browser.routing}</span>
               </div>
               <button
                 onClick={() => setIsTakeover(!isTakeover)}
-                className={`text-[10px] font-mono px-2.5 py-1 rounded-full border transition-all ${
+                className={`text-[9.5px] sm:text-[10px] font-mono px-2.5 py-1 rounded-full border transition-all ${
                   isTakeover
                     ? 'border-accent bg-accent text-bg font-bold'
                     : 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
                 }`}
               >
-                {isTakeover ? 'TAKEN OVER (CLICK/TYPE)' : 'STEP IN & TAKE OVER'}
+                {isTakeover ? 'TAKEN OVER' : 'STEP IN & TAKE OVER'}
               </button>
             </div>
 
             {/* Simulated Browser Frame */}
             <div className="rounded-xl border border-border/80 bg-bg-sunken overflow-hidden shadow-inner flex flex-col flex-1">
               {/* Address bar */}
-              <div className="flex items-center gap-2 border-b border-border/60 bg-bg-elevated/80 px-3 py-1.5 text-[11px] font-mono text-text-muted">
-                <Lock size={11} className="text-accent shrink-0" />
+              <div className="flex items-center gap-2 border-b border-border/60 bg-bg-elevated/80 px-3 py-1.5 text-[10.5px] sm:text-[11px] font-mono text-text-muted">
+                <Lock size={10} className="text-accent shrink-0" />
                 <span className="truncate text-text-secondary">{browser.page}</span>
-                <span className="ml-auto text-[9px] text-accent/80 font-mono">24ms CDP</span>
+                <span className="ml-auto text-[9px] text-accent/80 font-mono shrink-0">24ms CDP</span>
               </div>
 
               {/* Viewport Content */}
-              <div className="relative flex-1 p-5 flex flex-col items-center justify-center text-center min-h-[160px] bg-gradient-to-b from-bg-sunken to-bg-card">
-                <div className="relative mb-3">
-                  <Globe2 size={32} strokeWidth={1.2} className="text-accent/60 mx-auto" />
+              <div className="relative flex-1 p-4 sm:p-5 flex flex-col items-center justify-center text-center min-h-[150px] bg-gradient-to-b from-bg-sunken to-bg-card">
+                <div className="relative mb-2.5">
+                  <Globe2 size={28} strokeWidth={1.2} className="text-accent/60 mx-auto" />
                   <motion.div
                     animate={{ scale: [1, 1.25, 1], opacity: [0.3, 0.7, 0.3] }}
                     transition={{ repeat: Infinity, duration: 2.5 }}
                     className="absolute -inset-2 rounded-full border border-accent/40 pointer-events-none"
                   />
                 </div>
-                <p className="text-[13px] font-medium text-text">Sub-second Interactive Live View</p>
-                <p className="mt-1 text-[11px] text-text-dim max-w-[260px] leading-relaxed">
+                <p className="text-[12.5px] sm:text-[13px] font-medium text-text">Sub-second Interactive Live View</p>
+                <p className="mt-1 text-[10.5px] sm:text-[11px] text-text-dim max-w-[260px] leading-relaxed">
                   {isTakeover
-                    ? 'Keyboard captured. Clicks and keystrokes forwarded directly into the browser session.'
-                    : 'Click, scroll, or type. Step in when 2FA hits; hand control back to the autonomous agent.'}
+                    ? 'Keyboard captured. Keystrokes forwarded into remote session.'
+                    : 'Click, scroll, or type. Step in when 2FA hits; hand back to agent.'}
                 </p>
 
                 {/* Simulated DOM Highlights */}
-                <div className="mt-3 flex items-center gap-2 font-mono text-[9.5px]">
-                  <span className="rounded border border-indigo/40 bg-indigo/10 px-2 py-0.5 text-indigo">
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 font-mono text-[9px]">
+                  <span className="rounded border border-indigo/40 bg-indigo/10 px-1.5 py-0.5 text-indigo">
                     [#13 button &quot;Checkout&quot;]
                   </span>
-                  <span className="rounded border border-accent/40 bg-accent/10 px-2 py-0.5 text-accent">
+                  <span className="rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-accent">
                     [#9 input:email]
                   </span>
                 </div>
               </div>
 
               {/* Status footer */}
-              <div className="border-t border-border/60 bg-bg-elevated/60 px-4 py-2 flex items-center justify-between text-[11px] text-text-muted">
-                <p aria-live="polite" className="flex items-center gap-2 truncate">
-                  <span className="h-2 w-2 rounded-full bg-accent animate-pulse shrink-0" />
-                  <span className="font-mono text-[10.5px] truncate">{browser.action}</span>
+              <div className="border-t border-border/60 bg-bg-elevated/60 px-3 py-2 sm:px-4 flex items-center justify-between text-[10.5px] sm:text-[11px] text-text-muted gap-2">
+                <p aria-live="polite" className="flex items-center gap-1.5 truncate">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse shrink-0" />
+                  <span className="font-mono text-[10px] sm:text-[10.5px] truncate">{browser.action}</span>
                 </p>
                 {simulatedCmd && (
                   <span className="hidden sm:inline-block font-mono text-[9px] text-text-dim truncate max-w-[170px]">
@@ -440,7 +448,7 @@ function ProductPreview() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Animated Video & Motion Showcase Studio
+   Animated Video & Motion Showcase Studio (Fully Responsive)
 ───────────────────────────────────────────────────────────────────────────── */
 function VideoMotionStudio() {
   const [activeTab, setActiveTab] = useState(0);
@@ -451,30 +459,30 @@ function VideoMotionStudio() {
   const scenes = [
     {
       id: 'walkthrough',
-      title: '01 / Fleet Walkthrough Film',
-      badge: 'PROD VIDEO',
-      desc: 'Watch the Oya Browser Control Plane manage 1,000+ browsers across hybrid cloud and desktop pairing.',
+      title: '01 / Fleet Walkthrough',
+      badge: 'VIDEO',
+      desc: 'Watch the Control Plane manage 1,000+ browsers across hybrid cloud and desktop pairing.',
       type: 'video',
     },
     {
       id: 'captcha',
       title: '02 / Autonomous CAPTCHA Bypass',
-      badge: 'MOTION DEMO',
-      desc: 'Cloudflare Turnstile, reCAPTCHA v3, and GeeTest automatically solved in < 380ms with native solver fallback.',
+      badge: 'MOTION',
+      desc: 'Cloudflare Turnstile and reCAPTCHA solved in < 380ms with native solver fallback.',
       type: 'simulation-captcha',
     },
     {
       id: 'takeover',
       title: '03 / Sub-Second Live Takeover',
-      badge: 'MOTION DEMO',
-      desc: 'Seamless human-in-the-loop: when unexpected 2FA or push alerts hit, step in with real clicks and hand back to the agent.',
+      badge: 'MOTION',
+      desc: 'Human-in-the-loop: when unexpected 2FA hits, step in with real clicks and hand back.',
       type: 'simulation-takeover',
     },
     {
       id: 'failover',
       title: '04 / Zero-Downtime Provider Failover',
-      badge: 'MOTION DEMO',
-      desc: 'When an upstream runner throttles or 502s, sessions auto-migrate to healthy runners in 14ms without breaking WebSocket CDP.',
+      badge: 'MOTION',
+      desc: 'When an upstream runner 502s, sessions auto-migrate to healthy runners in 14ms.',
       type: 'simulation-failover',
     },
   ];
@@ -490,8 +498,8 @@ function VideoMotionStudio() {
 
   return (
     <div className="mt-8">
-      {/* Scene Navigation Pills */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
+      {/* Horizontally Scrollable Scene Navigation Bar */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-4 scrollbar-none">
         {scenes.map((s, idx) => (
           <button
             key={s.id}
@@ -499,15 +507,15 @@ function VideoMotionStudio() {
               setActiveTab(idx);
               setScrubPercent(15);
             }}
-            className={`rounded-full px-4 py-2 text-[12.5px] font-medium transition-all duration-300 flex items-center gap-2 ${
+            className={`rounded-full px-3.5 py-1.5 sm:px-4 sm:py-2 text-[11.5px] sm:text-[12.5px] font-medium whitespace-nowrap transition-all duration-300 flex items-center gap-2 shrink-0 ${
               activeTab === idx
                 ? 'bg-accent text-bg shadow-[0_0_24px_rgba(57,237,53,0.35)]'
                 : 'border border-border/80 bg-bg-card/70 text-text-muted hover:text-text hover:bg-bg-elevated'
             }`}
           >
             <span
-              className={`text-[9.5px] font-mono px-1.5 py-0.2 rounded ${
-                activeTab === idx ? 'bg-bg/20 text-bg' : 'bg-text/10 text-accent'
+              className={`text-[9px] font-mono px-1.5 py-0.2 rounded ${
+                activeTab === idx ? 'bg-bg/20 text-bg font-bold' : 'bg-text/10 text-accent'
               }`}
             >
               {s.badge}
@@ -521,17 +529,17 @@ function VideoMotionStudio() {
       <div className="double-bezel overflow-hidden">
         <div className="double-bezel-inner rounded-[calc(1.5rem-3px)] bg-bg-card border border-border/70 overflow-hidden shadow-2xl">
           {/* Header Bar */}
-          <div className="flex items-center justify-between border-b border-border/70 px-5 py-3 bg-bg-elevated/40">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-2 w-2 rounded-full bg-red animate-pulse" />
-              <span className="font-mono text-[11px] uppercase tracking-widest text-text font-medium">
+          <div className="flex items-center justify-between border-b border-border/70 px-4 py-2.5 sm:px-5 sm:py-3 bg-bg-elevated/40 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-2 w-2 rounded-full bg-red animate-pulse shrink-0" />
+              <span className="font-mono text-[10.5px] sm:text-[11px] uppercase tracking-wider text-text font-medium truncate">
                 {scenes[activeTab].title}
               </span>
             </div>
-            <div className="flex items-center gap-3 text-[11px] text-text-dim font-mono">
-              <span>HD 1080P</span>
+            <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-text-dim font-mono shrink-0">
+              <span>HD</span>
               <span>·</span>
-              <span className="text-accent font-semibold">60 FPS LIVE</span>
+              <span className="text-accent font-semibold">60 FPS</span>
             </div>
           </div>
 
@@ -552,178 +560,169 @@ function VideoMotionStudio() {
               </video>
             ) : activeTab === 1 ? (
               /* Tab 1: CAPTCHA Bypass Video Simulation */
-              <div className="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#141410] to-[#0a0a08] text-left">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2 font-mono text-[12px] text-text-muted">
-                    <ShieldCheck size={16} className="text-accent" />
-                    <span>Target: https://protected.acme-corp.internal</span>
+              <div className="w-full h-full p-4 sm:p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#141410] to-[#0a0a08] text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5 gap-2">
+                  <div className="flex items-center gap-2 font-mono text-[11px] sm:text-[12px] text-text-muted truncate">
+                    <ShieldCheck size={15} className="text-accent shrink-0" />
+                    <span className="truncate">https://protected.acme.internal</span>
                   </div>
-                  <span className="font-mono text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded-full">
-                    BOT-DETECTION MITIGATION
+                  <span className="font-mono text-[9.5px] sm:text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded-full shrink-0">
+                    TURNSTILE MITIGATION
                   </span>
                 </div>
 
-                <div className="max-w-md mx-auto w-full rounded-2xl border border-white/10 bg-bg-card/90 p-6 shadow-2xl backdrop-blur-xl">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-[14px] font-semibold">Cloudflare Turnstile Verification</span>
-                    <span className="font-mono text-[10px] text-text-dim">ID: cf_90f2a</span>
+                <div className="max-w-md mx-auto w-full rounded-xl sm:rounded-2xl border border-white/10 bg-bg-card/90 p-4 sm:p-6 shadow-2xl backdrop-blur-xl my-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[12.5px] sm:text-[14px] font-semibold">Cloudflare Turnstile Verification</span>
+                    <span className="font-mono text-[9.5px] text-text-dim">ID: cf_90f2a</span>
                   </div>
 
-                  <div className="rounded-xl border border-border p-4 bg-bg-sunken/80 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="rounded-lg sm:rounded-xl border border-border p-3 sm:p-4 bg-bg-sunken/80 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                       {scrubPercent < 60 ? (
-                        <div className="h-6 w-6 rounded-md border-2 border-accent border-t-transparent animate-spin" />
+                        <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-md border-2 border-accent border-t-transparent animate-spin shrink-0" />
                       ) : (
-                        <div className="h-6 w-6 rounded-md bg-accent text-bg flex items-center justify-center">
-                          <Check size={15} strokeWidth={3} />
+                        <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-md bg-accent text-bg flex items-center justify-center shrink-0">
+                          <Check size={14} strokeWidth={3} />
                         </div>
                       )}
-                      <div>
-                        <p className="text-[12.5px] font-medium text-text">
+                      <div className="min-w-0">
+                        <p className="text-[11.5px] sm:text-[12.5px] font-medium text-text truncate">
                           {scrubPercent < 30
-                            ? 'Analyzing challenge parameters...'
+                            ? 'Analyzing challenge...'
                             : scrubPercent < 60
-                            ? 'Synthesizing hardware gesture token...'
+                            ? 'Synthesizing gesture token...'
                             : 'Challenge Verified (340ms)'}
                         </p>
-                        <p className="text-[10px] text-text-dim font-mono">
-                          Fingerprint: Byte-identical seed 0x39a1fe
+                        <p className="text-[9.5px] sm:text-[10px] text-text-dim font-mono truncate">
+                          Seed: 0x39a1fe
                         </p>
                       </div>
                     </div>
-                    <span className="font-mono text-[11px] text-accent font-semibold">
+                    <span className="font-mono text-[10px] sm:text-[11px] text-accent font-semibold shrink-0">
                       {scrubPercent < 60 ? 'SOLVING' : 'SUCCESS'}
                     </span>
                   </div>
-
-                  <div className="mt-4 text-[11px] text-text-dim flex justify-between">
-                    <span>Autonomous solver bypass</span>
-                    <span className="text-accent font-mono">Latency: 340ms</span>
-                  </div>
                 </div>
 
-                <div className="font-mono text-[11px] text-text-muted flex items-center justify-between">
-                  <span>Agent Action: Bypassed autonomously. Continuing pipeline.</span>
-                  <span className="text-accent">Evasion Score: 99.8%</span>
+                <div className="font-mono text-[10px] sm:text-[11px] text-text-muted flex items-center justify-between gap-2">
+                  <span className="truncate">Autonomous solver bypass</span>
+                  <span className="text-accent shrink-0">Score: 99.8%</span>
                 </div>
               </div>
             ) : activeTab === 2 ? (
               /* Tab 2: Live Takeover Video Simulation */
-              <div className="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#15131a] to-[#0c0c0a] text-left">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2 font-mono text-[12px] text-indigo">
-                    <Radio size={16} className="text-indigo animate-pulse" />
-                    <span>Sub-Second Live Stream Takeover</span>
+              <div className="w-full h-full p-4 sm:p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#15131a] to-[#0c0c0a] text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5 gap-2">
+                  <div className="flex items-center gap-2 font-mono text-[11px] sm:text-[12px] text-indigo truncate">
+                    <Radio size={15} className="text-indigo animate-pulse shrink-0" />
+                    <span className="truncate">Live Stream Takeover</span>
                   </div>
-                  <span className="font-mono text-[11px] text-yellow bg-yellow/10 px-2 py-0.5 rounded-full">
-                    2FA HUMAN HANDOFF
+                  <span className="font-mono text-[9.5px] sm:text-[11px] text-yellow bg-yellow/10 px-2 py-0.5 rounded-full shrink-0">
+                    2FA HANDOFF
                   </span>
                 </div>
 
-                <div className="max-w-lg mx-auto w-full rounded-2xl border border-white/10 bg-bg-card/90 p-6 shadow-2xl backdrop-blur-xl">
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-[14px] font-semibold">Okta Verify / Google Passkey Prompt</span>
-                    <span className="rounded-full bg-yellow/15 text-yellow px-2 py-0.5 text-[10px] font-mono">
-                      AWAITING CONFIRMATION
+                <div className="max-w-lg mx-auto w-full rounded-xl sm:rounded-2xl border border-white/10 bg-bg-card/90 p-4 sm:p-6 shadow-2xl backdrop-blur-xl my-auto">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[12.5px] sm:text-[14px] font-semibold">Okta Verify / Google Passkey Prompt</span>
+                    <span className="rounded-full bg-yellow/15 text-yellow px-2 py-0.2 text-[9.5px] font-mono">
+                      PENDING
                     </span>
                   </div>
-                  <p className="text-[12px] text-text-muted mb-4 leading-relaxed">
-                    Agent encountered high-risk security prompt. Sub-second interactive stream activated. Click below to approve on behalf of agent:
+                  <p className="text-[11px] sm:text-[12px] text-text-muted mb-3 leading-relaxed">
+                    2FA prompt detected. Sub-second interactive stream activated. Click to approve:
                   </p>
 
-                  <div className="flex items-center justify-center gap-4 py-3">
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="rounded-xl bg-accent px-5 py-2.5 text-[13px] font-semibold text-bg flex items-center gap-2 shadow-lg"
+                  <div className="flex items-center justify-center gap-4 py-2">
+                    <button
+                      className="rounded-lg sm:rounded-xl bg-accent px-4 py-2 sm:px-5 sm:py-2.5 text-[12px] sm:text-[13px] font-semibold text-bg flex items-center gap-2 shadow-lg"
                     >
-                      <MousePointer size={15} />
+                      <MousePointer size={14} />
                       Approve with Passkey (Human Click)
-                    </motion.button>
+                    </button>
                   </div>
-
-                  <p className="text-[11px] text-center text-text-dim mt-3 font-mono">
-                    Handoff latency: 18ms · Session cookies encrypted & synced
-                  </p>
                 </div>
 
-                <div className="font-mono text-[11px] text-text-muted flex items-center justify-between">
-                  <span>Handoff status: Human approved. Control handed back to agent.</span>
-                  <span className="text-accent">Zero Token Leaks</span>
+                <div className="font-mono text-[10px] sm:text-[11px] text-text-muted flex items-center justify-between gap-2">
+                  <span className="truncate">Handoff status: Approved by operator</span>
+                  <span className="text-accent shrink-0">0 Leaks</span>
                 </div>
               </div>
             ) : (
               /* Tab 3: Failover Simulation */
-              <div className="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#101413] to-[#0c0c0a] text-left">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                  <div className="flex items-center gap-2 font-mono text-[12px] text-accent">
-                    <Network size={16} className="text-accent" />
-                    <span>Dynamic Routing Matrix · Zero-Rewrite Resilience</span>
+              <div className="w-full h-full p-4 sm:p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#101413] to-[#0c0c0a] text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2.5 gap-2">
+                  <div className="flex items-center gap-2 font-mono text-[11px] sm:text-[12px] text-accent truncate">
+                    <Network size={15} className="text-accent shrink-0" />
+                    <span className="truncate">Dynamic Routing Matrix</span>
                   </div>
-                  <span className="font-mono text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded-full">
-                    FAILOVER EVENT: 14ms
+                  <span className="font-mono text-[9.5px] sm:text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded-full shrink-0">
+                    FAILOVER: 14ms
                   </span>
                 </div>
 
-                <div className="grid sm:grid-cols-2 gap-4 max-w-xl mx-auto w-full my-auto">
-                  <div className="rounded-xl border border-red/40 bg-red/[0.04] p-4">
-                    <div className="flex items-center justify-between text-[11px] font-mono mb-2 text-red">
-                      <span>PROVIDER A (Browserbase)</span>
-                      <XCircle size={14} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto w-full my-auto">
+                  <div className="rounded-lg sm:rounded-xl border border-red/40 bg-red/[0.04] p-3 sm:p-4">
+                    <div className="flex items-center justify-between text-[10.5px] font-mono mb-1 text-red">
+                      <span>RUNNER A (Browserbase)</span>
+                      <XCircle size={13} />
                     </div>
-                    <p className="text-[13px] font-semibold text-text">HTTP 502 / Rate Limited</p>
-                    <p className="mt-1 text-[11px] text-text-dim">Upstream timeout detected in 4ms.</p>
+                    <p className="text-[12px] sm:text-[13px] font-semibold text-text">HTTP 502 Timeout</p>
+                    <p className="text-[10px] sm:text-[11px] text-text-dim">Detected in 4ms.</p>
                   </div>
 
-                  <div className="rounded-xl border border-accent/60 bg-accent/[0.08] p-4 shadow-[0_0_20px_rgba(57,237,53,0.15)]">
-                    <div className="flex items-center justify-between text-[11px] font-mono mb-2 text-accent">
-                      <span>AUTO-ROUTED: Steel Runner</span>
-                      <CheckCircle2 size={14} />
+                  <div className="rounded-lg sm:rounded-xl border border-accent/60 bg-accent/[0.08] p-3 sm:p-4 shadow-[0_0_20px_rgba(57,237,53,0.15)]">
+                    <div className="flex items-center justify-between text-[10.5px] font-mono mb-1 text-accent">
+                      <span>AUTO-ROUTED: Steel</span>
+                      <CheckCircle2 size={13} />
                     </div>
-                    <p className="text-[13px] font-semibold text-text">Session Resumed · 14ms</p>
-                    <p className="mt-1 text-[11px] text-text-dim">Zero dropped CDP commands. Agent unaffected.</p>
+                    <p className="text-[12px] sm:text-[13px] font-semibold text-text">Resumed · 14ms</p>
+                    <p className="text-[10px] sm:text-[11px] text-text-dim">Zero lost commands.</p>
                   </div>
                 </div>
 
-                <div className="font-mono text-[11px] text-text-muted flex items-center justify-between">
-                  <span>Routing Strategy: Automatic Priority Failover</span>
-                  <span className="text-accent">Available Runners: 4 Healthy</span>
+                <div className="font-mono text-[10px] sm:text-[11px] text-text-muted flex items-center justify-between gap-2">
+                  <span className="truncate">Auto-failover active</span>
+                  <span className="text-accent shrink-0">Runners: 4 Healthy</span>
                 </div>
               </div>
             )}
           </div>
 
           {/* Bottom Timeline & Controls Bar */}
-          <div className="border-t border-border/70 bg-bg-elevated/80 px-5 py-3 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="border-t border-border/70 bg-bg-elevated/80 px-4 py-2.5 sm:px-5 sm:py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <button
                 onClick={() => setIsPlaying(!isPlaying)}
-                className="btn-icon text-text hover:text-accent"
+                className="btn-icon text-text hover:text-accent h-7 w-7"
                 aria-label={isPlaying ? 'Pause demonstration' : 'Play demonstration'}
               >
-                {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+                {isPlaying ? <Pause size={14} /> : <Play size={14} />}
               </button>
               <button
                 onClick={() => setScrubPercent(0)}
-                className="btn-icon text-text-dim hover:text-text"
+                className="btn-icon text-text-dim hover:text-text h-7 w-7"
                 aria-label="Restart demonstration"
               >
-                <RotateCcw size={14} />
+                <RotateCcw size={13} />
               </button>
-              <span className="text-[12px] text-text-muted font-mono">{scenes[activeTab].desc}</span>
+              <span className="hidden sm:inline-block text-[11px] sm:text-[12px] text-text-muted font-mono truncate max-w-[200px] sm:max-w-md">
+                {scenes[activeTab].desc}
+              </span>
             </div>
 
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-between sm:justify-end">
               {activeTab !== 0 && (
-                <div className="w-full sm:w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div className="w-28 sm:w-44 h-1.5 rounded-full bg-white/10 overflow-hidden">
                   <div
                     className="h-full bg-accent transition-all duration-150"
                     style={{ width: `${scrubPercent}%` }}
                   />
                 </div>
               )}
-              <Link href="/dashboard" className="btn-primary h-8 px-3 text-[11.5px]">
-                Try in console <ArrowRight size={13} />
+              <Link href="/dashboard" className="btn-primary h-7 sm:h-8 px-3 text-[11px] sm:text-[11.5px]">
+                Try in console <ArrowRight size={12} />
               </Link>
             </div>
           </div>
@@ -734,7 +733,7 @@ function VideoMotionStudio() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Interactive Live Code Snippet Tester
+   Interactive Live Code Snippet Tester (Mobile Optimized)
 ───────────────────────────────────────────────────────────────────────────── */
 function CodeSnippetTester() {
   const [example, setExample] = useState(0);
@@ -776,9 +775,9 @@ function CodeSnippetTester() {
 
   return (
     <div className="min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-bg-card shadow-2xl">
-      {/* Code Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-2.5 bg-bg-elevated/60">
-        <div role="tablist" aria-label="Integration language" className="flex gap-1 overflow-x-auto">
+      {/* Code Header with Horizontal Scroll Tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/70 p-2.5 sm:px-3 sm:py-2 bg-bg-elevated/60 gap-2">
+        <div role="tablist" aria-label="Integration language" className="flex gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           {examples.map((item, i) => (
             <button
               key={item.label}
@@ -793,7 +792,7 @@ function CodeSnippetTester() {
                 setTestComplete(false);
                 setActiveStep(0);
               }}
-              className={`rounded-lg px-3 py-1.5 text-[12px] whitespace-nowrap transition-all duration-150 ${
+              className={`rounded-lg px-2.5 py-1.5 text-[11.5px] sm:text-[12px] whitespace-nowrap transition-all duration-150 shrink-0 ${
                 example === i
                   ? 'bg-text/10 text-text font-semibold border border-border/60'
                   : 'text-text-dim hover:text-text hover:bg-text/5'
@@ -804,11 +803,11 @@ function CodeSnippetTester() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between sm:justify-end gap-2 pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40">
           <button
             onClick={runSnippetTest}
             disabled={isTesting}
-            className={`btn-base h-7 px-3 text-[11.5px] rounded-md transition-all ${
+            className={`btn-base h-7 px-3 text-[11px] sm:text-[11.5px] rounded-md transition-all ${
               isTesting
                 ? 'bg-accent/20 text-accent cursor-wait'
                 : testComplete
@@ -837,27 +836,27 @@ function CodeSnippetTester() {
           <button
             aria-label="Copy example"
             onClick={copyCode}
-            className="btn-icon shrink-0 text-text-dim hover:text-text"
+            className="btn-icon shrink-0 text-text-dim hover:text-text h-7 w-7"
           >
-            {copied ? <Check size={14} className="text-accent" /> : <Copy size={14} />}
+            {copied ? <Check size={13} className="text-accent" /> : <Copy size={13} />}
           </button>
         </div>
       </div>
 
       {/* Code Editor Body */}
       <div id="integration-code" role="tabpanel" aria-label={snippet.label}>
-        <div className="px-5 pt-3 font-mono text-[10.5px] text-text-dim flex items-center justify-between border-b border-border/40 pb-2">
+        <div className="px-4 py-2 sm:px-5 sm:pt-3 font-mono text-[10px] sm:text-[10.5px] text-text-dim flex items-center justify-between border-b border-border/40">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-accent/70" />
-            <span>{snippet.file}</span>
+            <span className="h-2 w-2 rounded-full bg-accent/70 shrink-0" />
+            <span className="truncate">{snippet.file}</span>
           </div>
-          {copied && <span className="text-accent text-[11px] font-sans">Copied to clipboard!</span>}
+          {copied && <span className="text-accent text-[11px] font-sans">Copied!</span>}
         </div>
-        <pre className="min-h-[260px] overflow-x-auto p-5 font-mono text-[12.5px] leading-[1.85]">
+        <pre className="min-h-[220px] sm:min-h-[260px] overflow-x-auto p-4 sm:p-5 font-mono text-[11.5px] sm:text-[12.5px] leading-[1.85]">
           <SyntaxCode code={snippet.code} language={snippet.language} />
         </pre>
       </div>
-      {copyError && <p role="status" className="px-5 pb-4 text-xs text-text-muted">{copyError}</p>}
+      {copyError && <p role="status" className="px-4 pb-3 text-xs text-text-muted">{copyError}</p>}
 
       {/* Interactive Live Execution Sandbox */}
       <AnimatePresence>
@@ -868,18 +867,18 @@ function CodeSnippetTester() {
             exit={{ opacity: 0, height: 0 }}
             className="border-t border-border/80 bg-bg-sunken/95 overflow-hidden"
           >
-            <div className="flex items-center justify-between border-b border-border/60 px-4 py-2 bg-bg-elevated/70">
-              <div className="flex items-center gap-2">
-                <span className="flex h-2 w-2 rounded-full bg-accent animate-pulse" />
-                <span className="font-mono text-[11px] font-semibold text-text">
-                  SANDBOX TEST RESULTS
+            <div className="flex flex-wrap items-center justify-between border-b border-border/60 px-3 py-2 sm:px-4 bg-bg-elevated/70 gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex h-2 w-2 rounded-full bg-accent animate-pulse shrink-0" />
+                <span className="font-mono text-[10.5px] sm:text-[11px] font-semibold text-text truncate">
+                  SANDBOX RESULTS
                 </span>
                 <span
-                  className={`ml-2 rounded px-2 py-0.5 text-[9.5px] font-mono ${
+                  className={`rounded px-1.5 py-0.2 text-[9px] sm:text-[9.5px] font-mono ${
                     testComplete ? 'bg-accent/15 text-accent font-bold' : 'bg-yellow/15 text-yellow'
                   }`}
                 >
-                  {testComplete ? '✓ ALL CHECKS PASSED (340ms)' : 'EXECUTING SNIPPET...'}
+                  {testComplete ? '✓ ALL CHECKS PASSED' : 'EXECUTING...'}
                 </span>
               </div>
 
@@ -888,7 +887,7 @@ function CodeSnippetTester() {
                   <button
                     key={v}
                     onClick={() => setTestView(v)}
-                    className={`px-2.5 py-0.8 rounded text-[10.5px] font-mono transition-colors ${
+                    className={`px-2 py-0.5 rounded text-[9.5px] sm:text-[10px] font-mono transition-colors ${
                       testView === v ? 'bg-text/10 text-text font-bold' : 'text-text-dim hover:text-text'
                     }`}
                   >
@@ -898,7 +897,7 @@ function CodeSnippetTester() {
               </div>
             </div>
 
-            <div className="p-4 font-mono text-[11px] leading-relaxed max-h-56 overflow-y-auto">
+            <div className="p-3 sm:p-4 font-mono text-[10.5px] sm:text-[11px] leading-relaxed max-h-56 overflow-y-auto">
               {testView === 'logs' && (
                 <div className="space-y-1.5">
                   {snippet.testSteps.slice(0, activeStep).map((s, idx) => (
@@ -906,34 +905,34 @@ function CodeSnippetTester() {
                       key={idx}
                       initial={{ opacity: 0, x: -6 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className="flex items-start gap-2.5 text-text-secondary"
+                      className="flex items-start gap-2 text-text-secondary"
                     >
                       <CheckCircle2 size={12} className="text-accent shrink-0 mt-0.5" />
-                      <span className="text-text-dim text-[10px] w-12">{s.time}</span>
-                      <span className="text-text font-mono">{s.text}</span>
+                      <span className="text-text-dim text-[9.5px] w-10 shrink-0">{s.time}</span>
+                      <span className="text-text font-mono break-words">{s.text}</span>
                     </motion.div>
                   ))}
                   {isTesting && (
                     <div className="flex items-center gap-2 text-text-dim pt-1">
-                      <RefreshCw size={11} className="animate-spin text-accent" />
-                      <span>Negotiating browser commands with gateway...</span>
+                      <RefreshCw size={10} className="animate-spin text-accent shrink-0" />
+                      <span className="truncate">Negotiating browser commands...</span>
                     </div>
                   )}
                 </div>
               )}
 
               {testView === 'output' && (
-                <pre className="text-text-secondary whitespace-pre-wrap leading-relaxed text-[11.5px]">
+                <pre className="text-text-secondary whitespace-pre-wrap leading-relaxed text-[11px] sm:text-[11.5px] break-words">
                   {snippet.mockResult}
                 </pre>
               )}
 
               {testView === 'telemetry' && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                   {Object.entries(snippet.telemetry).map(([k, val]) => (
-                    <div key={k} className="rounded-lg border border-border/70 bg-bg-card p-2.5">
-                      <div className="text-[10px] text-text-dim uppercase tracking-wider">{k}</div>
-                      <div className="text-[13px] font-semibold text-accent mt-0.5">{val}</div>
+                    <div key={k} className="rounded-lg border border-border/70 bg-bg-card p-2 sm:p-2.5">
+                      <div className="text-[9.5px] text-text-dim uppercase tracking-wider">{k}</div>
+                      <div className="text-[12px] sm:text-[13px] font-semibold text-accent mt-0.5">{val}</div>
                     </div>
                   ))}
                 </div>
@@ -1004,7 +1003,7 @@ export default function Home() {
     <div className="marketing-page min-h-screen bg-bg text-text selection:bg-accent/20">
       {/* Header with Floating Glass Aesthetics */}
       <header className="sticky top-0 z-40 border-b border-border/80 bg-bg/90 backdrop-blur-xl">
-        <div className="site-width flex h-[72px] items-center justify-between gap-5">
+        <div className="site-width flex h-[72px] items-center justify-between gap-4">
           <OyaWordmark />
           <nav
             aria-label="Main navigation"
@@ -1021,11 +1020,11 @@ export default function Home() {
             <a href="#developers" className="hover:text-text transition-colors">Developers</a>
             <Link href="/docs" className="hover:text-text transition-colors">Documentation</Link>
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <ThemeToggle />
             <Link
               href="/dashboard"
-              className="btn-primary h-9 px-4 text-[12px] font-semibold flex items-center gap-1.5 group"
+              className="btn-primary h-9 px-3.5 sm:px-4 text-[12px] font-semibold flex items-center gap-1.5 group"
             >
               Open console
               <ArrowUpRight size={13} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
@@ -1045,7 +1044,7 @@ export default function Home() {
         {menuOpen && (
           <nav
             aria-label="Mobile navigation"
-            className="site-width flex flex-col gap-4 border-t border-border/80 py-5 text-sm md:hidden"
+            className="site-width flex flex-col gap-3.5 border-t border-border/80 py-5 text-sm md:hidden"
           >
             <a href="#product" onClick={() => setMenuOpen(false)}>Product</a>
             <a href="#architecture" onClick={() => setMenuOpen(false)}>Architecture</a>
@@ -1053,7 +1052,7 @@ export default function Home() {
             <a href="#video-studio" onClick={() => setMenuOpen(false)}>Video & Motion Showcase</a>
             <a href="#developers" onClick={() => setMenuOpen(false)}>Developers & Code Tester</a>
             <Link href="/docs">Documentation</Link>
-            <Link href="/dashboard" className="btn-primary h-10 text-[13px] justify-center mt-2">
+            <Link href="/dashboard" className="btn-primary h-10 text-[13px] justify-center mt-2 font-semibold">
               Open console <ArrowRight size={14} />
             </Link>
           </nav>
@@ -1062,20 +1061,21 @@ export default function Home() {
 
       <main>
         {/* ─── Hero Section ─── */}
-        <section className="relative site-width pt-16 pb-14 sm:pt-24 sm:pb-20">
+        <section className="relative site-width pt-12 pb-12 sm:pt-24 sm:pb-20">
           {/* Subtle Ambient Radial Glowing Aura */}
           <div
             className="pointer-events-none absolute -top-20 left-1/2 -translate-x-1/2 h-[450px] w-full max-w-5xl rounded-full bg-[radial-gradient(ellipse_at_center,rgba(57,237,53,0.12)_0%,rgba(108,180,255,0.04)_45%,transparent_70%)] blur-3xl -z-10"
             aria-hidden="true"
           />
 
-          <div className="grid items-end gap-10 lg:grid-cols-[1.3fr_1fr] lg:gap-16">
+          <div className="grid items-end gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-16">
             <div>
-              <div className="eyebrow mb-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-bg-card/80 px-3.5 py-1.5 text-text-muted backdrop-blur-md">
-                <span className="h-2 w-2 rounded-full bg-accent animate-ping" />
-                <span className="text-text font-semibold">The Universal Browser Control Plane</span>
+              {/* Responsive Eyebrow Badge (No awkward multi-line break on small phones) */}
+              <div className="eyebrow mb-5 sm:mb-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-bg-card/80 px-3 py-1.5 text-text-muted backdrop-blur-md max-w-full">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping shrink-0" />
+                <span className="text-text font-semibold truncate">Browser Control Plane</span>
                 <span className="text-text-dim">·</span>
-                <span className="text-accent font-mono">1,000+ FLEET READY</span>
+                <span className="text-accent font-mono shrink-0">1,000+ FLEET</span>
               </div>
 
               {/* Exact H1 text for testing and brand positioning */}
@@ -1084,41 +1084,41 @@ export default function Home() {
                 The whole <span className="text-accent">web.</span>
               </h1>
 
-              <p className="mt-5 text-xl font-medium text-text-secondary sm:text-2xl">
+              <p className="mt-4 sm:mt-5 text-lg sm:text-2xl font-medium text-text-secondary leading-snug">
                 Stop building on <span className="text-text-dim line-through">dumb browsers</span>. Orchestrate your fleet.
               </p>
             </div>
 
             <div className="pb-1 lg:max-w-[420px]">
-              <p className="text-[16px] leading-[1.8] text-text-muted">
+              <p className="text-[15px] sm:text-[16px] leading-[1.75] text-text-muted">
                 Browserbase, Steel, Anchor, and Browser Use run isolated browsers. Oya is the{' '}
                 <strong className="text-text font-semibold">Control Plane</strong> sitting above them:
                 deterministic personas, zero-rewrite failover, desktop auth pairing, and live sub-second fleet orchestration.
               </p>
 
-              <div className="mt-8 flex flex-wrap items-center gap-4">
+              <div className="mt-6 sm:mt-8 flex flex-wrap items-center gap-3.5 sm:gap-4">
                 <Link
                   href="/dashboard"
-                  className="btn-primary h-12 px-6 text-[14px] font-semibold flex items-center gap-2 shadow-[0_0_32px_rgba(57,237,53,0.3)] hover:shadow-[0_0_42px_rgba(57,237,53,0.45)] transition-all"
+                  className="btn-primary h-11 sm:h-12 px-5 sm:px-6 text-[13.5px] sm:text-[14px] font-semibold flex items-center gap-2 shadow-[0_0_32px_rgba(57,237,53,0.3)] hover:shadow-[0_0_42px_rgba(57,237,53,0.45)] transition-all"
                 >
                   Start building
                   <ArrowRight size={15} />
                 </Link>
-                <a href="#comparison" className="btn-ghost h-12 px-5 text-[13px] font-medium">
+                <a href="#comparison" className="btn-ghost h-11 sm:h-12 px-4 sm:px-5 text-[12.5px] sm:text-[13px] font-medium">
                   The 10x difference
                 </a>
                 <Link
                   href="/docs"
-                  className="inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-accent ml-1"
+                  className="inline-flex items-center gap-1 text-[12.5px] sm:text-[13px] font-medium text-text-muted hover:text-accent ml-1"
                 >
-                  Read the docs <ArrowUpRight size={14} />
+                  Read the docs <ArrowUpRight size={13} />
                 </Link>
               </div>
             </div>
           </div>
 
           {/* Real-time Telemetry KPI Strip */}
-          <div className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+          <div className="mt-10 sm:mt-12 grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-4">
             {[
               { val: '99.99%', label: 'Fleet availability', note: 'Multi-provider active failover' },
               { val: '< 14ms', label: 'Global gateway routing', note: 'Native CDP & MCP transport' },
@@ -1127,26 +1127,26 @@ export default function Home() {
             ].map((k) => (
               <div
                 key={k.label}
-                className="rounded-xl border border-border/70 bg-bg-card/60 p-4 backdrop-blur-md hover:border-accent/30 transition-colors"
+                className="rounded-xl border border-border/70 bg-bg-card/60 p-3.5 sm:p-4 backdrop-blur-md hover:border-accent/30 transition-colors"
               >
-                <div className="text-[22px] font-bold tracking-tight text-accent font-mono">{k.val}</div>
-                <div className="text-[12.5px] font-semibold text-text mt-0.5">{k.label}</div>
-                <div className="text-[10.5px] text-text-dim mt-0.5">{k.note}</div>
+                <div className="text-[19px] sm:text-[22px] font-bold tracking-tight text-accent font-mono">{k.val}</div>
+                <div className="text-[11.5px] sm:text-[12.5px] font-semibold text-text mt-0.5 truncate">{k.label}</div>
+                <div className="text-[10px] sm:text-[10.5px] text-text-dim mt-0.5 truncate">{k.note}</div>
               </div>
             ))}
           </div>
 
           {/* Interactive Console Preview */}
-          <div id="product" className="mt-14 scroll-mt-24 sm:mt-16">
+          <div id="product" className="mt-12 scroll-mt-24 sm:mt-16">
             <ProductPreview />
           </div>
 
           {/* Supported Runners Strip */}
-          <div className="mt-7 flex flex-wrap items-center justify-between gap-x-7 gap-y-4 text-[12px] text-text-muted">
+          <div className="mt-6 sm:mt-7 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[11.5px] sm:text-[12px] text-text-muted">
             <span className="eyebrow text-text-dim">One Control Plane. Every Execution Target:</span>
             {['Oya Cloud Sandboxes', 'Browserbase', 'Steel', 'Anchor', 'Browser Use', 'Self-Hosted Chrome'].map((p) => (
               <span key={p} className="flex items-center gap-1.5 font-medium text-text-secondary">
-                <CheckCircle2 size={13} className="text-accent" />
+                <CheckCircle2 size={13} className="text-accent shrink-0" />
                 {p}
               </span>
             ))}
@@ -1157,26 +1157,26 @@ export default function Home() {
         <section id="architecture" className="site-width section-space scroll-mt-20 border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
             <div>
-              <p className="eyebrow mb-4 text-accent">Control Plane Architecture</p>
+              <p className="eyebrow mb-3 sm:mb-4 text-accent">Control Plane Architecture</p>
               <h2 className="marketing-heading max-w-sm">
                 The missing layer in AI browser infrastructure.
               </h2>
             </div>
-            <p className="max-w-xl text-[17px] leading-[1.75] text-text-muted lg:pt-9">
+            <p className="max-w-xl text-[15px] sm:text-[17px] leading-[1.75] text-text-muted lg:pt-9">
               Don&apos;t hardcode your agents to a single cloud runner. Oya sits between your agents and whoever executes the browsers, solving identity, authentication, challenge handling, and failover in one place.
             </p>
           </div>
 
           {/* Visual Architecture Diagram */}
-          <div className="mt-12 rounded-3xl border border-border/80 bg-bg-card/70 p-6 md:p-10 backdrop-blur-md">
+          <div className="mt-10 sm:mt-12 rounded-2xl sm:rounded-3xl border border-border/80 bg-bg-card/70 p-5 sm:p-10 backdrop-blur-md">
             {/* Top Layer: Agents & Frameworks */}
             <div className="text-center">
               <span className="eyebrow text-text-dim">Layer 1: Your Agents & Frameworks</span>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-2.5">
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
                 {['Claude Code', 'Cursor', 'Playwright', 'Puppeteer', 'Stagehand', 'browser-use', 'LangChain'].map((item) => (
                   <span
                     key={item}
-                    className="rounded-lg border border-border/80 bg-bg-sunken px-3.5 py-1.5 font-mono text-[12px] font-medium text-text hover:border-accent/40 transition-colors"
+                    className="rounded-lg border border-border/80 bg-bg-sunken px-2.5 py-1 sm:px-3.5 sm:py-1.5 font-mono text-[11px] sm:text-[12px] font-medium text-text hover:border-accent/40 transition-colors"
                   >
                     {item}
                   </span>
@@ -1185,81 +1185,81 @@ export default function Home() {
             </div>
 
             {/* Connecting Pipe */}
-            <div className="my-5 flex flex-col items-center justify-center">
-              <div className="h-6 w-px bg-accent/60" />
-              <span className="rounded-full bg-accent/10 border border-accent/25 px-4 py-1 font-mono text-[10px] text-accent font-semibold tracking-wide">
+            <div className="my-4 sm:my-5 flex flex-col items-center justify-center">
+              <div className="h-5 sm:h-6 w-px bg-accent/60" />
+              <span className="rounded-full bg-accent/10 border border-accent/25 px-3 py-1 font-mono text-[9px] sm:text-[10px] text-accent font-semibold tracking-wide text-center">
                 Universal Protocols: CDP (/connect) · MCP (/mcp) · TS SDK · CLI · REST
               </span>
-              <div className="h-6 w-px bg-accent/60" />
+              <div className="h-5 sm:h-6 w-px bg-accent/60" />
             </div>
 
             {/* Middle Layer - OYA CONTROL PLANE */}
-            <div className="rounded-2xl border-2 border-accent/40 bg-accent/[0.04] p-6 md:p-8 relative beam-effect">
-              <div className="flex items-center justify-between border-b border-accent/20 pb-4 mb-6">
-                <div className="flex items-center gap-2.5">
-                  <OyaLogo size={22} />
-                  <span className="text-[16px] font-bold tracking-tight">OYA BROWSER CONTROL PLANE</span>
+            <div className="rounded-xl sm:rounded-2xl border-2 border-accent/40 bg-accent/[0.04] p-4 sm:p-8 relative beam-effect">
+              <div className="flex flex-wrap items-center justify-between border-b border-accent/20 pb-3 sm:pb-4 mb-4 sm:mb-6 gap-2">
+                <div className="flex items-center gap-2">
+                  <OyaLogo size={20} />
+                  <span className="text-[14px] sm:text-[16px] font-bold tracking-tight">OYA BROWSER CONTROL PLANE</span>
                 </div>
                 <span className="eyebrow text-accent font-semibold">Core Orchestration Engine</span>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
-                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
-                    <Network size={16} className="text-accent" />
+              <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13px] sm:text-[13.5px] font-semibold mb-1 text-text">
+                    <Network size={15} className="text-accent shrink-0" />
                     Unified Router & Failover
                   </div>
-                  <p className="text-[12px] text-text-muted leading-relaxed">
+                  <p className="text-[11.5px] sm:text-[12px] text-text-muted leading-relaxed">
                     Set provider priorities and capacities. Automatic zero-rewrite failover when a vendor throttles or fails.
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
-                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
-                    <Fingerprint size={16} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13px] sm:text-[13.5px] font-semibold mb-1 text-text">
+                    <Fingerprint size={15} className="text-accent shrink-0" />
                     Deterministic Personas
                   </div>
-                  <p className="text-[12px] text-text-muted leading-relaxed">
+                  <p className="text-[11.5px] sm:text-[12px] text-text-muted leading-relaxed">
                     Mathematically seeded byte-identical fingerprints across restarts. Bound to cookie jars and pinned proxies.
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
-                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
-                    <KeyRound size={16} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13px] sm:text-[13.5px] font-semibold mb-1 text-text">
+                    <KeyRound size={15} className="text-accent shrink-0" />
                     Sign-In-Once Desktop Pairing
                   </div>
-                  <p className="text-[12px] text-text-muted leading-relaxed">
+                  <p className="text-[11.5px] sm:text-[12px] text-text-muted leading-relaxed">
                     Sign into sites on real desktop Chrome with passkeys; cookies cryptographically sync to cloud agent personas.
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
-                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
-                    <Sliders size={16} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13px] sm:text-[13.5px] font-semibold mb-1 text-text">
+                    <Sliders size={15} className="text-accent shrink-0" />
                     Two-Tier Challenges
                   </div>
-                  <p className="text-[12px] text-text-muted leading-relaxed">
+                  <p className="text-[11.5px] sm:text-[12px] text-text-muted leading-relaxed">
                     Native CAPTCHA delegation + solver fallback + automated TOTP/SMS relay + human takeover handoffs.
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
-                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
-                    <Monitor size={16} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13px] sm:text-[13.5px] font-semibold mb-1 text-text">
+                    <Monitor size={15} className="text-accent shrink-0" />
                     Interactive Live Takeover
                   </div>
-                  <p className="text-[12px] text-text-muted leading-relaxed">
+                  <p className="text-[11.5px] sm:text-[12px] text-text-muted leading-relaxed">
                     Sub-second SSE live stream with real click/keyboard input. Humans step in when 2FA hits; agents resume.
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
-                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
-                    <ShieldCheck size={16} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13px] sm:text-[13.5px] font-semibold mb-1 text-text">
+                    <ShieldCheck size={15} className="text-accent shrink-0" />
                     Fleet Governance & Audit
                   </div>
-                  <p className="text-[12px] text-text-muted leading-relaxed">
+                  <p className="text-[11.5px] sm:text-[12px] text-text-muted leading-relaxed">
                     1,000+ browser console, hourly spend attribution per tenant key, Prometheus metrics (/metrics), immutable audit log.
                   </p>
                 </div>
@@ -1267,16 +1267,18 @@ export default function Home() {
             </div>
 
             {/* Connecting Pipe */}
-            <div className="my-5 flex flex-col items-center justify-center">
-              <div className="h-6 w-px bg-border" />
-              <span className="font-mono text-[10px] text-text-dim">Dispatches to underlying execution targets</span>
-              <div className="h-6 w-px bg-border" />
+            <div className="my-4 sm:my-5 flex flex-col items-center justify-center">
+              <div className="h-5 sm:h-6 w-px bg-border" />
+              <span className="font-mono text-[9.5px] sm:text-[10px] text-text-dim text-center">
+                Dispatches to underlying execution targets
+              </span>
+              <div className="h-5 sm:h-6 w-px bg-border" />
             </div>
 
             {/* Bottom Layer: Runners */}
             <div className="text-center">
               <span className="eyebrow text-text-dim">Layer 3: Browser Execution Engines</span>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
                 {[
                   { name: 'Oya Cloud', note: 'Isolated sandboxes' },
                   { name: 'Browserbase', note: 'CDP runner' },
@@ -1287,10 +1289,10 @@ export default function Home() {
                 ].map((item) => (
                   <div
                     key={item.name}
-                    className="rounded-xl border border-border/80 bg-bg-sunken p-3 text-center hover:border-accent/30 transition-colors"
+                    className="rounded-xl border border-border/80 bg-bg-sunken p-2.5 sm:p-3 text-center hover:border-accent/30 transition-colors"
                   >
-                    <div className="text-[12.5px] font-semibold text-text">{item.name}</div>
-                    <div className="text-[10px] text-text-dim mt-0.5">{item.note}</div>
+                    <div className="text-[12px] sm:text-[12.5px] font-semibold text-text">{item.name}</div>
+                    <div className="text-[9.5px] sm:text-[10px] text-text-dim mt-0.5">{item.note}</div>
                   </div>
                 ))}
               </div>
@@ -1298,22 +1300,22 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ─── 10x Comparison Section ─── */}
+        {/* ─── 10x Comparison Section (Desktop Table + Mobile Cards) ─── */}
         <section id="comparison" className="site-width section-space scroll-mt-20 border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
             <div>
-              <p className="eyebrow mb-4 text-accent">The 10x Difference</p>
+              <p className="eyebrow mb-3 sm:mb-4 text-accent">The 10x Difference</p>
               <h2 className="marketing-heading max-w-md">
                 Control Plane vs.<br />Single-Vendor Runners.
               </h2>
             </div>
-            <p className="max-w-xl text-[17px] leading-[1.75] text-text-muted lg:pt-9">
+            <p className="max-w-xl text-[15px] sm:text-[17px] leading-[1.75] text-text-muted lg:pt-9">
               Why build on point solutions like Browserbase, Steel, Anchor, or Browser Use when you can orchestrate them all? Here is how Oya gives you a 10x architectural leap.
             </p>
           </div>
 
-          {/* Comparison Table */}
-          <div className="mt-12 overflow-hidden rounded-2xl border border-border/80 bg-bg-card shadow-2xl">
+          {/* Desktop 3-Column Comparison Table (hidden on small viewports) */}
+          <div className="mt-10 sm:mt-12 hidden md:block overflow-hidden rounded-2xl border border-border/80 bg-bg-card shadow-2xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -1356,24 +1358,62 @@ export default function Home() {
               </table>
             </div>
           </div>
+
+          {/* Mobile Comparison Cards (Clean, Readable & Beautiful on Phones) */}
+          <div className="mt-8 md:hidden space-y-4">
+            {comparisonRows.map((row, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-border/80 bg-bg-card p-4 sm:p-5 shadow-lg space-y-3"
+              >
+                <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                  <span className="text-[13.5px] font-bold text-text">{row.feature}</span>
+                  <span className="rounded-full bg-accent/15 px-2 py-0.2 font-mono text-[9px] text-accent font-bold">
+                    10x
+                  </span>
+                </div>
+
+                {/* Oya Advantage Card */}
+                <div className="rounded-xl border border-accent/40 bg-accent/[0.06] p-3 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-accent uppercase tracking-wider">
+                    <CheckCircle2 size={13} className="text-accent shrink-0" />
+                    Oya Control Plane
+                  </div>
+                  <p className="text-[12px] text-text leading-relaxed font-medium">{row.oya}</p>
+                  <p className="text-[11px] text-accent font-mono font-medium pt-1 border-t border-accent/20">
+                    → {row.advantage}
+                  </p>
+                </div>
+
+                {/* Raw Runners Limitation Card */}
+                <div className="rounded-xl border border-border/60 bg-bg-sunken p-3 space-y-1 text-[11.5px] text-text-muted">
+                  <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-red uppercase tracking-wider">
+                    <XCircle size={12} className="text-red shrink-0" />
+                    Raw Runners (Single Vendor)
+                  </div>
+                  <p className="leading-relaxed">{row.raw}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* ─── Video & Motion Showcase Section ("and animation videos") ─── */}
         <section id="video-studio" className="site-width section-space border-t border-border/80 scroll-mt-16">
-          <div className="flex flex-wrap items-end justify-between gap-5 mb-8">
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-6 sm:mb-8">
             <div>
-              <p className="eyebrow mb-3 text-accent flex items-center gap-2">
+              <p className="eyebrow mb-2 sm:mb-3 text-accent flex items-center gap-2">
                 <Play size={12} className="text-accent" />
                 Video & Motion Showcase
               </p>
               <h2 className="marketing-heading">See the fleet in motion.</h2>
-              <p className="text-[15px] text-text-muted mt-2 max-w-xl">
+              <p className="text-[14px] sm:text-[15px] text-text-muted mt-1.5 sm:mt-2 max-w-xl">
                 Experience real-world walkthroughs and interactive video simulations of autonomous CAPTCHA handling, sub-second live takeover, and provider failover.
               </p>
             </div>
-            <span className="flex items-center gap-2 rounded-full border border-border/80 bg-bg-card px-3.5 py-1.5 font-mono text-[11px] text-text-dim">
-              <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
-              Live interactive video demos
+            <span className="flex items-center gap-2 rounded-full border border-border/80 bg-bg-card px-3 py-1 font-mono text-[10.5px] sm:text-[11px] text-text-dim">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+              Live video & motion demos
             </span>
           </div>
 
@@ -1384,61 +1424,61 @@ export default function Home() {
         <section className="site-width section-space border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
             <div>
-              <p className="eyebrow mb-4 text-accent">Pillars of the Control Plane</p>
+              <p className="eyebrow mb-3 sm:mb-4 text-accent">Pillars of the Control Plane</p>
               <h2 className="marketing-heading max-w-sm">
                 Engineered for fleets that cannot fail.
               </h2>
             </div>
-            <p className="max-w-xl text-[17px] leading-[1.75] text-text-muted lg:pt-9">
+            <p className="max-w-xl text-[15px] sm:text-[17px] leading-[1.75] text-text-muted lg:pt-9">
               Everything built into Oya exists because real production agent fleets break on bot detectors, auth walls, and single-provider outages.
             </p>
           </div>
 
-          <div className="mt-12 grid gap-8 md:grid-cols-3 md:gap-10">
-            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-7 hover:border-accent/40 transition-colors shadow-lg">
-              <div className="mb-6 flex items-center justify-between">
-                <Fingerprint size={26} strokeWidth={1.5} className="text-accent" />
+          <div className="mt-10 sm:mt-12 grid gap-6 sm:gap-8 md:grid-cols-3 md:gap-10">
+            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-5 sm:p-7 hover:border-accent/40 transition-colors shadow-lg">
+              <div className="mb-5 sm:mb-6 flex items-center justify-between">
+                <Fingerprint size={24} strokeWidth={1.5} className="text-accent" />
                 <span className="font-mono text-[10px] text-text-dim">PILLAR 01</span>
               </div>
-              <h3 className="text-[18px] font-semibold tracking-tight text-text">
+              <h3 className="text-[16px] sm:text-[18px] font-semibold tracking-tight text-text">
                 Personas: Device identity, not ephemeral sessions.
               </h3>
-              <p className="mt-3 text-[14px] leading-relaxed text-text-muted">
+              <p className="mt-2.5 sm:mt-3 text-[13px] sm:text-[14px] leading-relaxed text-text-muted">
                 Anti-bot engines look for two telltales: one account seen from 50 device fingerprints (bot farm), or one device seen on 1,000 accounts (device farm).
               </p>
-              <p className="mt-2 text-[14px] leading-relaxed text-text-muted">
+              <p className="mt-2 text-[13px] sm:text-[14px] leading-relaxed text-text-muted">
                 Oya personas bind a mathematically seeded, byte-identical hardware profile to a cookie jar, proxy, and concurrency cap. When your agent returns next week, target sites see the exact same MacBook Pro or Windows desktop returning.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-7 hover:border-accent/40 transition-colors shadow-lg">
-              <div className="mb-6 flex items-center justify-between">
-                <RefreshCw size={26} strokeWidth={1.5} className="text-accent" />
+            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-5 sm:p-7 hover:border-accent/40 transition-colors shadow-lg">
+              <div className="mb-5 sm:mb-6 flex items-center justify-between">
+                <RefreshCw size={24} strokeWidth={1.5} className="text-accent" />
                 <span className="font-mono text-[10px] text-text-dim">PILLAR 02</span>
               </div>
-              <h3 className="text-[18px] font-semibold tracking-tight text-text">
+              <h3 className="text-[16px] sm:text-[18px] font-semibold tracking-tight text-text">
                 Multi-Provider Routing: Zero-rewrite failover.
               </h3>
-              <p className="mt-3 text-[14px] leading-relaxed text-text-muted">
+              <p className="mt-2.5 sm:mt-3 text-[13px] sm:text-[14px] leading-relaxed text-text-muted">
                 Never lock your agent to a single browser vendor. If Browserbase has a regional outage or Steel throttles your quota, your agent should not crash.
               </p>
-              <p className="mt-2 text-[14px] leading-relaxed text-text-muted">
+              <p className="mt-2 text-[13px] sm:text-[14px] leading-relaxed text-text-muted">
                 Oya routes traffic dynamically across providers based on configured priority and session capacity. A failing runner triggers instant failover to the next healthy runner in milliseconds.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-7 hover:border-accent/40 transition-colors shadow-lg">
-              <div className="mb-6 flex items-center justify-between">
-                <KeyRound size={26} strokeWidth={1.5} className="text-accent" />
+            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-5 sm:p-7 hover:border-accent/40 transition-colors shadow-lg">
+              <div className="mb-5 sm:mb-6 flex items-center justify-between">
+                <KeyRound size={24} strokeWidth={1.5} className="text-accent" />
                 <span className="font-mono text-[10px] text-text-dim">PILLAR 03</span>
               </div>
-              <h3 className="text-[18px] font-semibold tracking-tight text-text">
+              <h3 className="text-[16px] sm:text-[18px] font-semibold tracking-tight text-text">
                 Sign In Once: Desktop pairing with passkeys & SSO.
               </h3>
-              <p className="mt-3 text-[14px] leading-relaxed text-text-muted">
+              <p className="mt-2.5 sm:mt-3 text-[13px] sm:text-[14px] leading-relaxed text-text-muted">
                 Automating logins to Google, Okta, or Salesforce with headless scripts fails 90% of the time and triggers fraud alerts.
               </p>
-              <p className="mt-2 text-[14px] leading-relaxed text-text-muted">
+              <p className="mt-2 text-[13px] sm:text-[14px] leading-relaxed text-text-muted">
                 With Oya&apos;s desktop app, a human signs in ONCE using real passkeys, WebAuthn, or phone push MFA. Oya extracts and cryptographically synchronizes the session state to the cloud persona. Your agent wakes up already signed in.
               </p>
             </div>
@@ -1447,24 +1487,24 @@ export default function Home() {
 
         {/* ─── Universal Integration & Interactive Code Snippet Tester ("and test the code snippets") ─── */}
         <section id="developers" className="site-width section-space scroll-mt-16 border-t border-border/80">
-          <div className="grid items-start gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
+          <div className="grid items-start gap-8 sm:gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
             <div>
-              <p className="eyebrow mb-4 text-accent">Universal Integration</p>
+              <p className="eyebrow mb-3 sm:mb-4 text-accent">Universal Integration</p>
               <h2 className="marketing-heading">
                 Zero SDK Lock-In.<br />Speak your own stack.
               </h2>
-              <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-text-muted">
+              <p className="mt-4 sm:mt-5 max-w-sm text-[14px] sm:text-[15px] leading-relaxed text-text-muted">
                 Whether you use standard Playwright over CDP, Claude Code via Model Context Protocol, the TypeScript SDK, or the terminal CLI — the Oya Control Plane handles routing, personas, and challenge solving identically.
               </p>
-              <div className="mt-8 flex flex-col gap-3">
+              <div className="mt-6 sm:mt-8 flex flex-col gap-3">
                 <Link
                   href="/docs"
-                  className="inline-flex items-center gap-2 text-[13px] font-medium text-accent hover:underline"
+                  className="inline-flex items-center gap-1.5 text-[12.5px] sm:text-[13px] font-medium text-accent hover:underline"
                 >
                   Explore full documentation & API reference <ArrowRight size={14} />
                 </Link>
-                <div className="mt-4 flex items-center gap-3 border-t border-border/80 pt-5 text-[12px] text-text-dim font-mono">
-                  <Terminal size={15} className="text-accent" />
+                <div className="mt-3 sm:mt-4 flex items-center gap-3 border-t border-border/80 pt-4 sm:pt-5 text-[11.5px] sm:text-[12px] text-text-dim font-mono">
+                  <Terminal size={14} className="text-accent shrink-0" />
                   <code>npm install @oya/browser</code>
                 </div>
               </div>
@@ -1476,16 +1516,16 @@ export default function Home() {
         </section>
 
         {/* ─── Desktop App & Self-Hosting ─── */}
-        <section className="site-width section-space grid gap-10 border-t border-border/80 md:grid-cols-2 md:gap-16">
-          <div id="download" className="scroll-mt-24 rounded-3xl border border-border/80 bg-bg-card p-8 shadow-xl">
-            <Monitor size={26} strokeWidth={1.5} className="mb-5 text-accent" />
-            <h2 className="text-[24px] font-semibold tracking-tight text-text">
+        <section className="site-width section-space grid gap-8 sm:gap-10 border-t border-border/80 md:grid-cols-2 md:gap-16">
+          <div id="download" className="scroll-mt-24 rounded-2xl sm:rounded-3xl border border-border/80 bg-bg-card p-6 sm:p-8 shadow-xl">
+            <Monitor size={24} strokeWidth={1.5} className="mb-4 sm:mb-5 text-accent" />
+            <h2 className="text-[20px] sm:text-[24px] font-semibold tracking-tight text-text">
               Sign In Once on Desktop.
             </h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-text-muted">
+            <p className="mt-2.5 sm:mt-3 text-[13.5px] sm:text-[14px] leading-relaxed text-text-muted">
               Download the native Oya desktop browser. Log into your company’s target services with real passkeys and WebAuthn. Oya synchronizes your active session directly to your agent personas.
             </p>
-            <div className="mt-6 flex flex-wrap items-center gap-4">
+            <div className="mt-5 sm:mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
               <a
                 className="btn-primary h-10 px-4 text-[12px] font-semibold"
                 href="/downloads/Oya.Browser-1.0.46-universal.dmg"
@@ -1499,20 +1539,20 @@ export default function Home() {
                 Linux (.AppImage)
               </a>
             </div>
-            <p className="mt-3 text-[11px] text-text-dim font-mono">
+            <p className="mt-3 text-[10.5px] sm:text-[11px] text-text-dim font-mono">
               Universal binary (Apple Silicon + Intel) · Sandboxed Electron
             </p>
           </div>
 
-          <div id="self-host" className="scroll-mt-24 rounded-3xl border border-border/80 bg-bg-card p-8 shadow-xl">
-            <Layers size={26} strokeWidth={1.5} className="mb-5 text-accent" />
-            <h2 className="text-[24px] font-semibold tracking-tight text-text">
+          <div id="self-host" className="scroll-mt-24 rounded-2xl sm:rounded-3xl border border-border/80 bg-bg-card p-6 sm:p-8 shadow-xl">
+            <Layers size={24} strokeWidth={1.5} className="mb-4 sm:mb-5 text-accent" />
+            <h2 className="text-[20px] sm:text-[24px] font-semibold tracking-tight text-text">
               Self-Hostable & Air-Gapped.
             </h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-text-muted">
+            <p className="mt-2.5 sm:mt-3 text-[13.5px] sm:text-[14px] leading-relaxed text-text-muted">
               Run the full control plane on your own Kubernetes cluster, Docker host, or cloud VMs. Complete data sovereignty — credentials and session tokens are encrypted with your own master key.
             </p>
-            <div className="mt-6 flex flex-wrap items-center gap-4">
+            <div className="mt-5 sm:mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
               <Link href="/docs#self-host" className="btn-ghost h-10 px-4 text-[12px]">
                 Deploy Docker Compose <ArrowUpRight size={14} />
               </Link>
@@ -1520,7 +1560,7 @@ export default function Home() {
                 Config reference
               </Link>
             </div>
-            <p className="mt-3 text-[11px] text-text-dim font-mono">
+            <p className="mt-3 text-[10.5px] sm:text-[11px] text-text-dim font-mono">
               <code>docker compose up</code> · Single container deployment on :3100
             </p>
           </div>
@@ -1528,21 +1568,21 @@ export default function Home() {
 
         {/* ─── Bottom CTA Banner ─── */}
         <section className="border-y border-border/80 bg-bg-card/70 backdrop-blur-md">
-          <div className="site-width flex flex-col items-start justify-between gap-8 py-16 sm:flex-row sm:items-center">
+          <div className="site-width flex flex-col items-start justify-between gap-6 py-12 sm:py-16 sm:flex-row sm:items-center">
             <div>
-              <p className="eyebrow mb-3 text-accent font-semibold">Ready for production</p>
+              <p className="eyebrow mb-2 sm:mb-3 text-accent font-semibold">Ready for production</p>
               <h2 className="marketing-heading">
                 Take control of your browser fleet.
               </h2>
-              <p className="text-[15px] text-text-muted mt-2 max-w-md">
+              <p className="text-[14px] sm:text-[15px] text-text-muted mt-2 max-w-md">
                 Deploy your first deterministic persona, connect your agents, and route across providers in under 3 minutes.
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <Link href="/dashboard" className="btn-primary h-12 shrink-0 px-6 text-[14px] font-semibold flex items-center gap-2">
-                Open console <ArrowRight size={16} />
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <Link href="/dashboard" className="btn-primary h-11 sm:h-12 shrink-0 px-5 sm:px-6 text-[13.5px] sm:text-[14px] font-semibold flex items-center gap-2">
+                Open console <ArrowRight size={15} />
               </Link>
-              <Link href="/docs#quickstart" className="btn-ghost h-12 shrink-0 px-5 text-[14px]">
+              <Link href="/docs#quickstart" className="btn-ghost h-11 sm:h-12 shrink-0 px-4 sm:px-5 text-[13.5px] sm:text-[14px]">
                 Quickstart Guide
               </Link>
             </div>
@@ -1551,14 +1591,14 @@ export default function Home() {
       </main>
 
       {/* ─── Footer ─── */}
-      <footer className="site-width flex flex-wrap items-center justify-between gap-6 py-10 border-t border-border/40">
-        <div className="flex items-center gap-3">
+      <footer className="site-width flex flex-wrap items-center justify-between gap-5 py-8 sm:py-10 border-t border-border/40">
+        <div className="flex flex-wrap items-center gap-3">
           <OyaWordmark />
-          <span className="text-[12px] text-text-dim border-l border-border/80 pl-3">
+          <span className="text-[11.5px] sm:text-[12px] text-text-dim border-l border-border/80 pl-3">
             The Browser Control Plane for AI Employees
           </span>
         </div>
-        <div className="flex items-center gap-6 text-[12px] text-text-muted">
+        <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-[12px] text-text-muted">
           <Link href="/docs" className="hover:text-text transition-colors">Documentation</Link>
           <a href="#comparison" className="hover:text-text transition-colors">10x Comparison</a>
           <Link href="/dashboard" className="hover:text-text transition-colors">Console</Link>

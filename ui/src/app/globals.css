@@ -301,6 +301,7 @@ button, a, input, select, textarea {
   .site-width { width: calc(100% - 32px); }
   .section-space { padding-block: 48px; }
   .preview-columns { grid-template-columns: minmax(0, 1fr) 72px 42px; gap: 10px; padding-inline: 16px; }
+  .preview-columns-header { display: none !important; }
 }
 
 /* Data workspaces retain readable column geometry regardless of cell content. */
