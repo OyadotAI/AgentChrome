@@ -72,8 +72,11 @@ const publicDir = join(__dirname, 'public');
 
 // ── Discovery & docs (root level) ──
 app.use('/.well-known', express.static(join(publicDir, '.well-known')));
-app.get('/llms.txt', (req, res) => res.type('text/plain').sendFile(join(publicDir, 'llms.txt')));
-app.get('/docs.txt', (req, res) => res.type('text/plain').sendFile(join(publicDir, 'llms.txt')));
+// One file, several names. Crawlers look for different ones and a second copy
+// would only drift from this.
+for (const path of ['/llms.txt', '/llms-full.txt', '/docs.txt']) {
+  app.get(path, (req, res) => res.type('text/plain').sendFile(join(publicDir, 'llms.txt')));
+}
 app.get('/openapi.json', (req, res) => res.type('application/json').sendFile(join(publicDir, 'openapi.json')));
 
 // ── REST API under /api ──

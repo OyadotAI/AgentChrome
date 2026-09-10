@@ -2,8 +2,8 @@
   "schema_version": "v1",
   "name_for_human": "Oya Browser",
   "name_for_model": "oya_browser",
-  "description_for_human": "Control a real Chrome browser with your cookies, logins, and extensions — no headless automation.",
-  "description_for_model": "Use this skill to control a real desktop Chrome browser. Unlike headless automation (Playwright/Puppeteer), this uses the user's actual browser with their cookies, sessions, and extensions already loaded. You can navigate pages, analyze DOM content as markdown, click elements, type text, take screenshots, manage tabs, and scroll. The browser numbers every interactive element so you can refer to them by ID. Always analyze the page after any action to get fresh element IDs. For multi-browser pools, use the pool endpoints which round-robin commands across browsers and sync cookies.",
+  "description_for_human": "Drive a real Chrome browser from your agent \u2014 in the cloud or on your own machine, with logged-in sessions that persist.",
+  "description_for_model": "Use this to drive a real Chrome browser. A browser can run in the cloud (provisioned on demand), on a third-party provider (Browserbase, Steel, Anchor, Browser Use), or on the user's own machine with their real cookies, sessions and extensions \u2014 the command surface is the same either way. You can navigate, analyze DOM content as markdown, click, type, screenshot, manage tabs and scroll. Every interactive element is numbered so you can refer to it by ID; analyze the page after any action to get fresh IDs. A persona ties a fingerprint, cookie jar and proxy into one identity, so a logged-in session stays valid across runs and providers. A human can watch a run live and take over without stopping it.",
   "auth": {
     "type": "service_http",
     "authorization_type": "bearer",
