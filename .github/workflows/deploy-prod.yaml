@@ -135,9 +135,41 @@ jobs:
         cache-from: type=gha,scope=browser-prod
         cache-to: type=gha,mode=max,scope=browser-prod
 
+  register-snapshot:
+    name: Register Daytona snapshot
+    needs: build-browser
+    runs-on: ubuntu-latest
+    # A snapshot failure must not strand the rest of the release. The deploy
+    # falls back to the previous snapshot, so cloud browsers keep working on
+    # the last good build while this job goes red.
+    continue-on-error: true
+    outputs:
+      snapshot: ${{ steps.register.outputs.snapshot }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Install server dependencies
+      run: cd server && npm ci --omit=dev
+    - name: Create snapshot from the released image
+      id: register
+      env:
+        DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+        DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
+        DAYTONA_TARGET: ${{ secrets.DAYTONA_TARGET }}
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        NAME="oya-browser-${VERSION}"
+        cd server
+        node publish-snapshot.js \
+          --image "${{ env.IMAGE_BROWSER }}:${GITHUB_REF_NAME}" \
+          --name "$NAME"
+        echo "snapshot=$NAME" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: Deploy to GKE (prod)
-    needs: [build-image, build-browser]
+    needs: [build-image, build-browser, register-snapshot]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -161,7 +193,8 @@ jobs:
     - name: Apply secrets
       env:
         DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-        DAYTONA_SNAPSHOT: ${{ secrets.DAYTONA_SNAPSHOT }}
+        # This release's snapshot, or the previous one if registration failed.
+        DAYTONA_SNAPSHOT: ${{ needs['register-snapshot'].outputs.snapshot || secrets.DAYTONA_SNAPSHOT }}
         DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
         DAYTONA_TARGET: ${{ secrets.DAYTONA_TARGET }}
       run: |
