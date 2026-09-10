@@ -191,7 +191,11 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
   const selectedKeyLabel = keys.find(k => k.key === apiKey)?.label || (apiKey ? `${apiKey.slice(0, 8)}...` : 'Select key');
 
   return (
-    <header className="flex items-center gap-3 px-4 lg:px-6 h-[52px] bg-bg border-b border-border">
+    // relative z-50 keeps the account menu and log out reachable. Selecting a
+    // browser renders the detail panel as `fixed inset-0 z-40` below the lg
+    // breakpoint, and an unpositioned header sits under it — the buttons were
+    // still there, the overlay was just swallowing every click.
+    <header className="relative z-50 flex items-center gap-3 px-4 lg:px-6 h-[52px] bg-bg border-b border-border">
       <OyaWordmark href="/dashboard" />
 
       {/* Health */}
