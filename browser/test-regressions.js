@@ -96,4 +96,11 @@ assert.ok(/Promise\.race\(\[tab\.ready\.catch/.test(src),
 assert.ok(/Promise\.race\(\[\s*\n\s*setupTabCDP\(view\)/.test(src),
   'setupTabCDP must be bounded — an unanswered CDP command otherwise stops the tab ever loading');
 
-console.log('ok — tabs, cookies, sends, update feed, renderer, tab waits and CDP setup guarded');
+// Cloud browsers stream frames through viz CopyOutputResult, which needs more
+// shared memory than a container's 64MB /dev/shm. Without this flag the GPU
+// process dies repeatedly and Chromium SIGTRAPs the app after ~20s of streaming.
+const entry = fs.readFileSync(path.join(__dirname, 'docker-entrypoint.sh'), 'utf8');
+assert.ok(/electron \. .*--disable-dev-shm-usage/.test(entry),
+  'container electron must run with --disable-dev-shm-usage or streaming kills the browser');
+
+console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup and shm guarded');

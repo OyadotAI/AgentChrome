@@ -42,8 +42,15 @@ trap cleanup SIGTERM SIGINT
 
 # ── Start Electron ──
 # --no-sandbox must be a CLI arg — Electron checks for root before app code runs
+#
+# --disable-dev-shm-usage is not optional here. /dev/shm is 64MB in a container,
+# and every live-stream frame goes through viz CopyOutputResult, which wants
+# shared memory for a full 1920x1080 capture. The allocation fails, the mojo
+# message is rejected, the GPU process dies — and after six deaths Chromium
+# gives up with "GPU process isn't usable. Goodbye." and SIGTRAPs the whole app.
+# Streaming a browser for ~20s was enough to kill it every time.
 echo "[oya-docker] Starting Oya Browser (${SCREEN_WIDTH:-1920}x${SCREEN_HEIGHT:-1080})"
-./node_modules/.bin/electron . --no-sandbox --disable-gpu &
+./node_modules/.bin/electron . --no-sandbox --disable-gpu --disable-dev-shm-usage &
 ELECTRON_PID=$!
 
 wait $ELECTRON_PID
