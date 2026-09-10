@@ -336,6 +336,25 @@ async function cdpScroll(view, x, y, deltaX, deltaY) {
 
 // ── CDP page helpers ──
 
+/**
+ * Settle when the page stops loading, or give up. The timeout used to leave
+ * both listeners attached, so a long agent session piled them up on a
+ * webContents that never fired.
+ */
+function waitForLoad(view, ms = 15000) {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      view.webContents.off('did-finish-load', done);
+      view.webContents.off('did-fail-load', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    view.webContents.once('did-finish-load', done);
+    view.webContents.once('did-fail-load', done);
+  });
+}
+
 async function cdpEval(view, expression) {
   const res = await cdp(view, 'Runtime.evaluate', {
     expression, returnByValue: true, awaitPromise: true,
@@ -391,24 +410,21 @@ async function dumpCookies() {
 async function applyCookieSync(cookies) {
   if (!Array.isArray(cookies)) return;
   applyingCookieSync = true;
-  let applied = 0;
-  for (const c of cookies) {
-    try {
-      const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
-      await getBrowserSession().cookies.set({
-        url,
-        name: c.name,
-        value: c.value,
-        ...(c.hostOnly || !c.domain.startsWith('.') ? {} : { domain: c.domain }),
-        path: c.path || '/',
-        secure: c.secure || false,
-        httpOnly: c.httpOnly || false,
-        sameSite: ({ Strict: 'strict', Lax: 'lax', None: 'no_restriction' })[c.sameSite] || c.sameSite || 'unspecified',
-        expirationDate: Number(c.expirationDate ?? c.expires) > 0 ? Number(c.expirationDate ?? c.expires) : undefined,
-      });
-      applied++;
-    } catch {}
-  }
+  const jar = getBrowserSession().cookies;
+  // One at a time meant a round trip per cookie, and auth_ok awaits this from
+  // inside the serialized message queue — a real jar froze the app on sign-in.
+  const results = await Promise.allSettled(cookies.map(async (c) => jar.set({
+    url: `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`,
+    name: c.name,
+    value: c.value,
+    ...(c.hostOnly || !c.domain.startsWith('.') ? {} : { domain: c.domain }),
+    path: c.path || '/',
+    secure: c.secure || false,
+    httpOnly: c.httpOnly || false,
+    sameSite: ({ Strict: 'strict', Lax: 'lax', None: 'no_restriction' })[c.sameSite] || c.sameSite || 'unspecified',
+    expirationDate: Number(c.expirationDate ?? c.expires) > 0 ? Number(c.expirationDate ?? c.expires) : undefined,
+  })));
+  const applied = results.filter((r) => r.status === 'fulfilled').length;
   applyingCookieSync = false;
   console.log(`[oya] Cookie sync applied: ${applied}/${cookies.length}`);
 }
@@ -529,7 +545,7 @@ async function applyServerFingerprint(profile, cookies = []) {
   const reopen = switched ? tabs.map((tab) => tab.url || 'about:blank') : [];
   if (switched) {
     flushCookieChanges();
-    while (tabs.length) closeTab(tabs[0].id);
+    while (tabs.length) closeTab(tabs[0].id, { keepOne: false });
     pulledAt.clear();
   }
 
@@ -1025,7 +1041,7 @@ function activateTab(id) {
   sendTabList();
 }
 
-function closeTab(id) {
+function closeTab(id, { keepOne = true } = {}) {
   const idx = tabs.findIndex(t => t.id === id);
   if (idx === -1) return;
   const tab = tabs[idx];
@@ -1044,7 +1060,11 @@ function closeTab(id) {
 
   if (tabs.length === 0) {
     activeTabId = null;
-    createTab('https://google.com', true);
+    // Only the user-facing close paths keep a window's worth of browser alive.
+    // A bulk close (profile switch) wants the list actually empty — recreating
+    // here made `while (tabs.length)` loop forever, spawning a renderer per turn.
+    if (keepOne) createTab('https://google.com', true);
+    else sendTabList();
   } else if (wasActive) {
     activeTabId = null;
     activateTab(tabs[Math.min(idx, tabs.length - 1)].id);
@@ -1628,12 +1648,7 @@ async function handleCommand(msg) {
       // Wait for potential navigation
       await sleep(300);
       if (view.webContents.isLoading()) {
-        await new Promise((resolve) => {
-          const timeout = setTimeout(resolve, 15000);
-          const done = () => { clearTimeout(timeout); resolve(); };
-          view.webContents.once('did-finish-load', done);
-          view.webContents.once('did-fail-load', done);
-        });
+        await waitForLoad(view);
       }
       const newUrl = view.webContents.getURL();
       const title = view.webContents.getTitle();
@@ -1754,12 +1769,7 @@ async function handleCommand(msg) {
       if (key === 'Enter') {
         await sleep(300);
         if (view.webContents.isLoading()) {
-          await new Promise((resolve) => {
-            const timeout = setTimeout(resolve, 15000);
-            const done = () => { clearTimeout(timeout); resolve(); };
-            view.webContents.once('did-finish-load', done);
-            view.webContents.once('did-fail-load', done);
-          });
+          await waitForLoad(view);
           await injectScripts(view);
         }
       }
