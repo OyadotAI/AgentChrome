@@ -46,3 +46,46 @@ test('docs search and mobile navigation lead to readable sections', async ({ pag
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('#quickstart')).toBeInViewport();
 });
+
+test('code snippet tester and video motion showcase are interactive and functional', async ({ page }, testInfo) => {
+  await page.goto('/');
+
+  // 1. Test Video & Motion Studio scene switching
+  const captchaBtn = page.getByRole('button', { name: /Autonomous CAPTCHA Bypass/ });
+  await expect(captchaBtn).toBeVisible();
+  await captchaBtn.click();
+  await expect(page.getByText('Cloudflare Turnstile Verification')).toBeVisible();
+
+  const takeoverBtn = page.getByRole('button', { name: /Sub-Second Live Takeover/ });
+  await takeoverBtn.click();
+  await expect(page.getByText('Okta Verify / Google Passkey Prompt')).toBeVisible();
+
+  const failoverBtn = page.getByRole('button', { name: /Zero-Downtime Provider Failover/ });
+  await failoverBtn.click();
+  await expect(page.getByText('Dynamic Routing Matrix')).toBeVisible();
+
+  // 2. Test Code Snippet Sandbox / Runner
+  const testBtn = page.getByRole('button', { name: /Test snippet live/ });
+  await expect(testBtn).toBeVisible();
+  await testBtn.click();
+
+  // Wait for test simulation to complete
+  await expect(page.getByText('ALL CHECKS PASSED')).toBeVisible({ timeout: 6000 });
+  await expect(page.getByText('Execution verified successfully')).toBeVisible();
+
+  // Switch to telemetry tab
+  await page.getByRole('button', { name: 'TELEMETRY' }).click();
+  await expect(page.getByText('99.8%')).toBeVisible();
+
+  // Switch to output tab
+  await page.getByRole('button', { name: 'OUTPUT' }).click();
+  await expect(page.getByText('# analyze_page response')).toBeVisible();
+
+  // Test Playwright CDP snippet
+  await page.getByRole('tab', { name: 'Standard Playwright CDP' }).click();
+  const testCdpBtn = page.getByRole('button', { name: /Test snippet live/ });
+  await testCdpBtn.click();
+  await expect(page.getByText('ALL CHECKS PASSED')).toBeVisible({ timeout: 6000 });
+
+  await page.screenshot({ path: testInfo.outputPath('snippet-tested.png') });
+});

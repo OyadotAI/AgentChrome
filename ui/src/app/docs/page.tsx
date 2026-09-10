@@ -417,7 +417,7 @@ export default function DocsPage() {
         <div className="max-w-[800px] mx-auto">
 
           <p className="eyebrow mb-5 text-accent">Browser Infrastructure</p>
-          <h1 className="text-[40px] sm:text-[52px] leading-[1.1] font-medium tracking-[-.05em] text-text mb-5">The Browser Control Plane.</h1>
+          <h1 className="text-[40px] sm:text-[52px] leading-[1.1] font-medium tracking-[-.05em] text-text mb-5">Your browser, the Control Plane.</h1>
           <p className="max-w-xl text-text-muted mb-8 text-[16px] leading-7">Orchestrate Oya Cloud, Browserbase, Steel, Anchor, Browser Use, and private Chrome behind one API. Deterministic personas, zero-rewrite failover, and sub-second live takeover.</p>
           <div className="mb-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[
             ['control-plane','Control Plane','Architecture & model'],

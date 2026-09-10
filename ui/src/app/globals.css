@@ -147,7 +147,7 @@ button, a, input, select, textarea {
   background-size: 64px 64px;
 }
 
-/* ─── Entrance animations ─── */
+/* ─── Entrance & high-end motion animations ─── */
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
@@ -164,8 +164,56 @@ button, a, input, select, textarea {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.03); }
+}
+
+@keyframes flow-line {
+  0% { stroke-dashoffset: 24; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(1000%); }
+}
+
+@keyframes beam-travel {
+  0% { left: -30%; opacity: 0; }
+  30% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { left: 130%; opacity: 0; }
+}
+
+.flow-anim {
+  stroke-dasharray: 6 6;
+  animation: flow-line 1.2s linear infinite;
+}
+
+.beam-effect {
+  position: relative;
+  overflow: hidden;
+}
+.beam-effect::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, rgba(57, 237, 53, 0.15), transparent);
+  animation: beam-travel 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Glassmorphism & double-bezel */
+.double-bezel {
+  border-radius: 1.5rem;
+  padding: 3px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
+  box-shadow: 0 20px 50px -20px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1);
+}
+.double-bezel-inner {
+  border-radius: calc(1.5rem - 3px);
 }
 
 /* Toast */

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -17,6 +18,8 @@ import {
   ChevronRight,
   Command,
   Play,
+  Pause,
+  RotateCcw,
   ShieldCheck,
   Network,
   RefreshCw,
@@ -25,11 +28,18 @@ import {
   CheckCircle2,
   XCircle,
   ExternalLink,
+  Lock,
+  Radio,
+  MousePointer,
+  CheckCheck,
 } from 'lucide-react';
 import { OyaWordmark, OyaLogo } from '@/components/oya-logo';
 import ThemeToggle from '@/components/theme-toggle';
 import SyntaxCode from '@/components/ui/syntax-code';
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Code Snippets & Interactive Simulation Test Data
+───────────────────────────────────────────────────────────────────────────── */
 const examples = [
   {
     label: 'TypeScript SDK',
@@ -47,6 +57,35 @@ const browser = await oya.browser.start({
 await browser.goto("https://app.example.com");
 const page = await browser.analyze();                     // Markdown + numbered element IDs
 await browser.click(page.elements[0].id);`,
+    testSteps: [
+      { text: 'Validating client credentials against Oya Control Plane...', time: '+12ms' },
+      { text: 'Allocating deterministic persona "acme-ops" (hardware seed: 0x8fa1)...', time: '+42ms' },
+      { text: 'Selecting optimal execution runner [Oya Cloud Sandbox · 14ms latency]...', time: '+86ms' },
+      { text: 'Navigating to https://app.example.com (HTTP 200 OK)...', time: '+164ms' },
+      { text: 'DOM parsed: 24 interactive elements indexed into structured markdown...', time: '+220ms' },
+      { text: 'Dispatching click(page.elements[0].id) -> [#13 button "Checkout"]...', time: '+290ms' },
+      { text: 'Execution verified successfully with zero stealth leaks.', time: '+340ms' },
+    ],
+    mockResult: `# analyze_page response
+url: https://app.example.com
+title: Enterprise Operations Console
+elements: 24
+
+---
+[#1 link "Overview"] [#2 link "Settings"]
+[#9 input:email placeholder="admin@acme.com"]
+[#13 button "Checkout" primary]
+[#14 button "Cancel"]
+
+---
+> AI executed click(13). Navigation underway [Status: 200 OK]`,
+    telemetry: {
+      latency: '14ms',
+      memory: '48 MB',
+      provider: 'Oya Cloud',
+      evasionScore: '99.8%',
+      status: '200 OK',
+    },
   },
   {
     label: 'Standard Playwright CDP',
@@ -63,6 +102,31 @@ const oyaBrowser = await oya.browser.start({ persona: "auto" });
 const browser = await chromium.connectOverCDP(oyaBrowser.cdpUrl);
 const page = await browser.newPage();
 await page.goto("https://github.com");`,
+    testSteps: [
+      { text: 'Initializing Oya Control Plane connection pool...', time: '+10ms' },
+      { text: 'Spawning headless browser target with automatic persona rotation...', time: '+55ms' },
+      { text: 'Generated authenticated CDP gateway tunnel: wss://browser.getoya.ai/connect...', time: '+92ms' },
+      { text: 'Playwright chromium.connectOverCDP() handshake acknowledged...', time: '+148ms' },
+      { text: 'Opening new browser context and binding pinned proxy IP...', time: '+210ms' },
+      { text: 'page.goto("https://github.com") completed (DOMContentReady in 240ms)...', time: '+298ms' },
+      { text: 'CDP session active and streaming metrics to /gateway/metrics.', time: '+330ms' },
+    ],
+    mockResult: `{
+  "cdpSessionId": "cdp_ses_9f1b0a88",
+  "clientType": "playwright",
+  "browserVersion": "Chrome/131.0.6778.86",
+  "targetUrl": "https://github.com",
+  "viewport": { "width": 1440, "height": 900 },
+  "proxyAssigned": "us-east.proxy.oya.ai:8080",
+  "concurrency": "1/5 slots"
+}`,
+    telemetry: {
+      latency: '18ms',
+      memory: '64 MB',
+      provider: 'Steel Runner',
+      evasionScore: '99.5%',
+      status: 'CDP Attached',
+    },
   },
   {
     label: 'Terminal CLI',
@@ -78,9 +142,31 @@ oya goto https://app.example.com
 oya ask "Download the latest invoice report"
 oya stealth-test --live                # Score evasion against CreepJS and Sannysoft
 oya ls`,
+    testSteps: [
+      { text: '$ oya login --url https://browser.getoya.ai (Token verified: tenant_acme)', time: '+8ms' },
+      { text: '$ oya personas new acme-ops (Seeded byte-identical MacIntel canvas profile)', time: '+40ms' },
+      { text: '$ oya start --persona acme-ops (Spawning sandbox on provider priority 0)', time: '+90ms' },
+      { text: '$ oya goto https://app.example.com (Page loaded in 190ms, 0 challenge blocks)', time: '+175ms' },
+      { text: '$ oya stealth-test --live -> CreepJS: 99.8% · Bot.Sannysoft: 0 leaks', time: '+265ms' },
+      { text: '$ oya ls -> 1 active browser, status: Healthy', time: '+310ms' },
+    ],
+    mockResult: `ID        PROVIDER    PERSONA    PAGE                    STATUS    UPTIME
+7f02a9    Oya Cloud   acme-ops   app.example.com/invoice Ready     42s
+
+Evasion report:
+  CreepJS Trust Score: 99.8% (A+)
+  Bot.Sannysoft: PASS (All 14 tests green)
+  Canvas Fingerprint: Deterministic (0x39a1fe)`,
+    telemetry: {
+      latency: '11ms',
+      memory: '38 MB',
+      provider: 'Oya Cloud',
+      evasionScore: '99.8%',
+      status: 'CLI 0 OK',
+    },
   },
   {
-    label: 'Model Context Protocol (MCP)',
+    label: 'MCP',
     language: 'json' as const,
     file: 'mcp.json',
     code: `{
@@ -93,9 +179,38 @@ oya ls`,
     }
   }
 }`,
+    testSteps: [
+      { text: 'Validating Model Context Protocol client headers...', time: '+6ms' },
+      { text: 'Handshaking with streamable-http gateway at /mcp/pool...', time: '+35ms' },
+      { text: 'Registering 15 browser tools (analyze_page, click, type, press_key...)...', time: '+78ms' },
+      { text: 'Fleet pool round-robin healthy (1,000 capacity target)...', time: '+120ms' },
+      { text: 'MCP ready for Claude Code, Cursor, Windsurf, and LangChain.', time: '+180ms' },
+    ],
+    mockResult: `{
+  "protocolVersion": "2024-11-05",
+  "serverInfo": {
+    "name": "oya-browser-control-plane",
+    "version": "1.0.46"
+  },
+  "capabilities": {
+    "tools": { "listChanged": true },
+    "resources": { "subscribe": true }
+  },
+  "status": "ready"
+}`,
+    telemetry: {
+      latency: '9ms',
+      memory: '24 MB',
+      provider: 'Multi-Runner Pool',
+      evasionScore: '100%',
+      status: 'MCP Active',
+    },
   },
 ];
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Demo Fleet Browsers (Interactive Preview Console)
+───────────────────────────────────────────────────────────────────────────── */
 const demoBrowsers = [
   {
     name: 'Production Analyst',
@@ -105,15 +220,17 @@ const demoBrowsers = [
     action: 'Executing SQL aggregation',
     health: 'Running',
     routing: 'Primary route · 14ms',
+    elements: 42,
   },
   {
-    name: 'Procurement Automation',
+    name: 'Operations',
     provider: 'Steel',
-    profile: 'eu-buyer-persona',
-    page: 'procure.corp.de/orders',
-    action: 'Turnstile challenge auto-bypassed',
+    profile: 'acme-ops',
+    page: 'shop.example',
+    action: 'Waiting for your next command',
     health: 'Ready',
     routing: 'Failover route · 28ms',
+    elements: 18,
   },
   {
     name: 'Executive Assistant',
@@ -123,106 +240,715 @@ const demoBrowsers = [
     action: 'Authenticated via 1-click desktop session',
     health: 'Ready',
     routing: 'Direct workstation · 0ms',
+    elements: 64,
+  },
+  {
+    name: 'Compliance Auditor',
+    provider: 'Anchor',
+    profile: 'eu-gdpr',
+    page: 'procure.corp.de/orders',
+    action: 'Turnstile challenge auto-bypassed',
+    health: 'Ready',
+    routing: 'Encrypted proxy · 31ms',
+    elements: 27,
   },
 ];
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Interactive Live Product Preview Component
+───────────────────────────────────────────────────────────────────────────── */
 function ProductPreview() {
   const [selected, setSelected] = useState(0);
+  const [simulatedCmd, setSimulatedCmd] = useState('');
+  const [isTakeover, setIsTakeover] = useState(false);
   const browser = demoBrowsers[selected];
+
+  useEffect(() => {
+    const commands = [
+      'analyze_page() → 24 elements indexed',
+      'click(13) → [#13 button "Checkout"]',
+      'type(9, "finance@acme.corp")',
+      'solve_captcha() → Cloudflare Turnstile bypassed [340ms]',
+    ];
+    let idx = 0;
+    const interval = setInterval(() => {
+      setSimulatedCmd(commands[idx % commands.length]);
+      idx++;
+    }, 3200);
+    return () => clearInterval(interval);
+  }, [selected]);
+
   return (
-    <div className="product-preview" aria-label="Interactive browser console preview">
-      <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <OyaLogo size={19} />
-          <span className="text-[12px] font-medium">Control Plane</span>
-          <ChevronRight size={13} className="text-text-dim" />
-          <span className="text-[12px] text-text-muted">Fleet Console (1,000+ capacity)</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 font-mono text-[10px] text-accent">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-            CONTROL PLANE ACTIVE
-          </span>
-        </div>
-      </div>
-      <div className="grid min-w-0 md:grid-cols-[1.45fr_1fr]">
-        <div className="min-w-0 md:border-r border-border">
-          <div className="flex items-center justify-between px-5 py-5">
-            <div>
-              <span className="text-[15px] font-semibold">Active Fleet Browsers</span>
-              <span className="ml-2 text-text-dim font-mono text-[12px]">03 / 1,000</span>
-            </div>
-            <span className="flex items-center gap-1.5 text-[11px] text-text-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              Multi-Provider Auto-Routing
+    <div className="double-bezel overflow-hidden">
+      <div className="double-bezel-inner product-preview bg-bg-card/95 backdrop-blur-xl" aria-label="Interactive browser console preview">
+        {/* Top Control Bar */}
+        <div className="flex flex-wrap items-center justify-between border-b border-border/80 px-5 py-3.5 bg-bg-elevated/40">
+          <div className="flex items-center gap-2.5">
+            <OyaLogo size={19} />
+            <span className="text-[13px] font-semibold tracking-tight">Control Plane</span>
+            <ChevronRight size={13} className="text-text-dim" />
+            <span className="text-[12px] text-text-muted">Fleet Console (1,000+ capacity)</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 font-mono text-[10px] font-medium text-accent">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+              CONTROL PLANE ACTIVE · 99.99%
             </span>
           </div>
-          <div className="preview-columns border-y border-border bg-bg-sunken/60 py-2 text-[10px] uppercase tracking-widest text-text-dim">
-            <span>Browser / Persona</span>
-            <span>Provider</span>
-            <span>Status</span>
-          </div>
-          {demoBrowsers.map((row, index) => (
-            <button
-              key={row.name}
-              onClick={() => setSelected(index)}
-              aria-pressed={index === selected}
-              className={`preview-columns w-full border-b border-border/60 py-4 text-left transition-colors ${
-                index === selected ? 'bg-accent/[0.08]' : 'hover:bg-text/[0.03]'
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <Monitor
-                  size={15}
-                  className={index === selected ? 'text-accent shrink-0' : 'text-text-dim shrink-0'}
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-[12px] font-medium">{row.name}</span>
-                  <span className="mt-0.5 block truncate font-mono text-[10px] text-text-dim">
-                    persona: {row.profile}
-                  </span>
+        </div>
+
+        <div className="grid min-w-0 md:grid-cols-[1.4fr_1.1fr]">
+          {/* Left: Active Fleet List */}
+          <div className="min-w-0 md:border-r border-border/80">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+              <div>
+                <span className="text-[14px] font-semibold text-text">Active Fleet Browsers</span>
+                <span className="ml-2.5 rounded bg-text/10 px-1.5 py-0.5 font-mono text-[11px] text-text-dim">
+                  04 / 1,000
                 </span>
+              </div>
+              <span className="flex items-center gap-1.5 text-[11px] text-text-muted font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                Multi-Provider Auto-Routing
               </span>
-              <span className="text-[11px] font-mono text-text-muted">{row.provider}</span>
-              <span className="text-[10px] font-semibold text-accent">{row.health}</span>
-            </button>
-          ))}
-          <div className="flex items-center justify-between px-5 py-4 text-[10px] text-text-dim">
-            <span className="flex items-center gap-1.5">
-              <Command size={11} /> Unified Gateway: One API key controls every provider
-            </span>
-            <span className="font-mono">Failover: ENABLED</span>
-          </div>
-        </div>
-        <div className="flex min-w-0 flex-col p-5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <span className="truncate text-[13px] font-semibold block">{browser.name}</span>
-              <span className="text-[10px] text-text-dim font-mono">{browser.routing}</span>
             </div>
-            <span className="eyebrow text-accent shrink-0">Live Inspection</span>
+
+            <div className="preview-columns border-b border-border/60 bg-bg-sunken/60 py-2 text-[10px] uppercase tracking-widest text-text-dim">
+              <span>Browser / Persona</span>
+              <span>Provider</span>
+              <span>Status</span>
+            </div>
+
+            <div className="divide-y divide-border/50">
+              {demoBrowsers.map((row, index) => (
+                <button
+                  key={row.name}
+                  onClick={() => {
+                    setSelected(index);
+                    setIsTakeover(false);
+                  }}
+                  aria-pressed={index === selected}
+                  className={`preview-columns w-full py-3.5 text-left transition-all duration-200 ${
+                    index === selected
+                      ? 'bg-accent/[0.09] border-l-2 border-l-accent'
+                      : 'hover:bg-text/[0.04] border-l-2 border-l-transparent'
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <Monitor
+                      size={15}
+                      className={index === selected ? 'text-accent shrink-0' : 'text-text-dim shrink-0'}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12.5px] font-medium text-text">{row.name}</span>
+                      <span className="mt-0.5 block truncate font-mono text-[10px] text-text-dim">
+                        {row.profile}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-mono text-text-muted">{row.provider}</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent">
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping" />
+                    {row.health}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between border-t border-border/50 px-5 py-3.5 text-[10.5px] text-text-dim bg-bg-sunken/40">
+              <span className="flex items-center gap-1.5">
+                <Command size={12} className="text-accent" /> Unified Gateway: One API key controls every provider
+              </span>
+              <span className="font-mono text-accent">Failover: ACTIVE</span>
+            </div>
           </div>
-          <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-bg-sunken px-3 py-2 font-mono text-[11px] text-text-muted">
-            <ShieldCheck size={13} className="text-accent shrink-0" />
-            <span className="truncate">{browser.page}</span>
+
+          {/* Right: Live Interactive Viewport */}
+          <div className="flex min-w-0 flex-col p-5 bg-bg-elevated/20">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="min-w-0">
+                <span className="truncate text-[13.5px] font-semibold text-text block">{browser.name}</span>
+                <span className="text-[10px] text-text-dim font-mono">{browser.routing}</span>
+              </div>
+              <button
+                onClick={() => setIsTakeover(!isTakeover)}
+                className={`text-[10px] font-mono px-2.5 py-1 rounded-full border transition-all ${
+                  isTakeover
+                    ? 'border-accent bg-accent text-bg font-bold'
+                    : 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
+                }`}
+              >
+                {isTakeover ? 'TAKEN OVER (CLICK/TYPE)' : 'STEP IN & TAKE OVER'}
+              </button>
+            </div>
+
+            {/* Simulated Browser Frame */}
+            <div className="rounded-xl border border-border/80 bg-bg-sunken overflow-hidden shadow-inner flex flex-col flex-1">
+              {/* Address bar */}
+              <div className="flex items-center gap-2 border-b border-border/60 bg-bg-elevated/80 px-3 py-1.5 text-[11px] font-mono text-text-muted">
+                <Lock size={11} className="text-accent shrink-0" />
+                <span className="truncate text-text-secondary">{browser.page}</span>
+                <span className="ml-auto text-[9px] text-accent/80 font-mono">24ms CDP</span>
+              </div>
+
+              {/* Viewport Content */}
+              <div className="relative flex-1 p-5 flex flex-col items-center justify-center text-center min-h-[160px] bg-gradient-to-b from-bg-sunken to-bg-card">
+                <div className="relative mb-3">
+                  <Globe2 size={32} strokeWidth={1.2} className="text-accent/60 mx-auto" />
+                  <motion.div
+                    animate={{ scale: [1, 1.25, 1], opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 2.5 }}
+                    className="absolute -inset-2 rounded-full border border-accent/40 pointer-events-none"
+                  />
+                </div>
+                <p className="text-[13px] font-medium text-text">Sub-second Interactive Live View</p>
+                <p className="mt-1 text-[11px] text-text-dim max-w-[260px] leading-relaxed">
+                  {isTakeover
+                    ? 'Keyboard captured. Clicks and keystrokes forwarded directly into the browser session.'
+                    : 'Click, scroll, or type. Step in when 2FA hits; hand control back to the autonomous agent.'}
+                </p>
+
+                {/* Simulated DOM Highlights */}
+                <div className="mt-3 flex items-center gap-2 font-mono text-[9.5px]">
+                  <span className="rounded border border-indigo/40 bg-indigo/10 px-2 py-0.5 text-indigo">
+                    [#13 button &quot;Checkout&quot;]
+                  </span>
+                  <span className="rounded border border-accent/40 bg-accent/10 px-2 py-0.5 text-accent">
+                    [#9 input:email]
+                  </span>
+                </div>
+              </div>
+
+              {/* Status footer */}
+              <div className="border-t border-border/60 bg-bg-elevated/60 px-4 py-2 flex items-center justify-between text-[11px] text-text-muted">
+                <p aria-live="polite" className="flex items-center gap-2 truncate">
+                  <span className="h-2 w-2 rounded-full bg-accent animate-pulse shrink-0" />
+                  <span className="font-mono text-[10.5px] truncate">{browser.action}</span>
+                </p>
+                {simulatedCmd && (
+                  <span className="hidden sm:inline-block font-mono text-[9px] text-text-dim truncate max-w-[170px]">
+                    {simulatedCmd}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="my-4 flex flex-1 flex-col items-center justify-center rounded-lg border border-border bg-bg-sunken p-6 text-center">
-            <Globe2 size={28} strokeWidth={1.2} className="mx-auto mb-3 text-text-dim" />
-            <p className="text-[13px] font-medium">Sub-second Interactive Live View</p>
-            <p className="mt-1.5 text-[11px] text-text-dim max-w-[220px]">
-              Click, drag, scroll, or type directly. Step in when 2FA hits; hand control back to the agent.
-            </p>
-          </div>
-          <p aria-live="polite" className="flex items-center gap-2 text-[11px] text-text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-            {browser.action}
-          </p>
         </div>
       </div>
     </div>
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Animated Video & Motion Showcase Studio
+───────────────────────────────────────────────────────────────────────────── */
+function VideoMotionStudio() {
+  const [activeTab, setActiveTab] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [scrubPercent, setScrubPercent] = useState(35);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const scenes = [
+    {
+      id: 'walkthrough',
+      title: '01 / Fleet Walkthrough Film',
+      badge: 'PROD VIDEO',
+      desc: 'Watch the Oya Browser Control Plane manage 1,000+ browsers across hybrid cloud and desktop pairing.',
+      type: 'video',
+    },
+    {
+      id: 'captcha',
+      title: '02 / Autonomous CAPTCHA Bypass',
+      badge: 'MOTION DEMO',
+      desc: 'Cloudflare Turnstile, reCAPTCHA v3, and GeeTest automatically solved in < 380ms with native solver fallback.',
+      type: 'simulation-captcha',
+    },
+    {
+      id: 'takeover',
+      title: '03 / Sub-Second Live Takeover',
+      badge: 'MOTION DEMO',
+      desc: 'Seamless human-in-the-loop: when unexpected 2FA or push alerts hit, step in with real clicks and hand back to the agent.',
+      type: 'simulation-takeover',
+    },
+    {
+      id: 'failover',
+      title: '04 / Zero-Downtime Provider Failover',
+      badge: 'MOTION DEMO',
+      desc: 'When an upstream runner throttles or 502s, sessions auto-migrate to healthy runners in 14ms without breaking WebSocket CDP.',
+      type: 'simulation-failover',
+    },
+  ];
+
+  // Auto-scrubber for simulation tabs
+  useEffect(() => {
+    if (!isPlaying || activeTab === 0) return;
+    const interval = setInterval(() => {
+      setScrubPercent((prev) => (prev >= 100 ? 0 : prev + 1.5));
+    }, 100);
+    return () => clearInterval(interval);
+  }, [isPlaying, activeTab]);
+
+  return (
+    <div className="mt-8">
+      {/* Scene Navigation Pills */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        {scenes.map((s, idx) => (
+          <button
+            key={s.id}
+            onClick={() => {
+              setActiveTab(idx);
+              setScrubPercent(15);
+            }}
+            className={`rounded-full px-4 py-2 text-[12.5px] font-medium transition-all duration-300 flex items-center gap-2 ${
+              activeTab === idx
+                ? 'bg-accent text-bg shadow-[0_0_24px_rgba(57,237,53,0.35)]'
+                : 'border border-border/80 bg-bg-card/70 text-text-muted hover:text-text hover:bg-bg-elevated'
+            }`}
+          >
+            <span
+              className={`text-[9.5px] font-mono px-1.5 py-0.2 rounded ${
+                activeTab === idx ? 'bg-bg/20 text-bg' : 'bg-text/10 text-accent'
+              }`}
+            >
+              {s.badge}
+            </span>
+            {s.title}
+          </button>
+        ))}
+      </div>
+
+      {/* Main Showcase Theater (Double-Bezel Architecture) */}
+      <div className="double-bezel overflow-hidden">
+        <div className="double-bezel-inner rounded-[calc(1.5rem-3px)] bg-bg-card border border-border/70 overflow-hidden shadow-2xl">
+          {/* Header Bar */}
+          <div className="flex items-center justify-between border-b border-border/70 px-5 py-3 bg-bg-elevated/40">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-2 w-2 rounded-full bg-red animate-pulse" />
+              <span className="font-mono text-[11px] uppercase tracking-widest text-text font-medium">
+                {scenes[activeTab].title}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-text-dim font-mono">
+              <span>HD 1080P</span>
+              <span>·</span>
+              <span className="text-accent font-semibold">60 FPS LIVE</span>
+            </div>
+          </div>
+
+          {/* Player Container */}
+          <div className="relative aspect-video w-full bg-black/90 flex items-center justify-center overflow-hidden">
+            {activeTab === 0 ? (
+              /* Tab 0: Real HD Video Walkthrough */
+              <video
+                ref={videoRef}
+                controls
+                playsInline
+                preload="metadata"
+                poster="/oya-browser-poster.jpg"
+                aria-label="Oya Browser product walkthrough"
+                className="h-full w-full object-contain"
+              >
+                <source src="/oya-browser.mp4" type="video/mp4" />
+              </video>
+            ) : activeTab === 1 ? (
+              /* Tab 1: CAPTCHA Bypass Video Simulation */
+              <div className="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#141410] to-[#0a0a08] text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2 font-mono text-[12px] text-text-muted">
+                    <ShieldCheck size={16} className="text-accent" />
+                    <span>Target: https://protected.acme-corp.internal</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded-full">
+                    BOT-DETECTION MITIGATION
+                  </span>
+                </div>
+
+                <div className="max-w-md mx-auto w-full rounded-2xl border border-white/10 bg-bg-card/90 p-6 shadow-2xl backdrop-blur-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-[14px] font-semibold">Cloudflare Turnstile Verification</span>
+                    <span className="font-mono text-[10px] text-text-dim">ID: cf_90f2a</span>
+                  </div>
+
+                  <div className="rounded-xl border border-border p-4 bg-bg-sunken/80 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {scrubPercent < 60 ? (
+                        <div className="h-6 w-6 rounded-md border-2 border-accent border-t-transparent animate-spin" />
+                      ) : (
+                        <div className="h-6 w-6 rounded-md bg-accent text-bg flex items-center justify-center">
+                          <Check size={15} strokeWidth={3} />
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-[12.5px] font-medium text-text">
+                          {scrubPercent < 30
+                            ? 'Analyzing challenge parameters...'
+                            : scrubPercent < 60
+                            ? 'Synthesizing hardware gesture token...'
+                            : 'Challenge Verified (340ms)'}
+                        </p>
+                        <p className="text-[10px] text-text-dim font-mono">
+                          Fingerprint: Byte-identical seed 0x39a1fe
+                        </p>
+                      </div>
+                    </div>
+                    <span className="font-mono text-[11px] text-accent font-semibold">
+                      {scrubPercent < 60 ? 'SOLVING' : 'SUCCESS'}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 text-[11px] text-text-dim flex justify-between">
+                    <span>Autonomous solver bypass</span>
+                    <span className="text-accent font-mono">Latency: 340ms</span>
+                  </div>
+                </div>
+
+                <div className="font-mono text-[11px] text-text-muted flex items-center justify-between">
+                  <span>Agent Action: Bypassed autonomously. Continuing pipeline.</span>
+                  <span className="text-accent">Evasion Score: 99.8%</span>
+                </div>
+              </div>
+            ) : activeTab === 2 ? (
+              /* Tab 2: Live Takeover Video Simulation */
+              <div className="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#15131a] to-[#0c0c0a] text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2 font-mono text-[12px] text-indigo">
+                    <Radio size={16} className="text-indigo animate-pulse" />
+                    <span>Sub-Second Live Stream Takeover</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-yellow bg-yellow/10 px-2 py-0.5 rounded-full">
+                    2FA HUMAN HANDOFF
+                  </span>
+                </div>
+
+                <div className="max-w-lg mx-auto w-full rounded-2xl border border-white/10 bg-bg-card/90 p-6 shadow-2xl backdrop-blur-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-[14px] font-semibold">Okta Verify / Google Passkey Prompt</span>
+                    <span className="rounded-full bg-yellow/15 text-yellow px-2 py-0.5 text-[10px] font-mono">
+                      AWAITING CONFIRMATION
+                    </span>
+                  </div>
+                  <p className="text-[12px] text-text-muted mb-4 leading-relaxed">
+                    Agent encountered high-risk security prompt. Sub-second interactive stream activated. Click below to approve on behalf of agent:
+                  </p>
+
+                  <div className="flex items-center justify-center gap-4 py-3">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="rounded-xl bg-accent px-5 py-2.5 text-[13px] font-semibold text-bg flex items-center gap-2 shadow-lg"
+                    >
+                      <MousePointer size={15} />
+                      Approve with Passkey (Human Click)
+                    </motion.button>
+                  </div>
+
+                  <p className="text-[11px] text-center text-text-dim mt-3 font-mono">
+                    Handoff latency: 18ms · Session cookies encrypted & synced
+                  </p>
+                </div>
+
+                <div className="font-mono text-[11px] text-text-muted flex items-center justify-between">
+                  <span>Handoff status: Human approved. Control handed back to agent.</span>
+                  <span className="text-accent">Zero Token Leaks</span>
+                </div>
+              </div>
+            ) : (
+              /* Tab 3: Failover Simulation */
+              <div className="w-full h-full p-6 flex flex-col justify-between bg-gradient-to-br from-[#0c0c0a] via-[#101413] to-[#0c0c0a] text-left">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2 font-mono text-[12px] text-accent">
+                    <Network size={16} className="text-accent" />
+                    <span>Dynamic Routing Matrix · Zero-Rewrite Resilience</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-accent bg-accent/10 px-2 py-0.5 rounded-full">
+                    FAILOVER EVENT: 14ms
+                  </span>
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-4 max-w-xl mx-auto w-full my-auto">
+                  <div className="rounded-xl border border-red/40 bg-red/[0.04] p-4">
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-2 text-red">
+                      <span>PROVIDER A (Browserbase)</span>
+                      <XCircle size={14} />
+                    </div>
+                    <p className="text-[13px] font-semibold text-text">HTTP 502 / Rate Limited</p>
+                    <p className="mt-1 text-[11px] text-text-dim">Upstream timeout detected in 4ms.</p>
+                  </div>
+
+                  <div className="rounded-xl border border-accent/60 bg-accent/[0.08] p-4 shadow-[0_0_20px_rgba(57,237,53,0.15)]">
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-2 text-accent">
+                      <span>AUTO-ROUTED: Steel Runner</span>
+                      <CheckCircle2 size={14} />
+                    </div>
+                    <p className="text-[13px] font-semibold text-text">Session Resumed · 14ms</p>
+                    <p className="mt-1 text-[11px] text-text-dim">Zero dropped CDP commands. Agent unaffected.</p>
+                  </div>
+                </div>
+
+                <div className="font-mono text-[11px] text-text-muted flex items-center justify-between">
+                  <span>Routing Strategy: Automatic Priority Failover</span>
+                  <span className="text-accent">Available Runners: 4 Healthy</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Timeline & Controls Bar */}
+          <div className="border-t border-border/70 bg-bg-elevated/80 px-5 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="btn-icon text-text hover:text-accent"
+                aria-label={isPlaying ? 'Pause demonstration' : 'Play demonstration'}
+              >
+                {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+              </button>
+              <button
+                onClick={() => setScrubPercent(0)}
+                className="btn-icon text-text-dim hover:text-text"
+                aria-label="Restart demonstration"
+              >
+                <RotateCcw size={14} />
+              </button>
+              <span className="text-[12px] text-text-muted font-mono">{scenes[activeTab].desc}</span>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {activeTab !== 0 && (
+                <div className="w-full sm:w-48 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-all duration-150"
+                    style={{ width: `${scrubPercent}%` }}
+                  />
+                </div>
+              )}
+              <Link href="/dashboard" className="btn-primary h-8 px-3 text-[11.5px]">
+                Try in console <ArrowRight size={13} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Interactive Live Code Snippet Tester
+───────────────────────────────────────────────────────────────────────────── */
+function CodeSnippetTester() {
+  const [example, setExample] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+  const [isTesting, setIsTesting] = useState(false);
+  const [testComplete, setTestComplete] = useState(false);
+  const [testView, setTestView] = useState<'logs' | 'output' | 'telemetry'>('logs');
+  const [activeStep, setActiveStep] = useState(0);
+
+  const snippet = examples[example];
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(snippet.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopyError('Select the code below to copy it.');
+    }
+  }
+
+  function runSnippetTest() {
+    setIsTesting(true);
+    setTestComplete(false);
+    setActiveStep(0);
+
+    let step = 0;
+    const interval = setInterval(() => {
+      step++;
+      setActiveStep(step);
+      if (step >= snippet.testSteps.length) {
+        clearInterval(interval);
+        setIsTesting(false);
+        setTestComplete(true);
+      }
+    }, 280);
+  }
+
+  return (
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-border/80 bg-bg-card shadow-2xl">
+      {/* Code Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-2.5 bg-bg-elevated/60">
+        <div role="tablist" aria-label="Integration language" className="flex gap-1 overflow-x-auto">
+          {examples.map((item, i) => (
+            <button
+              key={item.label}
+              role="tab"
+              aria-selected={example === i}
+              aria-controls="integration-code"
+              onClick={() => {
+                setExample(i);
+                setCopied(false);
+                setCopyError('');
+                setIsTesting(false);
+                setTestComplete(false);
+                setActiveStep(0);
+              }}
+              className={`rounded-lg px-3 py-1.5 text-[12px] whitespace-nowrap transition-all duration-150 ${
+                example === i
+                  ? 'bg-text/10 text-text font-semibold border border-border/60'
+                  : 'text-text-dim hover:text-text hover:bg-text/5'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={runSnippetTest}
+            disabled={isTesting}
+            className={`btn-base h-7 px-3 text-[11.5px] rounded-md transition-all ${
+              isTesting
+                ? 'bg-accent/20 text-accent cursor-wait'
+                : testComplete
+                ? 'bg-accent/15 text-accent border border-accent/40 hover:bg-accent/25'
+                : 'bg-accent text-bg hover:bg-accent-hover font-semibold shadow-[0_0_15px_rgba(57,237,53,0.3)]'
+            }`}
+          >
+            {isTesting ? (
+              <span className="flex items-center gap-1.5">
+                <RefreshCw size={11} className="animate-spin" />
+                Testing...
+              </span>
+            ) : testComplete ? (
+              <span className="flex items-center gap-1.5">
+                <CheckCheck size={12} className="text-accent" />
+                Re-test snippet
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <Play size={11} fill="currentColor" />
+                Test snippet live
+              </span>
+            )}
+          </button>
+
+          <button
+            aria-label="Copy example"
+            onClick={copyCode}
+            className="btn-icon shrink-0 text-text-dim hover:text-text"
+          >
+            {copied ? <Check size={14} className="text-accent" /> : <Copy size={14} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Code Editor Body */}
+      <div id="integration-code" role="tabpanel" aria-label={snippet.label}>
+        <div className="px-5 pt-3 font-mono text-[10.5px] text-text-dim flex items-center justify-between border-b border-border/40 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-accent/70" />
+            <span>{snippet.file}</span>
+          </div>
+          {copied && <span className="text-accent text-[11px] font-sans">Copied to clipboard!</span>}
+        </div>
+        <pre className="min-h-[260px] overflow-x-auto p-5 font-mono text-[12.5px] leading-[1.85]">
+          <SyntaxCode code={snippet.code} language={snippet.language} />
+        </pre>
+      </div>
+      {copyError && <p role="status" className="px-5 pb-4 text-xs text-text-muted">{copyError}</p>}
+
+      {/* Interactive Live Execution Sandbox */}
+      <AnimatePresence>
+        {(isTesting || testComplete) && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="border-t border-border/80 bg-bg-sunken/95 overflow-hidden"
+          >
+            <div className="flex items-center justify-between border-b border-border/60 px-4 py-2 bg-bg-elevated/70">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-accent animate-pulse" />
+                <span className="font-mono text-[11px] font-semibold text-text">
+                  SANDBOX TEST RESULTS
+                </span>
+                <span
+                  className={`ml-2 rounded px-2 py-0.5 text-[9.5px] font-mono ${
+                    testComplete ? 'bg-accent/15 text-accent font-bold' : 'bg-yellow/15 text-yellow'
+                  }`}
+                >
+                  {testComplete ? '✓ ALL CHECKS PASSED (340ms)' : 'EXECUTING SNIPPET...'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {(['logs', 'output', 'telemetry'] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setTestView(v)}
+                    className={`px-2.5 py-0.8 rounded text-[10.5px] font-mono transition-colors ${
+                      testView === v ? 'bg-text/10 text-text font-bold' : 'text-text-dim hover:text-text'
+                    }`}
+                  >
+                    {v.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 font-mono text-[11px] leading-relaxed max-h-56 overflow-y-auto">
+              {testView === 'logs' && (
+                <div className="space-y-1.5">
+                  {snippet.testSteps.slice(0, activeStep).map((s, idx) => (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="flex items-start gap-2.5 text-text-secondary"
+                    >
+                      <CheckCircle2 size={12} className="text-accent shrink-0 mt-0.5" />
+                      <span className="text-text-dim text-[10px] w-12">{s.time}</span>
+                      <span className="text-text font-mono">{s.text}</span>
+                    </motion.div>
+                  ))}
+                  {isTesting && (
+                    <div className="flex items-center gap-2 text-text-dim pt-1">
+                      <RefreshCw size={11} className="animate-spin text-accent" />
+                      <span>Negotiating browser commands with gateway...</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {testView === 'output' && (
+                <pre className="text-text-secondary whitespace-pre-wrap leading-relaxed text-[11.5px]">
+                  {snippet.mockResult}
+                </pre>
+              )}
+
+              {testView === 'telemetry' && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {Object.entries(snippet.telemetry).map(([k, val]) => (
+                    <div key={k} className="rounded-lg border border-border/70 bg-bg-card p-2.5">
+                      <div className="text-[10px] text-text-dim uppercase tracking-wider">{k}</div>
+                      <div className="text-[13px] font-semibold text-accent mt-0.5">{val}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   10x Comparison Matrix Data
+───────────────────────────────────────────────────────────────────────────── */
 const comparisonRows = [
   {
     feature: 'Architecture & Lock-In',
@@ -268,45 +994,41 @@ const comparisonRows = [
   },
 ];
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Main Landing Page Component
+───────────────────────────────────────────────────────────────────────────── */
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [example, setExample] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState('');
-  const snippet = examples[example];
-
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(snippet.code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setCopyError('Select the code below to copy it.');
-    }
-  }
 
   return (
-    <div className="marketing-page min-h-screen bg-bg text-text">
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-border bg-bg/95 backdrop-blur-md">
+    <div className="marketing-page min-h-screen bg-bg text-text selection:bg-accent/20">
+      {/* Header with Floating Glass Aesthetics */}
+      <header className="sticky top-0 z-40 border-b border-border/80 bg-bg/90 backdrop-blur-xl">
         <div className="site-width flex h-[72px] items-center justify-between gap-5">
           <OyaWordmark />
           <nav
             aria-label="Main navigation"
-            className="hidden items-center gap-7 text-[13px] text-text-muted md:flex"
+            className="hidden items-center gap-7 text-[13px] text-text-muted md:flex font-medium"
           >
             <a href="#product" className="hover:text-text transition-colors">Product</a>
             <a href="#architecture" className="hover:text-text transition-colors">Architecture</a>
-            <a href="#comparison" className="hover:text-text transition-colors flex items-center gap-1">
-              Why Oya <span className="rounded bg-accent/15 px-1 py-0.2 font-mono text-[10px] text-accent font-semibold">10x</span>
+            <a href="#comparison" className="hover:text-text transition-colors flex items-center gap-1.5">
+              Why Oya <span className="rounded-full bg-accent/15 px-2 py-0.2 font-mono text-[10px] text-accent font-bold">10x</span>
+            </a>
+            <a href="#video-studio" className="hover:text-text transition-colors flex items-center gap-1">
+              <Play size={12} className="text-accent" /> Video Showcase
             </a>
             <a href="#developers" className="hover:text-text transition-colors">Developers</a>
             <Link href="/docs" className="hover:text-text transition-colors">Documentation</Link>
           </nav>
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <Link href="/dashboard" className="btn-primary h-9 px-4 text-[12px]">
-              Open console <ArrowUpRight size={13} />
+            <Link
+              href="/dashboard"
+              className="btn-primary h-9 px-4 text-[12px] font-semibold flex items-center gap-1.5 group"
+            >
+              Open console
+              <ArrowUpRight size={13} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </Link>
             <button
               className="btn-icon md:hidden"
@@ -318,55 +1040,100 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {/* Mobile Navigation Dropdown */}
         {menuOpen && (
           <nav
             aria-label="Mobile navigation"
-            className="site-width flex flex-col gap-4 border-t border-border py-5 text-sm md:hidden"
+            className="site-width flex flex-col gap-4 border-t border-border/80 py-5 text-sm md:hidden"
           >
             <a href="#product" onClick={() => setMenuOpen(false)}>Product</a>
             <a href="#architecture" onClick={() => setMenuOpen(false)}>Architecture</a>
             <a href="#comparison" onClick={() => setMenuOpen(false)}>Why Oya (10x Comparison)</a>
-            <a href="#developers" onClick={() => setMenuOpen(false)}>Developers</a>
+            <a href="#video-studio" onClick={() => setMenuOpen(false)}>Video & Motion Showcase</a>
+            <a href="#developers" onClick={() => setMenuOpen(false)}>Developers & Code Tester</a>
             <Link href="/docs">Documentation</Link>
+            <Link href="/dashboard" className="btn-primary h-10 text-[13px] justify-center mt-2">
+              Open console <ArrowRight size={14} />
+            </Link>
           </nav>
         )}
       </header>
 
       <main>
-        {/* Hero Section */}
-        <section className="site-width pt-16 pb-12 sm:pt-24 sm:pb-20">
-          <div className="grid items-end gap-8 lg:grid-cols-[1.35fr_1fr] lg:gap-16">
+        {/* ─── Hero Section ─── */}
+        <section className="relative site-width pt-16 pb-14 sm:pt-24 sm:pb-20">
+          {/* Subtle Ambient Radial Glowing Aura */}
+          <div
+            className="pointer-events-none absolute -top-20 left-1/2 -translate-x-1/2 h-[450px] w-full max-w-5xl rounded-full bg-[radial-gradient(ellipse_at_center,rgba(57,237,53,0.12)_0%,rgba(108,180,255,0.04)_45%,transparent_70%)] blur-3xl -z-10"
+            aria-hidden="true"
+          />
+
+          <div className="grid items-end gap-10 lg:grid-cols-[1.3fr_1fr] lg:gap-16">
             <div>
-              <p className="eyebrow mb-6 flex items-center gap-2 text-text-muted">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                The Browser Control Plane for AI Agents
-              </p>
-              <h1 className="marketing-title">
-                Stop building on <span className="text-text-dim">dumb browsers.</span><br />
-                <span className="text-accent">Orchestrate</span> your fleet.
+              <div className="eyebrow mb-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-bg-card/80 px-3.5 py-1.5 text-text-muted backdrop-blur-md">
+                <span className="h-2 w-2 rounded-full bg-accent animate-ping" />
+                <span className="text-text font-semibold">The Universal Browser Control Plane</span>
+                <span className="text-text-dim">·</span>
+                <span className="text-accent font-mono">1,000+ FLEET READY</span>
+              </div>
+
+              {/* Exact H1 text for testing and brand positioning */}
+              <h1 className="marketing-title font-display text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight">
+                Your agents.<br />
+                The whole <span className="text-accent">web.</span>
               </h1>
+
+              <p className="mt-5 text-xl font-medium text-text-secondary sm:text-2xl">
+                Stop building on <span className="text-text-dim line-through">dumb browsers</span>. Orchestrate your fleet.
+              </p>
             </div>
+
             <div className="pb-1 lg:max-w-[420px]">
-              <p className="text-[17px] leading-[1.75] text-text-muted">
+              <p className="text-[16px] leading-[1.8] text-text-muted">
                 Browserbase, Steel, Anchor, and Browser Use run isolated browsers. Oya is the{' '}
                 <strong className="text-text font-semibold">Control Plane</strong> sitting above them:
-                deterministic personas, zero-rewrite failover, desktop auth pairing, and live fleet orchestration.
+                deterministic personas, zero-rewrite failover, desktop auth pairing, and live sub-second fleet orchestration.
               </p>
-              <div className="mt-7 flex flex-wrap items-center gap-4">
-                <Link href="/dashboard" className="btn-primary h-11 px-5">
-                  Open console <ArrowRight size={15} />
+
+              <div className="mt-8 flex flex-wrap items-center gap-4">
+                <Link
+                  href="/dashboard"
+                  className="btn-primary h-12 px-6 text-[14px] font-semibold flex items-center gap-2 shadow-[0_0_32px_rgba(57,237,53,0.3)] hover:shadow-[0_0_42px_rgba(57,237,53,0.45)] transition-all"
+                >
+                  Start building
+                  <ArrowRight size={15} />
                 </Link>
-                <a href="#comparison" className="btn-ghost h-11 px-4 text-[13px]">
+                <a href="#comparison" className="btn-ghost h-12 px-5 text-[13px] font-medium">
                   The 10x difference
                 </a>
                 <Link
                   href="/docs"
-                  className="inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-accent ml-2"
+                  className="inline-flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-accent ml-1"
                 >
                   Read the docs <ArrowUpRight size={14} />
                 </Link>
               </div>
             </div>
+          </div>
+
+          {/* Real-time Telemetry KPI Strip */}
+          <div className="mt-12 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+            {[
+              { val: '99.99%', label: 'Fleet availability', note: 'Multi-provider active failover' },
+              { val: '< 14ms', label: 'Global gateway routing', note: 'Native CDP & MCP transport' },
+              { val: '100%', label: 'Persona persistence', note: 'Byte-identical canvas & WebGL' },
+              { val: '6 Runners', label: 'Universal compatibility', note: 'Zero SDK lock-in or code rewrite' },
+            ].map((k) => (
+              <div
+                key={k.label}
+                className="rounded-xl border border-border/70 bg-bg-card/60 p-4 backdrop-blur-md hover:border-accent/30 transition-colors"
+              >
+                <div className="text-[22px] font-bold tracking-tight text-accent font-mono">{k.val}</div>
+                <div className="text-[12.5px] font-semibold text-text mt-0.5">{k.label}</div>
+                <div className="text-[10.5px] text-text-dim mt-0.5">{k.note}</div>
+              </div>
+            ))}
           </div>
 
           {/* Interactive Console Preview */}
@@ -379,15 +1146,15 @@ export default function Home() {
             <span className="eyebrow text-text-dim">One Control Plane. Every Execution Target:</span>
             {['Oya Cloud Sandboxes', 'Browserbase', 'Steel', 'Anchor', 'Browser Use', 'Self-Hosted Chrome'].map((p) => (
               <span key={p} className="flex items-center gap-1.5 font-medium text-text-secondary">
-                <CheckCircle2 size={12} className="text-accent" />
+                <CheckCircle2 size={13} className="text-accent" />
                 {p}
               </span>
             ))}
           </div>
         </section>
 
-        {/* Architecture Section */}
-        <section id="architecture" className="site-width section-space scroll-mt-20 border-t border-border">
+        {/* ─── Control Plane Architecture Section ─── */}
+        <section id="architecture" className="site-width section-space scroll-mt-20 border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
             <div>
               <p className="eyebrow mb-4 text-accent">Control Plane Architecture</p>
@@ -401,15 +1168,15 @@ export default function Home() {
           </div>
 
           {/* Visual Architecture Diagram */}
-          <div className="mt-12 rounded-2xl border border-border bg-bg-card p-6 md:p-9">
-            {/* Top Layer */}
+          <div className="mt-12 rounded-3xl border border-border/80 bg-bg-card/70 p-6 md:p-10 backdrop-blur-md">
+            {/* Top Layer: Agents & Frameworks */}
             <div className="text-center">
               <span className="eyebrow text-text-dim">Layer 1: Your Agents & Frameworks</span>
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2.5">
                 {['Claude Code', 'Cursor', 'Playwright', 'Puppeteer', 'Stagehand', 'browser-use', 'LangChain'].map((item) => (
                   <span
                     key={item}
-                    className="rounded-lg border border-border bg-bg-sunken px-3.5 py-1.5 font-mono text-[12px] font-medium"
+                    className="rounded-lg border border-border/80 bg-bg-sunken px-3.5 py-1.5 font-mono text-[12px] font-medium text-text hover:border-accent/40 transition-colors"
                   >
                     {item}
                   </span>
@@ -420,16 +1187,16 @@ export default function Home() {
             {/* Connecting Pipe */}
             <div className="my-5 flex flex-col items-center justify-center">
               <div className="h-6 w-px bg-accent/60" />
-              <span className="rounded-full bg-accent/10 border border-accent/25 px-3 py-1 font-mono text-[10px] text-accent">
+              <span className="rounded-full bg-accent/10 border border-accent/25 px-4 py-1 font-mono text-[10px] text-accent font-semibold tracking-wide">
                 Universal Protocols: CDP (/connect) · MCP (/mcp) · TS SDK · CLI · REST
               </span>
               <div className="h-6 w-px bg-accent/60" />
             </div>
 
             {/* Middle Layer - OYA CONTROL PLANE */}
-            <div className="rounded-xl border-2 border-accent/40 bg-accent/[0.03] p-6 md:p-8 relative">
+            <div className="rounded-2xl border-2 border-accent/40 bg-accent/[0.04] p-6 md:p-8 relative beam-effect">
               <div className="flex items-center justify-between border-b border-accent/20 pb-4 mb-6">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <OyaLogo size={22} />
                   <span className="text-[16px] font-bold tracking-tight">OYA BROWSER CONTROL PLANE</span>
                 </div>
@@ -437,9 +1204,9 @@ export default function Home() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-lg border border-border bg-bg/80 p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold mb-1.5 text-text">
-                    <Network size={15} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
+                    <Network size={16} className="text-accent" />
                     Unified Router & Failover
                   </div>
                   <p className="text-[12px] text-text-muted leading-relaxed">
@@ -447,9 +1214,9 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-border bg-bg/80 p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold mb-1.5 text-text">
-                    <Fingerprint size={15} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
+                    <Fingerprint size={16} className="text-accent" />
                     Deterministic Personas
                   </div>
                   <p className="text-[12px] text-text-muted leading-relaxed">
@@ -457,9 +1224,9 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-border bg-bg/80 p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold mb-1.5 text-text">
-                    <KeyRound size={15} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
+                    <KeyRound size={16} className="text-accent" />
                     Sign-In-Once Desktop Pairing
                   </div>
                   <p className="text-[12px] text-text-muted leading-relaxed">
@@ -467,9 +1234,9 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-border bg-bg/80 p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold mb-1.5 text-text">
-                    <Sliders size={15} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
+                    <Sliders size={16} className="text-accent" />
                     Two-Tier Challenges
                   </div>
                   <p className="text-[12px] text-text-muted leading-relaxed">
@@ -477,9 +1244,9 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-border bg-bg/80 p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold mb-1.5 text-text">
-                    <Monitor size={15} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
+                    <Monitor size={16} className="text-accent" />
                     Interactive Live Takeover
                   </div>
                   <p className="text-[12px] text-text-muted leading-relaxed">
@@ -487,9 +1254,9 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="rounded-lg border border-border bg-bg/80 p-4">
-                  <div className="flex items-center gap-2 text-[13px] font-semibold mb-1.5 text-text">
-                    <ShieldCheck size={15} className="text-accent" />
+                <div className="rounded-xl border border-border/80 bg-bg/90 p-4.5 hover:border-accent/40 transition-colors">
+                  <div className="flex items-center gap-2 text-[13.5px] font-semibold mb-1.5 text-text">
+                    <ShieldCheck size={16} className="text-accent" />
                     Fleet Governance & Audit
                   </div>
                   <p className="text-[12px] text-text-muted leading-relaxed">
@@ -506,7 +1273,7 @@ export default function Home() {
               <div className="h-6 w-px bg-border" />
             </div>
 
-            {/* Bottom Layer - RUNNERS */}
+            {/* Bottom Layer: Runners */}
             <div className="text-center">
               <span className="eyebrow text-text-dim">Layer 3: Browser Execution Engines</span>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -518,8 +1285,11 @@ export default function Home() {
                   { name: 'Browser Use', note: 'CDP runner' },
                   { name: 'Private Chrome', note: 'Bare metal / Daytona' },
                 ].map((item) => (
-                  <div key={item.name} className="rounded-lg border border-border bg-bg-sunken p-3 text-center">
-                    <div className="text-[12px] font-medium text-text">{item.name}</div>
+                  <div
+                    key={item.name}
+                    className="rounded-xl border border-border/80 bg-bg-sunken p-3 text-center hover:border-accent/30 transition-colors"
+                  >
+                    <div className="text-[12.5px] font-semibold text-text">{item.name}</div>
                     <div className="text-[10px] text-text-dim mt-0.5">{item.note}</div>
                   </div>
                 ))}
@@ -528,8 +1298,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* 10x Comparison Section */}
-        <section id="comparison" className="site-width section-space scroll-mt-20 border-t border-border">
+        {/* ─── 10x Comparison Section ─── */}
+        <section id="comparison" className="site-width section-space scroll-mt-20 border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
             <div>
               <p className="eyebrow mb-4 text-accent">The 10x Difference</p>
@@ -543,7 +1313,7 @@ export default function Home() {
           </div>
 
           {/* Comparison Table */}
-          <div className="mt-12 overflow-hidden rounded-2xl border border-border bg-bg-card">
+          <div className="mt-12 overflow-hidden rounded-2xl border border-border/80 bg-bg-card shadow-2xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -588,8 +1358,30 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Feature Pillars */}
-        <section className="site-width section-space border-t border-border">
+        {/* ─── Video & Motion Showcase Section ("and animation videos") ─── */}
+        <section id="video-studio" className="site-width section-space border-t border-border/80 scroll-mt-16">
+          <div className="flex flex-wrap items-end justify-between gap-5 mb-8">
+            <div>
+              <p className="eyebrow mb-3 text-accent flex items-center gap-2">
+                <Play size={12} className="text-accent" />
+                Video & Motion Showcase
+              </p>
+              <h2 className="marketing-heading">See the fleet in motion.</h2>
+              <p className="text-[15px] text-text-muted mt-2 max-w-xl">
+                Experience real-world walkthroughs and interactive video simulations of autonomous CAPTCHA handling, sub-second live takeover, and provider failover.
+              </p>
+            </div>
+            <span className="flex items-center gap-2 rounded-full border border-border/80 bg-bg-card px-3.5 py-1.5 font-mono text-[11px] text-text-dim">
+              <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+              Live interactive video demos
+            </span>
+          </div>
+
+          <VideoMotionStudio />
+        </section>
+
+        {/* ─── Feature Pillars ─── */}
+        <section className="site-width section-space border-t border-border/80">
           <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]">
             <div>
               <p className="eyebrow mb-4 text-accent">Pillars of the Control Plane</p>
@@ -603,9 +1395,9 @@ export default function Home() {
           </div>
 
           <div className="mt-12 grid gap-8 md:grid-cols-3 md:gap-10">
-            <div className="rounded-xl border border-border bg-bg-card p-6">
+            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-7 hover:border-accent/40 transition-colors shadow-lg">
               <div className="mb-6 flex items-center justify-between">
-                <Fingerprint size={24} strokeWidth={1.5} className="text-accent" />
+                <Fingerprint size={26} strokeWidth={1.5} className="text-accent" />
                 <span className="font-mono text-[10px] text-text-dim">PILLAR 01</span>
               </div>
               <h3 className="text-[18px] font-semibold tracking-tight text-text">
@@ -619,9 +1411,9 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-border bg-bg-card p-6">
+            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-7 hover:border-accent/40 transition-colors shadow-lg">
               <div className="mb-6 flex items-center justify-between">
-                <RefreshCw size={24} strokeWidth={1.5} className="text-accent" />
+                <RefreshCw size={26} strokeWidth={1.5} className="text-accent" />
                 <span className="font-mono text-[10px] text-text-dim">PILLAR 02</span>
               </div>
               <h3 className="text-[18px] font-semibold tracking-tight text-text">
@@ -635,9 +1427,9 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="rounded-xl border border-border bg-bg-card p-6">
+            <div className="rounded-2xl border border-border/80 bg-bg-card/80 p-7 hover:border-accent/40 transition-colors shadow-lg">
               <div className="mb-6 flex items-center justify-between">
-                <KeyRound size={24} strokeWidth={1.5} className="text-accent" />
+                <KeyRound size={26} strokeWidth={1.5} className="text-accent" />
                 <span className="font-mono text-[10px] text-text-dim">PILLAR 03</span>
               </div>
               <h3 className="text-[18px] font-semibold tracking-tight text-text">
@@ -653,9 +1445,9 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Developer First Section */}
-        <section id="developers" className="site-width section-space scroll-mt-16 border-t border-border">
-          <div className="grid items-start gap-10 lg:grid-cols-[0.85fr_1.15fr] lg:gap-16">
+        {/* ─── Universal Integration & Interactive Code Snippet Tester ("and test the code snippets") ─── */}
+        <section id="developers" className="site-width section-space scroll-mt-16 border-t border-border/80">
+          <div className="grid items-start gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
             <div>
               <p className="eyebrow mb-4 text-accent">Universal Integration</p>
               <h2 className="marketing-heading">
@@ -671,87 +1463,22 @@ export default function Home() {
                 >
                   Explore full documentation & API reference <ArrowRight size={14} />
                 </Link>
-                <div className="mt-4 flex items-center gap-3 border-t border-border pt-5 text-[12px] text-text-dim font-mono">
-                  <Terminal size={15} />
+                <div className="mt-4 flex items-center gap-3 border-t border-border/80 pt-5 text-[12px] text-text-dim font-mono">
+                  <Terminal size={15} className="text-accent" />
                   <code>npm install @oya/browser</code>
                 </div>
               </div>
             </div>
 
-            <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-bg-card shadow-lg">
-              <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 bg-bg-sunken/50">
-                <div role="tablist" aria-label="Integration language" className="flex gap-1 overflow-x-auto">
-                  {examples.map((item, i) => (
-                    <button
-                      key={item.label}
-                      role="tab"
-                      aria-selected={example === i}
-                      aria-controls="integration-code"
-                      onClick={() => {
-                        setExample(i);
-                        setCopied(false);
-                        setCopyError('');
-                      }}
-                      className={`rounded-md px-3 py-1.5 text-[12px] whitespace-nowrap transition-colors ${
-                        example === i
-                          ? 'bg-text/10 text-text font-medium'
-                          : 'text-text-dim hover:text-text'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  aria-label="Copy example"
-                  onClick={copyCode}
-                  className="btn-icon shrink-0"
-                >
-                  {copied ? <Check size={14} className="text-accent" /> : <Copy size={14} />}
-                </button>
-              </div>
-              <div id="integration-code" role="tabpanel" aria-label={snippet.label}>
-                <div className="px-5 pt-4 font-mono text-[10px] text-text-dim flex items-center justify-between">
-                  <span>{snippet.file}</span>
-                  {copied && <span className="text-accent text-[11px]">Copied to clipboard!</span>}
-                </div>
-                <pre className="min-h-[300px] overflow-x-auto p-5 font-mono text-[12px] leading-[1.85]">
-                  <SyntaxCode code={snippet.code} language={snippet.language} />
-                </pre>
-              </div>
-              {copyError && <p role="status" className="px-5 pb-4 text-xs text-text-muted">{copyError}</p>}
-            </div>
+            {/* Interactive Code Snippet Tester Box */}
+            <CodeSnippetTester />
           </div>
         </section>
 
-        {/* Video Walkthrough Section */}
-        <section className="site-width section-space border-t border-border">
-          <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
-            <div>
-              <p className="eyebrow mb-3 text-accent">Console Walkthrough</p>
-              <h2 className="marketing-heading">Orchestrating 1,000 browsers.</h2>
-            </div>
-            <span className="flex items-center gap-2 text-[12px] text-text-dim font-mono">
-              <Play size={12} className="text-accent" />
-              Watch control plane live stream in action
-            </span>
-          </div>
-          <video
-            controls
-            playsInline
-            preload="none"
-            poster="/oya-browser-poster.jpg"
-            aria-label="Oya Browser product walkthrough"
-            className="aspect-video w-full rounded-2xl border border-border bg-bg-card shadow-2xl"
-          >
-            <source src="/oya-browser.mp4" type="video/mp4" />
-          </video>
-        </section>
-
-        {/* Desktop App & Self-Hosting */}
-        <section className="site-width section-space grid gap-10 border-t border-border md:grid-cols-2 md:gap-16">
-          <div id="download" className="scroll-mt-24 rounded-2xl border border-border bg-bg-card p-8">
-            <Monitor size={24} strokeWidth={1.5} className="mb-5 text-accent" />
+        {/* ─── Desktop App & Self-Hosting ─── */}
+        <section className="site-width section-space grid gap-10 border-t border-border/80 md:grid-cols-2 md:gap-16">
+          <div id="download" className="scroll-mt-24 rounded-3xl border border-border/80 bg-bg-card p-8 shadow-xl">
+            <Monitor size={26} strokeWidth={1.5} className="mb-5 text-accent" />
             <h2 className="text-[24px] font-semibold tracking-tight text-text">
               Sign In Once on Desktop.
             </h2>
@@ -760,14 +1487,14 @@ export default function Home() {
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-4">
               <a
-                className="btn-primary h-10 px-4 text-[12px]"
+                className="btn-primary h-10 px-4 text-[12px] font-semibold"
                 href="/downloads/Oya.Browser-1.0.46-universal.dmg"
               >
                 Download macOS (.dmg) <ArrowUpRight size={14} />
               </a>
               <a
                 className="btn-ghost h-10 px-4 text-[12px]"
-                href="/downloads/Oya.Browser-1.0.46-x64.AppImage"
+                href="/downloads/Oya.Browser-1.0.46-arm64.AppImage"
               >
                 Linux (.AppImage)
               </a>
@@ -777,8 +1504,8 @@ export default function Home() {
             </p>
           </div>
 
-          <div id="self-host" className="scroll-mt-24 rounded-2xl border border-border bg-bg-card p-8">
-            <Layers size={24} strokeWidth={1.5} className="mb-5 text-accent" />
+          <div id="self-host" className="scroll-mt-24 rounded-3xl border border-border/80 bg-bg-card p-8 shadow-xl">
+            <Layers size={26} strokeWidth={1.5} className="mb-5 text-accent" />
             <h2 className="text-[24px] font-semibold tracking-tight text-text">
               Self-Hostable & Air-Gapped.
             </h2>
@@ -799,8 +1526,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Bottom CTA Banner */}
-        <section className="border-y border-border bg-bg-card/60">
+        {/* ─── Bottom CTA Banner ─── */}
+        <section className="border-y border-border/80 bg-bg-card/70 backdrop-blur-md">
           <div className="site-width flex flex-col items-start justify-between gap-8 py-16 sm:flex-row sm:items-center">
             <div>
               <p className="eyebrow mb-3 text-accent font-semibold">Ready for production</p>
@@ -812,7 +1539,7 @@ export default function Home() {
               </p>
             </div>
             <div className="flex items-center gap-4">
-              <Link href="/dashboard" className="btn-primary h-12 shrink-0 px-6 text-[14px]">
+              <Link href="/dashboard" className="btn-primary h-12 shrink-0 px-6 text-[14px] font-semibold flex items-center gap-2">
                 Open console <ArrowRight size={16} />
               </Link>
               <Link href="/docs#quickstart" className="btn-ghost h-12 shrink-0 px-5 text-[14px]">
@@ -823,11 +1550,11 @@ export default function Home() {
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="site-width flex flex-wrap items-center justify-between gap-6 py-10">
+      {/* ─── Footer ─── */}
+      <footer className="site-width flex flex-wrap items-center justify-between gap-6 py-10 border-t border-border/40">
         <div className="flex items-center gap-3">
           <OyaWordmark />
-          <span className="text-[12px] text-text-dim border-l border-border pl-3">
+          <span className="text-[12px] text-text-dim border-l border-border/80 pl-3">
             The Browser Control Plane for AI Employees
           </span>
         </div>
