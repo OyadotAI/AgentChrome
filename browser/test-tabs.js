@@ -26,4 +26,16 @@ has(/if \(keepOne\) createTab\(/, 'closeTab recreates unconditionally — bulk c
 assert.ok(!/for \(const c of cookies\) \{/.test(src),
   'applyCookieSync is back to a sequential await per cookie');
 
-console.log('ok — tab close terminates, cookie sync is batched');
+// A second declaration of the same name silently replaces the first — that is
+// how waitForLoad(view) ended up calling waitForLoad(timeout) and resolving
+// instantly instead of waiting for the page.
+const names = (src.match(/^(?:async )?function [A-Za-z0-9_]+/gm) || [])
+  .map((d) => d.replace(/^(?:async )?function /, ''));
+const dupes = names.filter((n, i) => names.indexOf(n) !== i);
+assert.deepStrictEqual(dupes, [], `duplicate function declarations shadow each other: ${dupes}`);
+
+// Sends must go through wsSend — a raw send throws when the socket is down.
+const rawSends = (src.match(/ws\.send\(/g) || []).length;
+assert.strictEqual(rawSends, 1, 'ws.send() outside the wsSend helper — a dropped socket will throw');
+
+console.log('ok — tab close terminates, cookie sync batched, no shadowed functions, sends guarded');

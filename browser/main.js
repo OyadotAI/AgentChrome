@@ -336,25 +336,6 @@ async function cdpScroll(view, x, y, deltaX, deltaY) {
 
 // ── CDP page helpers ──
 
-/**
- * Settle when the page stops loading, or give up. The timeout used to leave
- * both listeners attached, so a long agent session piled them up on a
- * webContents that never fired.
- */
-function waitForLoad(view, ms = 15000) {
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      view.webContents.off('did-finish-load', done);
-      view.webContents.off('did-fail-load', done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    view.webContents.once('did-finish-load', done);
-    view.webContents.once('did-fail-load', done);
-  });
-}
-
 async function cdpEval(view, expression) {
   const res = await cdp(view, 'Runtime.evaluate', {
     expression, returnByValue: true, awaitPromise: true,
@@ -400,7 +381,7 @@ async function dumpCookies() {
       expirationDate: c.expirationDate,
       hostOnly: c.hostOnly,
     }));
-    ws.send(JSON.stringify({ type: 'cookie_dump', cookies: slim }));
+    wsSend({ type: 'cookie_dump', cookies: slim });
   } catch (e) {
     console.log('[oya] Cookie dump failed:', e.message);
   }
@@ -463,17 +444,22 @@ function pullCookiesFor(url, { force = false } = {}) {
   const pullId = `p${++pullSeq}`;
   return new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    // The eager pulledAt.set above dedupes concurrent navigations to this host.
+    // Only a real answer may keep it: a pull that timed out synced nothing, and
+    // leaving the stamp in place suppressed every retry for the whole TTL.
+    const finish = (answered = false) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       pendingPulls.delete(pullId);
+      if (answered) pulledAt.set(host, Date.now());
+      else pulledAt.delete(host);
       resolve();
     };
-    const timer = setTimeout(finish, COOKIE_PULL_TIMEOUT);
+    const timer = setTimeout(() => finish(false), COOKIE_PULL_TIMEOUT);
     pendingPulls.set(pullId, finish);
     try {
-      ws.send(JSON.stringify({ type: 'cookie_pull', domains: [host], pullId }));
+      if (!wsSend({ type: 'cookie_pull', domains: [host], pullId })) finish();
     } catch { finish(); }
   });
 }
@@ -488,7 +474,7 @@ function flushCookieChanges() {
   const changes = [...cookieBatch.values()];
   cookieBatch = new Map();
   if (!ws || ws.readyState !== WebSocket.OPEN || !wsReady) return;
-  try { ws.send(JSON.stringify({ type: 'cookie_changed', changes })); } catch {}
+  wsSend({ type: 'cookie_changed', changes });
 }
 
 let watchedCookies = null, cookieListener = null;
@@ -522,6 +508,22 @@ function startCookieChangeListener() {
 
 let ws = null;
 let wsReady = false;
+
+/**
+ * Send if the socket is up, otherwise drop it. A browser loses its connection
+ * for ordinary reasons — sleep, wifi, a server rollout — and a send that
+ * throws from inside a message handler used to take the whole session down
+ * with it rather than waiting for the reconnect that was already scheduled.
+ */
+function wsSend(payload) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  try {
+    ws.send(JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
+}
 let browserId = null;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
@@ -894,6 +896,16 @@ function createTab(url, activate = true) {
       dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source })
         .catch((e) => console.error('[anonymity] popup injection failed — popup is NOT protected:', e.message));
       dbg.sendCommand('Page.enable').catch(() => {});
+
+      // A sign-in popup is where the session actually gets written, so it needs
+      // the same localStorage transport a tab gets. Without this the cookies
+      // synced but the token half of a login stayed on this machine.
+      if (loginState) {
+        loginState.attach(
+          (method, params = {}) => dbg.sendCommand(method, params),
+          (method, fn) => dbg.on('message', (_event, event, params) => { if (event === method) fn(params); }),
+        ).catch((e) => console.error('[oya] popup login state not synced:', e.message));
+      }
     } catch (e) {
       console.error('[anonymity] popup debugger attach failed — popup is NOT protected:', e.message);
     }
@@ -1453,7 +1465,7 @@ ipcMain.handle('save-profile', async () => {
   await dumpCookies();
   await getBrowserSession().cookies.flushStore();
   getBrowserSession().flushStorageData();
-  ws.send(JSON.stringify({ type: 'profile_flush' }));
+  wsSend({ type: 'profile_flush' });
 });
 
 async function handleServerMessage(msg) {
@@ -1463,7 +1475,7 @@ async function handleServerMessage(msg) {
       if (msg.browser_id) browserId = msg.browser_id;
       if (!loginState || activeProfile?.id !== msg.fingerprint?.id) loginState = new LoginState(msg.origins || {}, (origins) => {
         if (wsReady && ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'storage_changed', origins }));
+          wsSend({ type: 'storage_changed', origins });
         }
       });
       // Apply fingerprint from the server — the server is the single source of truth.
@@ -1476,16 +1488,16 @@ async function handleServerMessage(msg) {
       if (!browsingMode) enterBrowsingMode('https://google.com');
       // Send our cookies to the server for pool sync
       await dumpCookies();
-      ws.send(JSON.stringify({ type: 'profile_flush' }));
+      wsSend({ type: 'profile_flush' });
       break;
     case 'profile_saved':
       sendToRenderer('profile-saved', msg);
       break;
     case 'cookie_sync':
       await applyCookieSync(msg.cookies);
-      pendingPulls.get(msg.pullId)?.();
+      pendingPulls.get(msg.pullId)?.(true);
       break;
-    case 'ping': missedPongs = 0; try { ws.send(JSON.stringify({ type: 'pong' })); } catch {} break;
+    case 'ping': missedPongs = 0; wsSend({ type: 'pong' }); break;
     case 'pong': missedPongs = 0; break;
     case 'stream_start': startStream(msg.fps || 2); break;
     case 'stream_stop': stopStream(); break;
@@ -1498,7 +1510,7 @@ function startPingLoop() {
   pingInterval = setInterval(() => {
     missedPongs++;
     if (missedPongs > 4) { clearInterval(pingInterval); if (ws) try { ws.close(); } catch {} return; }
-    try { ws.send(JSON.stringify({ type: 'ping' })); } catch {}
+    wsSend({ type: 'ping' });
   }, 20000);
 }
 
@@ -1987,17 +1999,30 @@ function sendResult(id, ok, data, error) {
     if (data.scroll) summary.scroll = data.scroll;
   }
   devLog('out', ok ? 'result: ok' : 'result: error', summary);
-  ws.send(JSON.stringify(msg));
+  wsSend(msg);
 }
 
-function waitForLoad(timeout = 30000) {
-  const view = getActiveView();
-  if (!view) return Promise.resolve();
-  return new Promise(resolve => {
-    let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
-    view.webContents.once('did-finish-load', finish);
-    setTimeout(finish, timeout);
+/**
+ * Settle when the page finishes or fails loading, or give up.
+ *
+ * Every listener is removed on the way out. The old version attached one per
+ * call and dropped it only when the load fired, so an agent session driving a
+ * page that never finishes piled them onto the same webContents.
+ */
+function waitForLoad(view = getActiveView(), ms = 30000) {
+  if (!view || view.webContents.isDestroyed()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      if (!view.webContents.isDestroyed()) {
+        view.webContents.off('did-finish-load', done);
+        view.webContents.off('did-fail-load', done);
+      }
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    view.webContents.once('did-finish-load', done);
+    view.webContents.once('did-fail-load', done);
   });
 }
 
@@ -2014,7 +2039,7 @@ function startStream(fps) {
     streamCapturing = true;
     try {
       const img = await view.webContents.capturePage();
-      ws.send(JSON.stringify({ type: 'frame', data: 'data:image/jpeg;base64,' + img.toJPEG(40).toString('base64') }));
+      wsSend({ type: 'frame', data: 'data:image/jpeg;base64,' + img.toJPEG(40).toString('base64') });
     } catch {} finally { streamCapturing = false; }
   }, ms);
 }
