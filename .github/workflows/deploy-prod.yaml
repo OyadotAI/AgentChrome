@@ -121,6 +121,11 @@ jobs:
         gh release download ${{ github.ref_name }} --pattern '*.AppImage' --dir server/downloads --clobber || true
         # Windows installer (uploaded by build-windows job above)
         gh release download ${{ github.ref_name }} --pattern '*.exe' --dir server/downloads --clobber || true
+        # The update feed is served from /downloads, so the channel files and the
+        # macOS zip have to ship with the binaries. Squirrel.Mac updates from the
+        # zip, never the dmg, and without latest*.yml every client 404s forever.
+        gh release download ${{ github.ref_name }} --pattern '*.zip' --dir server/downloads --clobber || true
+        gh release download ${{ github.ref_name }} --pattern 'latest*.yml' --dir server/downloads --clobber || true
         # build.artifactName has emitted dotted names since v1.0.50; this only
         # still matters for assets carried over from older releases.
         cd server/downloads

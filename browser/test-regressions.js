@@ -42,7 +42,14 @@ assert.strictEqual(rawSends, 1, 'ws.send() outside the wsSend helper — a dropp
 // needs — no error, clients just quietly stop updating. Guard the config.
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
 const build = pkg.build || {};
-assert.strictEqual(build.publish?.provider, 'github', 'electron-updater has no release to read');
+// The github provider reads releases over the API and AgentChrome is private,
+// so every client got a 404 on releases.atom. The feed is served from the
+// server's /downloads instead, which needs the channel files shipped there.
+assert.strictEqual(build.publish?.provider, 'generic', 'update feed must not depend on a private repo');
+assert.ok(/^https:\/\//.test(build.publish?.url || ''), 'publish url must be absolute');
+const prodwf = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'deploy-prod.yaml'), 'utf8');
+assert.ok(/--pattern 'latest\*\.yml'/.test(prodwf), 'deploy must ship latest*.yml to /downloads or updates 404');
+assert.ok(/--pattern '\*\.zip'/.test(prodwf), 'deploy must ship the macOS zip to /downloads — Squirrel cannot use the dmg');
 assert.ok(build.artifactName && !/\$\{productName\}/.test(build.artifactName),
   'artifactName must not use productName — GitHub rewrites the spaces and every update 404s');
 assert.ok((build.mac?.target || []).some((t) => t.target === 'zip'),

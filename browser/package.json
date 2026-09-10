@@ -1,7 +1,7 @@
 {
   "name": "oya-browser",
   "version": "1.0.52",
-  "description": "AI-controlled browser — your real browser as an MCP server",
+  "description": "AI-controlled browser \u2014 your real browser as an MCP server",
   "main": "main.js",
   "author": "Oya <hello@oya.ai>",
   "scripts": {
@@ -118,9 +118,9 @@
       }
     ],
     "publish": {
-      "provider": "github",
-      "owner": "OyadotAI",
-      "repo": "AgentChrome"
+      "provider": "generic",
+      "url": "https://browser.getoya.ai/downloads",
+      "channel": "latest"
     }
   }
 }
