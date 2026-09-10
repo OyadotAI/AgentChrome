@@ -54,6 +54,13 @@ const release = fs.readFileSync(path.join(__dirname, '..', 'k8s', 'scripts', 're
 assert.ok(/latest-mac\.yml/.test(release), 'release.sh must publish latest-mac.yml');
 assert.ok(/gh release create[^\n]*SRC_ZIP/.test(release), 'release.sh must upload the update zip');
 
+// DAYTONA_SNAPSHOT is the deploy's fallback, so it must only ever name a
+// snapshot that exists. Setting it before registration succeeds would send a
+// later deploy to a snapshot that was never created, instead of leaving cloud
+// browsers on the last build that worked.
+assert.ok(/if \[ "\$CONCLUSION" = "success" \]; then\s*\n\s*gh secret set DAYTONA_SNAPSHOT/.test(release),
+  'release.sh moves DAYTONA_SNAPSHOT without first confirming the snapshot was registered');
+
 // The renderer's script is inline, so a syntax error there is silent — the
 // page just stops running. This caught a real collision with an existing
 // updatePill() function.
