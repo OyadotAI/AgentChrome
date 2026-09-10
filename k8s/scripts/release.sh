@@ -38,6 +38,22 @@ log_info "Version:    $VERSION"
 log_info "Branch:     $(git branch --show-current)"
 echo ""
 
+# ── Preflight: notarization credentials ──
+
+# The universal build takes ~5min and notarization runs at the very end, so a
+# revoked app-specific password used to cost a full build before surfacing.
+log_info "Checking Apple notarization credentials"
+if ! xcrun notarytool history \
+  --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+  >/dev/null 2>&1; then
+  log_err "Apple rejected APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID."
+  log_err "App-specific passwords are revoked whenever the Apple ID password changes."
+  log_err "Generate a new one at appleid.apple.com and update it in ~/.zshrc."
+  exit 1
+fi
+log_ok "Notarization credentials valid"
+echo ""
+
 read -rp "Build browser and release $TAG? [y/N] " CONFIRM
 if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
   echo "Aborted."
