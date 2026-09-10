@@ -152,11 +152,22 @@ jobs:
       run: kubectl create namespace ${{ env.NAMESPACE }} 2>/dev/null || true
 
     - name: Apply secrets
+      env:
+        DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+        DAYTONA_SNAPSHOT: ${{ secrets.DAYTONA_SNAPSHOT }}
+        DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
+        DAYTONA_TARGET: ${{ secrets.DAYTONA_TARGET }}
       run: |
+        : "${DAYTONA_API_KEY:?Missing DAYTONA_API_KEY deployment secret}"
+        : "${DAYTONA_SNAPSHOT:?Missing DAYTONA_SNAPSHOT deployment secret}"
         kubectl create secret generic app-secrets \
           --from-literal=API_KEYS="${{ secrets.API_KEYS }}" \
           --from-literal=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
           --from-literal=SUPABASE_SERVICE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}" \
+          --from-literal=DAYTONA_API_KEY="${DAYTONA_API_KEY}" \
+          --from-literal=DAYTONA_SNAPSHOT="${DAYTONA_SNAPSHOT}" \
+          --from-literal=DAYTONA_API_URL="${DAYTONA_API_URL}" \
+          --from-literal=DAYTONA_TARGET="${DAYTONA_TARGET}" \
           -n ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Create GHCR pull secret
