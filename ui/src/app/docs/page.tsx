@@ -518,11 +518,11 @@ oya stealth-test [--live]       Score this deployment against bot detectors`}</C
             rows={[
               [
                 'macOS (Intel + Apple Silicon)',
-                <a key="mac" href="/downloads/Oya.Browser-1.0.44-universal.dmg" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.dmg</a>,
+                <a key="mac" href="/downloads/Oya.Browser-1.0.46-universal.dmg" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.dmg</a>,
               ],
               [
                 'Linux (arm64)',
-                <a key="linux" href="/downloads/Oya.Browser-1.0.44-arm64.AppImage" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.AppImage</a>,
+                <a key="linux" href="/downloads/Oya.Browser-1.0.46-x64.AppImage" className="text-accent hover:text-accent-hover transition-colors">Oya Browser.AppImage</a>,
               ],
             ]}
           />

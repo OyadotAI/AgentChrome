@@ -27,7 +27,7 @@ jobs:
       run: cd browser && npm ci
 
     - name: Build Linux AppImage
-      run: cd browser && npm run dist:linux
+      run: cd browser && npm run dist:linux -- --x64
 
     - name: Upload AppImage as artifact
       uses: actions/upload-artifact@v4
@@ -38,8 +38,8 @@ jobs:
     - name: Upload to GitHub release
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
-        SRC="browser/dist/Oya Browser-${VERSION}-arm64.AppImage"
-        DST="Oya.Browser-${VERSION}-arm64.AppImage"
+        SRC="browser/dist/Oya Browser-${VERSION}.AppImage"
+        DST="Oya.Browser-${VERSION}-x64.AppImage"
         FOUND="$SRC"
         if [ ! -f "$FOUND" ]; then
           FOUND=$(ls browser/dist/*.AppImage 2>/dev/null | head -1)
