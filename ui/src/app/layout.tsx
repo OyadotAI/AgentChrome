@@ -18,8 +18,8 @@ const archivo = Archivo_Black({
 });
 
 export const metadata: Metadata = {
-  title: { default: 'Oya Browser — Browser infrastructure for agents', template: '%s · Oya Browser' },
-  description: 'Real browsers, persistent identities, and one workspace for your agents. Build with the TypeScript SDK, CLI, or MCP.',
+  title: { default: 'Oya Browser — The Browser Control Plane for AI Agents', template: '%s · Oya Browser' },
+  description: 'The browser control plane orchestrating Oya Cloud, Browserbase, Steel, Anchor, Browser Use, and private Chrome. Deterministic personas, zero-rewrite failover, and live fleet control.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
