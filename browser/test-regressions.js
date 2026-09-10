@@ -92,4 +92,8 @@ assert.ok(!/await tabs\.find\(.*?\)\?\.ready/.test(src),
 assert.ok(/Promise\.race\(\[tab\.ready\.catch/.test(src),
   'waitForTabReady must bound the wait');
 
-console.log('ok — tabs, cookies, sends, update feed, renderer script and tab waits guarded');
+// setupTabCDP hanging must not stop the tab's first page from loading.
+assert.ok(/Promise\.race\(\[\s*\n\s*setupTabCDP\(view\)/.test(src),
+  'setupTabCDP must be bounded — an unanswered CDP command otherwise stops the tab ever loading');
+
+console.log('ok — tabs, cookies, sends, update feed, renderer, tab waits and CDP setup guarded');

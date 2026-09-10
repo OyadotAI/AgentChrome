@@ -94,6 +94,14 @@ const analyzerScript = fs.readFileSync(path.join(__dirname, 'scripts', 'analyzer
 
 const CDP_VERSION = '1.3';
 
+// A CDP command that never answers must not strand the tab that is waiting on
+// it. Cloud browsers hit exactly that: setupTabCDP never resolved, so the
+// initial loadURL chained after it never ran — the tab sat on its start URL
+// with the title it was created with, and everything that waited on the tab
+// waited forever. Going ahead unprotected is bad; never loading a page is worse,
+// and the fail() above says so loudly either way.
+const CDP_SETUP_TIMEOUT = 10000;
+
 function cdpAttach(view) {
   if (!view || view.webContents.isDestroyed()) return null;
   const dbg = view.webContents.debugger;
@@ -921,7 +929,12 @@ function createTab(url, activate = true) {
   tabs.push(tab);
 
   // Attach CDP debugger and auto-inject scripts into every new document
-  const tabReady = setupTabCDP(view);
+  const tabReady = Promise.race([
+    setupTabCDP(view),
+    sleep(CDP_SETUP_TIMEOUT).then(() => {
+      console.error(`[anonymity] CDP setup unfinished after ${CDP_SETUP_TIMEOUT}ms — loading anyway, this tab may be UNPROTECTED`);
+    }),
+  ]);
 
   view.webContents.on('did-finish-load', () => {
     injectScripts(view);
