@@ -231,24 +231,32 @@
     }
     .url-bar:focus { border-color: #3b82f6; }
 
+    /* Quiet by default — it is the version label until there is news. */
     .update-pill {
-      display: none;
+      display: flex;
       align-items: center;
       gap: 6px;
-      background: #e7f6e7;
-      border: 1px solid #a8d5a8;
+      background: #f4f4f5;
+      border: 1px solid #d4d4d8;
       border-radius: 8px;
       padding: 5px 10px;
       font-size: 11px;
       font-weight: 500;
-      color: #246d21;
+      color: #71717a;
       cursor: pointer;
       white-space: nowrap;
       -webkit-app-region: no-drag;
       font-family: inherit;
     }
-    .update-pill.show { display: flex; }
-    .update-pill:hover { background: #d8efd8; }
+    .update-pill:hover { background: #e4e4e7; }
+    /* Outdated: the one state allowed to draw the eye. */
+    .update-pill.attention {
+      background: #e7f6e7;
+      border-color: #a8d5a8;
+      color: #246d21;
+    }
+    .update-pill.attention:hover { background: #d8efd8; }
+    .update-pill:disabled { cursor: default; opacity: .7; }
     .conn-pill {
       display: flex;
       align-items: center;
@@ -770,7 +778,7 @@
     <button class="nav-btn" id="btn-forward" title="Forward">&#8594;</button>
     <button class="nav-btn" id="btn-reload" title="Reload">&#8635;</button>
     <input class="url-bar" id="url-bar" type="text" placeholder="Search or enter URL" spellcheck="false">
-    <button class="update-pill" id="update-pill" title="Restart to finish updating"></button>
+    <button class="update-pill" id="update-pill" title="Click to check for updates">v…</button>
     <div class="conn-pill" id="conn-pill" title="Not connected">
       <span class="dot"></span>
       <span id="conn-label">Offline</span>
@@ -998,22 +1006,36 @@
 
     // ── Updates ──
     //
-    // The update is already staged and applies on quit, so this is an offer to
-    // get it sooner, never a demand. Nothing here blocks browsing.
-    const updatePill = document.getElementById('update-pill');
-    oyaBrowser.onUpdateStatus(({ state, version }) => {
-      if (state === 'ready') {
-        updatePill.textContent = `Update ${version} ready — Restart`;
-        updatePill.classList.add('show');
-      } else if (state === 'downloading') {
-        updatePill.textContent = `Downloading ${version}…`;
-        updatePill.classList.add('show');
-      }
-    });
-    updatePill.addEventListener('click', () => {
-      if (!updatePill.textContent.includes('Restart')) return;
-      updatePill.textContent = 'Restarting…';
-      oyaBrowser.installUpdate();
+    // One control does three jobs: it is the version label, the "check now"
+    // button, and — once an update is staged — the restart button. The update
+    // installs on quit regardless, so nothing here ever blocks browsing.
+    const updateBtn = document.getElementById('update-pill');
+    let updateReady = false;
+
+    function renderUpdate({ state, version, current, percent }) {
+      updateReady = state === 'ready';
+      updateBtn.classList.toggle('attention', state === 'available' || state === 'downloading' || updateReady);
+      updateBtn.disabled = state === 'checking' || state === 'downloading';
+      const v = current ? 'v' + current : '';
+      if (state === 'checking')          updateBtn.textContent = 'Checking…';
+      else if (state === 'available')    updateBtn.textContent = `Update ${version} available`;
+      else if (state === 'downloading')  updateBtn.textContent = `Downloading ${version}… ${percent ?? 0}%`;
+      else if (updateReady)              updateBtn.textContent = `Update ${version} ready — Restart`;
+      else if (state === 'error')        updateBtn.textContent = `${v} — check failed`;
+      else if (state === 'unsupported')  updateBtn.textContent = v;
+      else                               updateBtn.textContent = `${v} — up to date`;
+      updateBtn.title = updateReady ? 'Restart to finish updating'
+        : state === 'unsupported' ? 'Updates apply to installed builds'
+        : 'Click to check for updates';
+    }
+
+    oyaBrowser.getUpdateStatus().then(renderUpdate).catch(() => {});
+    oyaBrowser.onUpdateStatus(renderUpdate);
+
+    updateBtn.addEventListener('click', async () => {
+      if (updateReady) { updateBtn.textContent = 'Restarting…'; oyaBrowser.installUpdate(); return; }
+      renderUpdate({ state: 'checking' });
+      renderUpdate(await oyaBrowser.checkForUpdates());
     });
 
     // ── Connection pill ──

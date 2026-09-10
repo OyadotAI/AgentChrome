@@ -54,4 +54,15 @@ const release = fs.readFileSync(path.join(__dirname, '..', 'k8s', 'scripts', 're
 assert.ok(/latest-mac\.yml/.test(release), 'release.sh must publish latest-mac.yml');
 assert.ok(/gh release create[^\n]*SRC_ZIP/.test(release), 'release.sh must upload the update zip');
 
-console.log('ok — tabs, cookies, sends, and the update feed all guarded');
+// The renderer's script is inline, so a syntax error there is silent — the
+// page just stops running. This caught a real collision with an existing
+// updatePill() function.
+const html = fs.readFileSync(path.join(__dirname, 'renderer', 'index.html'), 'utf8');
+const inline = html.match(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g) || [];
+assert.ok(inline.length, 'no inline renderer script found');
+for (const block of inline) {
+  const body = block.replace(/^<script[^>]*>/, '').replace(/<\/script>$/, '');
+  assert.doesNotThrow(() => new Function(body), 'renderer inline script does not parse');
+}
+
+console.log('ok — tabs, cookies, sends, update feed and renderer script all guarded');

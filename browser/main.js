@@ -7,7 +7,7 @@
  * Protocol for full native control. Human-like timing and mouse paths.
  */
 
-const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage, Menu, nativeTheme, dialog } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, session: electronSession, nativeImage, Menu, nativeTheme, dialog, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -776,25 +776,55 @@ app.on('open-url', (event, url) => {
 
 const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 let autoUpdater = null;
+let updateState = { state: 'current', version: null };
+
+/** Single source of truth for the toolbar, so a late-loading window still learns. */
+function setUpdateState(next) {
+  updateState = { ...next, current: app.getVersion() };
+  sendToRenderer('update-status', updateState);
+}
 
 function startAutoUpdate() {
-  if (!app.isPackaged || process.env.OYA_DOCKER === 'true') return;
+  if (!app.isPackaged || process.env.OYA_DOCKER === 'true') {
+    setUpdateState({ state: 'unsupported', version: null });
+    return;
+  }
   // Required lazily so dev runs and cloud browsers never load it at all.
   ({ autoUpdater } = require('electron-updater'));
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  autoUpdater.on('checking-for-update', () => setUpdateState({ state: 'checking', version: null }));
+  autoUpdater.on('update-not-available', () => setUpdateState({ state: 'current', version: null }));
+
   autoUpdater.on('update-available', (info) => {
-    console.log('[update] downloading', info.version);
-    sendToRenderer('update-status', { state: 'downloading', version: info.version });
+    console.log('[update] available:', info.version);
+    setUpdateState({ state: 'available', version: info.version });
+    // The window is often not the thing being looked at, so say it once at the
+    // OS level too. Only on the transition — never on the periodic re-checks.
+    if (Notification.isSupported() && notifiedVersion !== info.version) {
+      notifiedVersion = info.version;
+      new Notification({
+        title: `Oya Browser ${info.version} is available`,
+        body: `You are on ${app.getVersion()}. It installs when you quit, or restart now from the toolbar.`,
+        silent: true,
+      }).show();
+    }
   });
+
+  autoUpdater.on('download-progress', ({ percent, version }) => {
+    setUpdateState({ state: 'downloading', version: version || updateState.version, percent: Math.round(percent) });
+  });
+
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[update] ready, applies on quit:', info.version);
-    sendToRenderer('update-status', { state: 'ready', version: info.version });
+    setUpdateState({ state: 'ready', version: info.version });
   });
+
   autoUpdater.on('error', (err) => {
     // A missed check is not worth interrupting anyone over; the next one retries.
     console.log('[update] check failed:', err?.message || err);
+    setUpdateState({ state: 'error', version: null, message: err?.message || String(err) });
   });
 
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
@@ -802,8 +832,22 @@ function startAutoUpdate() {
   setInterval(check, UPDATE_CHECK_INTERVAL).unref?.();
 }
 
+let notifiedVersion = null;
+
+ipcMain.handle('check-for-updates', async () => {
+  if (!autoUpdater) return updateState;
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (e) {
+    setUpdateState({ state: 'error', version: null, message: e?.message || String(e) });
+  }
+  return updateState;
+});
+
+ipcMain.handle('get-update-status', () => updateState);
+
 ipcMain.handle('install-update', () => {
-  if (!autoUpdater) return false;
+  if (!autoUpdater || updateState.state !== 'ready') return false;
   // Nothing else gets to run after this — it relaunches the app.
   setImmediate(() => autoUpdater.quitAndInstall());
   return true;

@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('oyaBrowser', {
   onFingerprintChanged: (cb) => ipcRenderer.on('fingerprint-changed', (e, fp) => cb(fp)),
   // Updates
   getVersion: () => ipcRenderer.invoke('get-version'),
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   onUpdateStatus: (cb) => ipcRenderer.on('update-status', (e, status) => cb(status)),
 });
