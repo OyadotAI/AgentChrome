@@ -1931,7 +1931,13 @@ export default function Home() {
               </a>
               <a
                 className="btn-ghost h-10 px-4 text-[12px]"
-                href="/downloads/Oya.Browser-1.0.50-arm64.AppImage"
+                href="/downloads/Oya.Browser-1.0.50-x64.exe"
+              >
+                Windows (.exe)
+              </a>
+              <a
+                className="btn-ghost h-10 px-4 text-[12px]"
+                href="/downloads/Oya.Browser-1.0.50-x64.AppImage"
               >
                 Linux (.AppImage)
               </a>

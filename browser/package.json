@@ -1,16 +1,16 @@
 {
   "name": "oya-browser",
   "version": "1.0.50",
-  "description": "AI-controlled browser — your real browser as an MCP server",
+  "description": "AI-controlled browser \u2014 your real browser as an MCP server",
   "main": "main.js",
   "author": "Oya <hello@oya.ai>",
   "scripts": {
     "start": "electron . 2>/dev/null",
     "dev": "electron . --dev",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
-    "dist:linux": "electron-builder --linux",
+    "dist": "electron-builder --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
     "test": "node test-regressions.js"
   },
   "dependencies": {
@@ -78,14 +78,16 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "Oya.Browser-${version}-x64.${ext}"
     },
     "linux": {
       "icon": "build/icon.png",
       "target": [
         "AppImage"
       ],
-      "category": "Network"
+      "category": "Network",
+      "artifactName": "Oya.Browser-${version}-x64.${ext}"
     },
     "dmg": {
       "title": "Oya Browser",

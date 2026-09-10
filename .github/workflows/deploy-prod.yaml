@@ -38,32 +38,68 @@ jobs:
     - name: Upload to GitHub release
       run: |
         VERSION="${GITHUB_REF_NAME#v}"
-        # build.artifactName emits the dotted name directly now.
-        DST="Oya.Browser-${VERSION}-x64.AppImage"
-        FOUND="browser/dist/${DST}"
-        if [ ! -f "$FOUND" ]; then
-          FOUND=$(ls browser/dist/*.AppImage 2>/dev/null | head -1)
+        # build.linux.artifactName pins this name, and latest-linux.yml refers
+        # to it — renaming the asset here would 404 every Linux update.
+        APP="browser/dist/Oya.Browser-${VERSION}-x64.AppImage"
+        if [ ! -f "$APP" ]; then
+          echo "::error::$APP missing — check build.linux.artifactName"
+          exit 1
         fi
-        if [ -n "$FOUND" ] && [ -f "$FOUND" ]; then
-          cp "$FOUND" "$DST"
-          gh release upload "${GITHUB_REF_NAME}" "$DST" --clobber
-          echo "Uploaded $DST to release ${GITHUB_REF_NAME}"
-        else
-          echo "WARNING: No AppImage found, skipping upload"
+        if [ ! -f browser/dist/latest-linux.yml ]; then
+          echo "::error::latest-linux.yml missing — Linux auto-update would silently stop"
+          exit 1
         fi
-        # Without latest-linux.yml every installed AppImage stops updating.
-        if [ -f browser/dist/latest-linux.yml ]; then
-          gh release upload "${GITHUB_REF_NAME}" browser/dist/latest-linux.yml --clobber
-          echo "Uploaded latest-linux.yml"
-        else
-          echo "WARNING: latest-linux.yml missing — Linux auto-update will not work"
+        gh release upload "${GITHUB_REF_NAME}" "$APP" browser/dist/latest-linux.yml --clobber
+        echo "Uploaded $(basename "$APP") and latest-linux.yml"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install browser dependencies
+      run: cd browser && npm ci
+
+    - name: Build NSIS installer
+      run: cd browser && npm run dist:win -- --x64
+
+    - name: Upload to GitHub release
+      shell: bash
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        EXE="browser/dist/Oya.Browser-${VERSION}-x64.exe"
+        if [ ! -f "$EXE" ]; then
+          echo "::error::$EXE missing — check build.win.artifactName"
+          exit 1
         fi
+        # latest.yml is the Windows update feed, the same way latest-mac.yml is
+        # for macOS. NSIS updates cannot resolve without it.
+        if [ ! -f browser/dist/latest.yml ]; then
+          echo "::error::latest.yml missing — Windows auto-update would silently stop"
+          exit 1
+        fi
+        gh release upload "${GITHUB_REF_NAME}" "$EXE" browser/dist/latest.yml --clobber
+        echo "Uploaded $(basename "$EXE") and latest.yml"
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-image:
     name: Build & push Docker image
-    needs: build-linux
+    # Ordered after the desktop builds so their binaries are on the release to
+    # be bundled, but not gated on them: a broken AppImage used to skip this
+    # job and with it the entire prod deploy — no server update, no snapshot
+    # repoint — over a download link. The desktop job still goes red on its own.
+    needs: [build-linux, build-windows]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,7 +119,10 @@ jobs:
         gh release download ${{ github.ref_name }} --pattern '*.dmg' --dir server/downloads --clobber || true
         # Linux AppImage (uploaded by build-linux job above)
         gh release download ${{ github.ref_name }} --pattern '*.AppImage' --dir server/downloads --clobber || true
-        # Rename space to dot if needed
+        # Windows installer (uploaded by build-windows job above)
+        gh release download ${{ github.ref_name }} --pattern '*.exe' --dir server/downloads --clobber || true
+        # build.artifactName has emitted dotted names since v1.0.50; this only
+        # still matters for assets carried over from older releases.
         cd server/downloads
         for f in *" "*; do [ -f "$f" ] && mv "$f" "$(echo "$f" | tr ' ' '.')" 2>/dev/null; done || true
         ls -lh server/downloads/ || true

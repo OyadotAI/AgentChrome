@@ -50,6 +50,19 @@ assert.ok((build.mac?.target || []).some((t) => t.target === 'zip'),
 assert.ok(pkg.dependencies?.['electron-updater'],
   'electron-updater must be a runtime dependency, not a devDependency');
 
+// electron-builder publishes implicitly on a tag build once a publish config
+// exists. No CI job has GH_TOKEN, so v1.0.50 died with "GitHub Personal Access
+// Token is not set" and took the whole prod deploy with it.
+for (const script of ['dist', 'dist:mac', 'dist:win', 'dist:linux']) {
+  assert.ok(/--publish never/.test(pkg.scripts[script] || ''),
+    `${script} must pass --publish never or a tag build tries to publish itself`);
+}
+
+// Each platform's feed names its artifact, so the asset must keep that exact
+// name. ${arch} renders as x86_64 for AppImage, which matched neither.
+assert.strictEqual(build.linux?.artifactName, 'Oya.Browser-${version}-x64.${ext}');
+assert.strictEqual(build.win?.artifactName, 'Oya.Browser-${version}-x64.${ext}');
+
 const release = fs.readFileSync(path.join(__dirname, '..', 'k8s', 'scripts', 'release.sh'), 'utf8');
 assert.ok(/latest-mac\.yml/.test(release), 'release.sh must publish latest-mac.yml');
 assert.ok(/gh release create[^\n]*SRC_ZIP/.test(release), 'release.sh must upload the update zip');
