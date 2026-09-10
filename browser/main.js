@@ -1654,6 +1654,24 @@ const FIND_ELEMENT_JS = (selector) => `(() => {
   } finally { window.__oyaInternalCall = false; }
 })()`;
 
+/**
+ * Wait for a tab's first load before driving it — but never unconditionally.
+ *
+ * tab.ready only settles once CDP setup and the initial navigation finish. A
+ * page that never finishes doing either used to block every later command on
+ * that tab with no result and no error, so the caller just timed out. That is
+ * how a browser image whose renderers would not start looked like a dead
+ * server rather than a broken page.
+ */
+const TAB_READY_TIMEOUT = 20000;
+
+function waitForTabReady(tab) {
+  if (!tab?.ready) return Promise.resolve();
+  // A rejected first load is not this command's problem: it is about to
+  // navigate somewhere else anyway.
+  return Promise.race([tab.ready.catch(() => {}), sleep(TAB_READY_TIMEOUT)]);
+}
+
 async function handleCommand(msg) {
   const { id, action, params } = msg;
 
@@ -1668,7 +1686,7 @@ async function handleCommand(msg) {
     }
     if (action === 'open_tab') {
       const tabId = createTab(params?.url || 'about:blank', true);
-      await tabs.find((t) => t.id === tabId)?.ready;
+      await waitForTabReady(tabs.find((t) => t.id === tabId));
       sendResult(id, true, { tab_id: tabId, url: params?.url || 'about:blank' });
       return;
     }
@@ -1694,7 +1712,7 @@ async function handleCommand(msg) {
     // ── Navigate ──
 
     if (action === 'navigate' && params?.url) {
-      await tabs.find((t) => t.view === view)?.ready;
+      await waitForTabReady(tabs.find((t) => t.view === view));
       await pullCookiesFor(params.url);
       const maxRetries = 2;
       let lastErr = null;

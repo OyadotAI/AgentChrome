@@ -85,4 +85,11 @@ for (const block of inline) {
   assert.doesNotThrow(() => new Function(body), 'renderer inline script does not parse');
 }
 
-console.log('ok — tabs, cookies, sends, update feed and renderer script all guarded');
+// A tab whose first load never settles must not wedge every later command on
+// it. Unbounded awaits here made a broken browser image look like a dead server.
+assert.ok(!/await tabs\.find\(.*?\)\?\.ready/.test(src),
+  'command handler awaits tab.ready unbounded — a wedged page will hang every command');
+assert.ok(/Promise\.race\(\[tab\.ready\.catch/.test(src),
+  'waitForTabReady must bound the wait');
+
+console.log('ok — tabs, cookies, sends, update feed, renderer script and tab waits guarded');
