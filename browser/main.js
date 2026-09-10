@@ -481,6 +481,13 @@ function pullCookiesFor(url, { force = false } = {}) {
 let cookieBatch = new Map();
 let cookieFlushTimer = null;
 
+/** Forget queued changes without sending them: used when the persona changes. */
+function dropPendingCookieChanges() {
+  clearTimeout(cookieFlushTimer);
+  cookieFlushTimer = null;
+  cookieBatch = new Map();
+}
+
 function flushCookieChanges() {
   cookieFlushTimer = null;
   if (!cookieBatch.size) return;
@@ -559,7 +566,13 @@ async function applyServerFingerprint(profile, cookies = []) {
   const switched = activeProfile?.id !== profile.id;
   const reopen = switched ? tabs.map((tab) => tab.url || 'about:blank') : [];
   if (switched) {
-    flushCookieChanges();
+    // Drop the pending batch rather than flushing it. Those changes were seen
+    // under the previous persona, but this socket is already authenticated as
+    // the new one, so the server would file another identity's cookies in this
+    // persona's jar — planting a session captured on one device into a jar
+    // that a different device will replay, which is what makes a site demand a
+    // fresh login. The old jar keeps them; its partition is untouched.
+    dropPendingCookieChanges();
     while (tabs.length) closeTab(tabs[0].id, { keepOne: false });
     pulledAt.clear();
   }

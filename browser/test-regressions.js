@@ -103,4 +103,10 @@ const entry = fs.readFileSync(path.join(__dirname, 'docker-entrypoint.sh'), 'utf
 assert.ok(/electron \. .*--disable-dev-shm-usage/.test(entry),
   'container electron must run with --disable-dev-shm-usage or streaming kills the browser');
 
-console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup and shm guarded');
+// A persona switch must not send the previous persona's queued cookies over a
+// socket already authenticated as the new one — that files one identity's
+// session in another's jar, and the site then demands a fresh login.
+assert.ok(/dropPendingCookieChanges\(\);\n\s*while \(tabs\.length\) closeTab/.test(src),
+  'persona switch must drop queued cookie changes, not flush them into the new persona');
+
+console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup, shm and persona isolation guarded');
