@@ -18,5 +18,8 @@
     "uuid": "^11.1.0",
     "ws": "^8.18.1"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "overrides": {
+    "qs": "^6.16.0"
+  }
 }
