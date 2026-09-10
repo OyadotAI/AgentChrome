@@ -45,6 +45,7 @@ export function useShortcuts(shortcuts: Shortcut[], enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || document.querySelector('[role="dialog"], [role="menu"]')) return;
       const target = e.target as HTMLElement | null;
       const inField = !!target && (EDITABLE.test(target.tagName) || target.isContentEditable);
       const captured = !!target?.closest?.('[data-captures-keys]');

@@ -1,5 +1,6 @@
 import type { Http } from './client.js';
 import type { Analysis, BrowserDetail, CaptchaResult, Element, MfaResult, StartResult, StopResult } from './types.js';
+import { OyaError } from './types.js';
 
 /** Navigation is slow and the server disables its own timeout for it. */
 const NAVIGATE_TIMEOUT_MS = 120_000;
@@ -38,13 +39,16 @@ export class Browser {
   private async command<T>(action: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
     const result = await this.http.request<CommandResult<T>>(
       'POST', `/api/browsers/${this.id}/command`, { action, params }, timeoutMs);
-    if (result.ok === false) throw new Error(result.error || `${action} failed`);
+    if (result.ok === false) throw new OyaError(result.error || `${action} failed`, 422, result);
     return result.data as T;
   }
 
   async goto(url: string): Promise<void> {
     await this.command('navigate', { url }, NAVIGATE_TIMEOUT_MS);
-    if (this.autoCaptcha) await this.solveCaptcha();
+    if (this.autoCaptcha) {
+      const result = await this.solveCaptcha();
+      if (result.present && !result.solved) throw new OyaError(result.error || 'CAPTCHA needs attention. Call solveCaptcha() again or open the live view.', 409, result);
+    }
   }
 
   /** The page as markdown plus numbered elements to act on. */
@@ -58,11 +62,21 @@ export class Browser {
   }
 
   async click(elementId: number | string): Promise<void> {
-    await this.command('click', { selector: `[data-ac-id="${elementId}"]` });
+    const id = this.elementId(elementId);
+    await this.command('click', { element_id: id, selector: `[data-ac-id="${id}"]` });
   }
 
   async type(elementId: number | string, text: string): Promise<{ suggestions_visible?: boolean }> {
-    return this.command('type', { selector: `[data-ac-id="${elementId}"]`, text });
+    const id = this.elementId(elementId);
+    return this.command('type', { element_id: id, selector: `[data-ac-id="${id}"]`, text });
+  }
+
+  private elementId(value: number | string): number {
+    const id = Number(value);
+    if ((typeof value !== 'number' && typeof value !== 'string') || value === '' || !Number.isInteger(id) || id < 0) {
+      throw new OyaError('Use a numeric element id from browser.analyze().', 400, null);
+    }
+    return id;
   }
 
   async pressKey(key: string): Promise<void> {
@@ -113,8 +127,10 @@ export class Browser {
    * Answer an MFA prompt with the persona's configured factor. When nothing can
    * answer it, `liveViewUrl` is where a person finishes by hand.
    */
-  completeMfa(): Promise<MfaResult> {
-    return this.http.request<MfaResult>('POST', `/api/browsers/${this.id}/mfa`, {}, 180_000);
+  async completeMfa(): Promise<MfaResult> {
+    const result = await this.http.request<MfaResult>('POST', `/api/browsers/${this.id}/mfa`, {}, 180_000);
+    if (result.liveViewUrl) result.liveViewUrl = new URL(result.liveViewUrl, this.http.baseUrl).href;
+    return result;
   }
 
   /** Natural-language control, using this key's configured model. */

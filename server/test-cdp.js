@@ -11,6 +11,7 @@
 
 import { createServer } from 'http';
 import { spawn } from 'child_process';
+import { once } from 'events';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -110,6 +111,13 @@ try {
   await driver.send('scroll-down', {});
   await wait(300);
   assert(await driver.evaluate('window.scrollY') > before, 'scroll-down moves the page');
+
+  await driver.evaluateMain(`window.scrollTo(0, 0); const pane = document.createElement('div'); pane.id = 'scroll-pane'; pane.style = 'position:fixed;left:100px;top:100px;width:200px;height:200px;overflow:auto'; pane.innerHTML = '<div style="height:2000px">Scrollable pane</div>'; document.body.append(pane);`);
+  await driver.send('scroll', { direction: 'down', amount: 120, x: 150, y: 150, smooth: false });
+  await wait(300);
+  assert(await driver.evaluateMain('document.getElementById("scroll-pane").scrollTop') > 0, 'live scroll targets the pane under the pointer');
+  assert(await driver.evaluateMain('window.scrollY') === 0, 'scrolling a pane leaves the outer page in place');
+  await driver.evaluateMain('document.getElementById("scroll-pane").remove()');
 
   console.log('\n4️⃣  Tab management...');
   const tabs = await driver.send('list-tabs');
@@ -234,9 +242,11 @@ try {
   failed++;
 } finally {
   driver?.close();
-  chrome.kill('SIGKILL');
+  const exited = once(chrome, 'exit');
+  chrome.kill('SIGTERM');
+  await exited;
   await new Promise((r) => site.close(r));
-  rmSync(profile, { recursive: true, force: true });
+  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 console.log('\n──────────────────────────────────────────────────');

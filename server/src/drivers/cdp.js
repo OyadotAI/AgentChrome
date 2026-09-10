@@ -20,6 +20,7 @@ import { createRequire } from 'module';
 import { userAgentFor, metadataFor } from '../ua.js';
 
 const require = createRequire(import.meta.url);
+const { LoginState, cdpCookies } = require('../../../browser/login-state.js');
 
 /**
  * Anchor, Browserbase, Steel and Browser Use ship tuned stealth of their own.
@@ -228,7 +229,7 @@ export class CDPDriver {
   clientType = 'cdp';
   capabilities = CDP_CAPABILITIES;
 
-  constructor({ wsUrl, provider = 'cdp', onClose, fingerprint } = {}) {
+  constructor({ wsUrl, provider = 'cdp', onClose, fingerprint, login, onStorage } = {}) {
     Object.assign(this, { wsUrl, provider, onClose });
     // The persona carries no UA of its own — it is derived from the real
     // browser's version and this persona's platform in attach(), once the
@@ -238,6 +239,8 @@ export class CDPDriver {
     this.fingerprint = fingerprint || null;
     this.worldName = 'w' + randomBytes(8).toString('hex');
     this.acceptLanguage = fingerprint?.navigator?.languages?.join(',') || null;
+    this.login = login;
+    this.loginState = login ? new LoginState(login.origins || {}, onStorage) : null;
   }
 
   async connect() {
@@ -252,6 +255,7 @@ export class CDPDriver {
       page = { targetId };
     }
     await this.attach(page.targetId);
+    if (this.login?.cookies?.length) await this.conn.send('Network.setCookies', { cookies: cdpCookies(this.login.cookies) }, this.sessionId);
     return this;
   }
 
@@ -318,6 +322,12 @@ export class CDPDriver {
     // per-session random tag attribute as the desktop path.
     this.tagAttr = 'data-' + randomBytes(4).toString('hex');
     this.worldContext = null;
+    if (this.loginState) {
+      await this.loginState.attach(
+        (method, params = {}) => this.conn.send(method, params, sessionId),
+        (method, fn) => this.conn.on(method, (params, sid) => { if (sid === sessionId) fn(params); }),
+      );
+    }
   }
 
   isAlive() { return !!this.conn && !this.conn.closed; }
@@ -421,7 +431,8 @@ export class CDPDriver {
         if (!params.url) return { ok: false, error: 'URL required' };
         const url = /^https?:\/\//i.test(params.url) ? params.url : `https://${params.url}`;
         const loaded = this.conn.once('Page.loadEventFired', Math.min(remaining(), 60000));
-        await this.conn.send('Page.navigate', { url }, this.sessionId, remaining());
+        const navigated = await this.conn.send('Page.navigate', { url }, this.sessionId, remaining());
+        if (navigated.errorText) throw new Error(`Navigation failed: ${navigated.errorText}`);
         await loaded;
         return { ok: true, data: await this.pageInfo() };
       }
@@ -498,9 +509,11 @@ export class CDPDriver {
         return { ok: true };
       }
       case 'type': {
-        if (params.element_id) {
-          const { x, y } = await this.locate(elementSelector(params.element_id));
+        if (params.element_id != null || params.selector) {
+          const selector = params.selector || elementSelector(params.element_id);
+          const { x, y } = await this.locate(selector);
           await this.clickAt(x, y);
+          await this.evaluate(`(() => { const el = (window.__acFindElement || ((s) => document.querySelector(s)))(${JSON.stringify(selector)}); if (el?.isContentEditable) { const range = document.createRange(); range.selectNodeContents(el); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); } else el?.select?.(); })()`);
         }
         await this.conn.send('Input.insertText', { text: String(params.text ?? '') }, this.sessionId);
         return { ok: true };
@@ -532,7 +545,7 @@ export class CDPDriver {
         const { height } = await this.viewport();
         const delta = (params.amount || height * 0.8) * (action === 'scroll-up' ? -1 : 1);
         await this.conn.send('Input.dispatchMouseEvent',
-          { type: 'mouseWheel', x: 10, y: 10, deltaX: 0, deltaY: delta }, this.sessionId);
+          { type: 'mouseWheel', x: Number.isFinite(params.x) ? params.x : 10, y: Number.isFinite(params.y) ? params.y : 10, deltaX: 0, deltaY: delta }, this.sessionId);
         return { ok: true };
       }
       case 'select': {

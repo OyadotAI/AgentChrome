@@ -28,6 +28,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "login-state.js",
       "renderer/**/*",
       "scripts/**/*",
       "anonymity/**/*"

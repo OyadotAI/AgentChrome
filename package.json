@@ -1,9 +1,16 @@
 {
   "name": "oya-browser-workspace",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "test": "cd server && for t in test-security test-pool test-sandbox test-cdp test-control-plane test-gateway test-anonymity test-challenges; do node $t.js || exit 1; done"
+    "build": "npm run build:sdk && npm run build --prefix ui",
+    "test": "cd server && for t in test-security test-pool test-sandbox test-cdp test-control-plane test-gateway test-anonymity test-challenges test-login-flow; do node $t.js || exit 1; done",
+    "setup": "npm ci && npm ci --prefix server && npm ci --prefix ui && npm ci --prefix browser",
+    "dev": "OYA_UI_MODE=development node --env-file-if-exists=server/.env server/src/index.js",
+    "start": "OYA_UI_MODE=production node --env-file-if-exists=server/.env server/src/index.js",
+    "build:sdk": "npm run build --workspace=@oya/browser && npm run build --workspace=oya",
+    "lint": "npm run lint --prefix ui"
   }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import Kbd from './kbd';
 
 export interface MenuItem {
@@ -30,35 +30,45 @@ export default function ContextMenu({ at, items, onClose, label }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(at);
   const [active, setActive] = useState(0);
+  const firstEnabled = useEffectEvent(() => items.findIndex((i) => !i.disabled));
 
   useLayoutEffect(() => {
     if (!at || !ref.current) return;
     const r = ref.current.getBoundingClientRect();
     setPos({
-      x: Math.min(at.x, window.innerWidth - r.width - 8),
-      y: Math.min(at.y, window.innerHeight - r.height - 8),
+      x: Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8)),
+      y: Math.max(8, Math.min(at.y, window.innerHeight - r.height - 8)),
     });
-    setActive(items.findIndex((i) => !i.disabled));
-  }, [at, items]);
+    setActive(firstEnabled());
+  }, [at]);
+
+  const closeOutside = useEffectEvent((e: MouseEvent) => {
+    if (!ref.current?.contains(e.target as Node)) onClose();
+  });
+  const handleKey = useEffectEvent((e: KeyboardEvent) => {
+    const enabled = items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); onClose(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!enabled.length) return;
+      const cur = enabled.indexOf(active);
+      setActive(enabled[(cur + (e.key === 'ArrowDown' ? 1 : enabled.length - 1)) % enabled.length]);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!items[active] || items[active].disabled) return;
+      items[active].onSelect(); onClose();
+    }
+  });
 
   useEffect(() => {
     if (!at) return;
-    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
-    const key = (e: KeyboardEvent) => {
-      const enabled = items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0);
-      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
-      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        const cur = enabled.indexOf(active);
-        const next = enabled[(cur + (e.key === 'ArrowDown' ? 1 : enabled.length - 1)) % enabled.length];
-        setActive(next);
-      } else if (e.key === 'Enter') { e.preventDefault(); items[active]?.onSelect(); onClose(); }
-    };
+    const close = (e: MouseEvent) => closeOutside(e);
+    const key = (e: KeyboardEvent) => handleKey(e);
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', key, true);
-    ref.current?.focus();
+    ref.current?.focus({ preventScroll: true });
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', key, true); };
-  }, [at, items, active, onClose]);
+  }, [at]);
 
   if (!at) return null;
   return (
@@ -79,7 +89,7 @@ export default function ContextMenu({ at, items, onClose, label }: Props) {
             onMouseEnter={() => !it.disabled && setActive(i)}
             onClick={() => { if (it.disabled) return; it.onSelect(); onClose(); }}
             className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${
-              it.disabled ? 'text-text-dim' : it.danger ? 'text-red' : 'text-text'} ${active === i && !it.disabled ? (it.danger ? 'bg-red/10' : 'bg-white/[0.06]') : ''}`}
+              it.disabled ? 'text-text-dim' : it.danger ? 'text-red' : 'text-text'} ${active === i && !it.disabled ? (it.danger ? 'bg-red/10' : 'bg-text/[0.06]') : ''}`}
           >
             {it.icon && <span className="w-4 text-text-muted [&>svg]:h-3.5 [&>svg]:w-3.5">{it.icon}</span>}
             <span className="flex-1">{it.label}</span>

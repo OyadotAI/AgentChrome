@@ -67,6 +67,7 @@ export interface Persona {
     hardwareConcurrency: number; deviceMemory: number; canvasSeed: number;
   };
   mfa: { configured: boolean; type?: string };
+  login?: { cookies: number; sites: string[]; updatedAt: string | null };
 }
 
 export const PROVIDER_LABEL: Record<string, string> = {

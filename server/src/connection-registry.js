@@ -23,8 +23,8 @@ function healthOf(b, now = Date.now()) {
     return failing ? 'errors' : 'ok';
   }
   const silent = now - b.lastSeen.getTime();
-  if (silent > 60_000) return 'dead';
-  if (silent > 15_000) return 'stale';
+  if (silent > 80_000) return 'dead';
+  if (silent > 40_000) return 'stale';
   return failing ? 'errors' : 'ok';
 }
 

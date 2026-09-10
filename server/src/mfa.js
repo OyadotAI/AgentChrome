@@ -14,9 +14,24 @@ import { createHmac } from 'crypto';
 import { sealText, openText } from './secrets.js';
 import { assertSafeTarget } from './net-guard.js';
 import { metrics } from './metrics.js';
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
 /** personaId -> sealed config */
 const configs = new Map();
+const STORE = join(process.env.OYA_DATA_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', 'data'), 'mfa.json');
+export function restore() {
+  try { for (const [id, value] of Object.entries(JSON.parse(readFileSync(STORE, 'utf8')))) configs.set(id, value); }
+  catch (e) { if (e.code !== 'ENOENT') throw new Error(`Cannot read MFA settings: ${e.message}`); }
+}
+function persist() {
+  mkdirSync(dirname(STORE), { recursive: true, mode: 0o700 });
+  const temp = `${STORE}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(Object.fromEntries(configs)), { mode: 0o600 });
+  renameSync(temp, STORE);
+}
+restore();
 
 const scopeFor = (personaId) => `mfa:${personaId}`;
 
@@ -34,6 +49,7 @@ function base32Decode(input) {
     bits += 5;
     if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
   }
+  if (!out.length) throw Object.assign(new Error('TOTP secret is empty'), { status: 400 });
   return Buffer.from(out);
 }
 
@@ -70,10 +86,11 @@ export async function set(personaId, config) {
     await assertSafeTarget(config.url, { protocols: ['http:', 'https:'], label: 'mfa relay url' });
   }
   configs.set(personaId, sealText(scopeFor(personaId), config));
+  persist();
   return describe(personaId);
 }
 
-export function clear(personaId) { return configs.delete(personaId); }
+export function clear(personaId) { const removed = configs.delete(personaId); if (removed) persist(); return removed; }
 
 /** Whether a factor is configured — never what it is. */
 export function describe(personaId) {
@@ -93,7 +110,7 @@ function load(personaId) {
 /** Is the page asking for a second factor, and where does the code go? */
 export const DETECT_JS = `(() => {
   const fields = [...document.querySelectorAll('input')].filter((el) => {
-    if (el.type === 'hidden' || el.disabled || el.readOnly) return false;
+    if (el.type === 'hidden' || el.disabled || el.readOnly || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return false;
     const hay = [el.name, el.id, el.autocomplete, el.placeholder, el.getAttribute('aria-label')]
       .filter(Boolean).join(' ').toLowerCase();
     if (/\\b(otp|one[- ]?time|2fa|two[- ]?factor|mfa|verification|auth(entication)?[- ]?code|security[- ]?code|passcode)\\b/.test(hay)) return true;
@@ -103,9 +120,10 @@ export const DETECT_JS = `(() => {
     return maxLen > 0 && maxLen <= 8 && /^(text|tel|number)$/.test(el.type)
       && /\\b(code|verify|verification)\\b/i.test(document.body.innerText || '');
   });
-  if (!fields.length) return { present: false };
+  document.querySelectorAll('[data-oya-mfa-target]').forEach((el) => el.removeAttribute('data-oya-mfa-target'));
+  if (!fields.length) return { present: /approve (the |this )?(sign.in|request)|check your authenticator|insert your security key/i.test(document.body.innerText || ''), handoff: true };
   const el = fields[0];
-  el.setAttribute('data-oya-mfa-target', '1');
+  fields.forEach((field) => field.setAttribute('data-oya-mfa-target', '1'));
   return {
     present: true,
     segmented: fields.length > 1 && fields.every((f) => Number(f.maxLength) === 1),
@@ -118,12 +136,12 @@ export const fillCodeJS = (code, segmented) => `(() => {
   const code = ${JSON.stringify(String(code))};
   const fire = (el, v) => {
     el.focus();
-    el.value = v;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
   if (${segmented ? 'true' : 'false'}) {
-    const boxes = [...document.querySelectorAll('input')].filter((f) => Number(f.maxLength) === 1 && !f.disabled);
+    const boxes = [...document.querySelectorAll('[data-oya-mfa-target]')].filter((f) => Number(f.maxLength) === 1 && !f.disabled);
     if (boxes.length < code.length) return { filled: false, reason: 'not enough inputs' };
     code.split('').forEach((ch, i) => fire(boxes[i], ch));
     return { filled: true, segmented: true };
@@ -131,7 +149,6 @@ export const fillCodeJS = (code, segmented) => `(() => {
   const el = document.querySelector('[data-oya-mfa-target]');
   if (!el) return { filled: false, reason: 'field not found' };
   fire(el, code);
-  el.removeAttribute('data-oya-mfa-target');
   return { filled: true, segmented: false };
 })()`;
 
@@ -182,7 +199,7 @@ export async function complete(evaluate, personaId, { liveViewUrl = null } = {})
   if (!found?.present) return { present: false, completed: false, method: 'none' };
 
   const config = load(personaId);
-  if (!config) {
+  if (!config || found.handoff) {
     metrics.mfaCompleted.inc({ method: 'handoff', outcome: 'needed' });
     return {
       present: true, completed: false, method: 'handoff', liveViewUrl,
@@ -199,10 +216,31 @@ export async function complete(evaluate, personaId, { liveViewUrl = null } = {})
   }
 
   const filled = await evaluate(fillCodeJS(code, found.segmented));
-  metrics.mfaCompleted.inc({ method: config.type, outcome: filled?.filled ? 'ok' : 'unfilled' });
+  let submitted = false, completed = false;
+  if (filled?.filled) {
+    submitted = !!await evaluate(`(() => {
+      const el = document.querySelector('[data-oya-mfa-target]');
+      if (!el) return false;
+      const form = el.form;
+      const button = [...(form || document).querySelectorAll('button, input[type="submit"]')].find((b) =>
+        !b.disabled && b.getClientRects().length && /^(verify|confirm|continue|submit|sign in|log in)( code)?$/i.test((b.innerText || b.value || '').trim()));
+      if (button) { button.click(); return true; }
+      if (form) { form.requestSubmit(); return true; }
+      return false;
+    })()`);
+    // Filling an input is not proof the site accepted a factor. A disappearing
+    // challenge after submission is the observable success signal.
+    const deadline = Date.now() + (submitted ? 10_000 : 0);
+    do {
+      try { completed = !(await evaluate(DETECT_JS))?.present; } catch { /* navigation */ }
+      if (completed || Date.now() >= deadline) break;
+      await new Promise((r) => setTimeout(r, 250));
+    } while (true);
+  }
+  metrics.mfaCompleted.inc({ method: config.type, outcome: completed ? 'ok' : 'needs_attention' });
   return {
-    present: true, completed: !!filled?.filled, method: config.type,
-    ...(filled?.filled ? {} : { liveViewUrl, error: filled?.reason || 'Could not fill the code field' }),
+    present: true, completed, filled: !!filled?.filled, submitted, method: config.type,
+    ...(completed ? {} : { liveViewUrl, error: filled?.filled ? 'The code was entered, but the site has not confirmed it. Open the live view to finish.' : filled?.reason || 'Could not fill the code field' }),
   };
 }
 

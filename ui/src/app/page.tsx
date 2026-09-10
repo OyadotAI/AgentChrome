@@ -214,7 +214,7 @@ export default function Home() {
             </Link>
             <Link
               href={user ? '/dashboard' : '/login'}
-              className="ml-2 px-4 py-2 text-[13px] font-semibold rounded-lg bg-accent text-[#0c0c0a] hover:bg-accent-hover shadow-[0_0_24px_-4px_rgba(57,237,53,0.35)]"
+              className="ml-2 px-4 py-2 text-[13px] font-semibold rounded-lg bg-accent text-accent-foreground hover:bg-accent-hover shadow-[0_0_24px_-4px_rgba(57,237,53,0.35)]"
             >
               {loading ? '' : 'Dashboard'}
             </Link>
@@ -270,7 +270,7 @@ export default function Home() {
                 </p>
                 <div className="flex flex-wrap gap-3 mb-2">
                   <Link href={user ? '/dashboard' : '/login'}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent text-[#0c0c0a] text-[15px] font-semibold hover:bg-accent-hover shadow-[0_0_28px_-6px_rgba(57,237,53,0.4)]">
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent text-accent-foreground text-[15px] font-semibold hover:bg-accent-hover shadow-[0_0_28px_-6px_rgba(57,237,53,0.4)]">
                     Open the console <ArrowRight className="w-4 h-4" />
                   </Link>
                   <Link href="/docs"
@@ -386,7 +386,7 @@ await browser.goto("https://example.com");`}
                     ['Fully managed browsers that stop billing when you stop them', '—', '✓'],
                     ['Self-host the whole control plane with docker compose', '✓', '✓'],
                   ].map(([what, any, oya]) => (
-                    <tr key={what} className="hover:bg-white/[0.02]">
+                    <tr key={what} className="hover:bg-text/[0.02]">
                       <td className="px-4 py-2.5 text-text-secondary">{what}</td>
                       <td className={`px-4 py-2.5 num ${any === '✓' ? 'text-accent' : 'text-text-dim'}`}>{any}</td>
                       <td className={`px-4 py-2.5 num ${oya === '✓' || oya === 'ours' ? 'text-accent' : 'text-text-dim'}`}>{oya}</td>

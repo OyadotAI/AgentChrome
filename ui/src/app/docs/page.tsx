@@ -1073,7 +1073,7 @@ const browser = await chromium.connectOverCDP(
               [<InlineCode key="a2">open_tab</InlineCode>, <span key="p2"><InlineCode>url</InlineCode> (optional)</span>, 'Open a new tab'],
               [<InlineCode key="a3">switch_tab</InlineCode>, <span key="p3"><InlineCode>tab_id</InlineCode> (required)</span>, 'Activate a tab by ID'],
               [<InlineCode key="a4">close_tab</InlineCode>, <span key="p4"><InlineCode>tab_id</InlineCode> (optional, defaults to active)</span>, 'Close a tab'],
-              [<InlineCode key="a5">list_tabs</InlineCode>, <em>none</em>, 'List all open tabs'],
+              [<InlineCode key="a5">list_tabs</InlineCode>, <em key="params">none</em>, 'List all open tabs'],
             ]}
           />
 
@@ -1081,9 +1081,9 @@ const browser = await chromium.connectOverCDP(
           <Table
             headers={['Action', 'Params', 'Description']}
             rows={[
-              [<InlineCode key="a1">analyze</InlineCode>, <em>none</em>, 'Full page as markdown + numbered elements'],
+              [<InlineCode key="a1">analyze</InlineCode>, <em key="params">none</em>, 'Full page as markdown + numbered elements'],
               [<InlineCode key="a2">read_page</InlineCode>, <span key="p2"><InlineCode>selector</InlineCode> (optional), <InlineCode>limit</InlineCode> (default 50)</span>, 'Lightweight element listing'],
-              [<InlineCode key="a3">screenshot</InlineCode>, <em>none</em>, 'Capture page as PNG'],
+              [<InlineCode key="a3">screenshot</InlineCode>, <em key="params">none</em>, 'Capture page as PNG'],
             ]}
           />
 

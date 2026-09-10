@@ -7,6 +7,7 @@ import { api, errorMessage, ago } from '@/lib/api-client';
 import { useToast } from './toast';
 import type { Persona, BrowserRow } from './types';
 import { Preview } from './persona-form';
+import { desktopSignInUrl } from './config';
 
 interface Proxy { id: string; label: string; geo: string | null; available?: boolean; assigned: number; maxPersonas: number }
 
@@ -42,7 +43,9 @@ export default function PersonaDrawer({ persona, onClose, apiKey, browsers, onCh
     setMfaValue('');
     api<{ proxies?: Proxy[] } | Proxy[]>('/proxies', { key: apiKey })
       .then((r) => setProxies(Array.isArray(r) ? r : r.proxies || [])).catch(() => setProxies([]));
-  }, [persona, apiKey]);
+  // Refreshing profile counts must not overwrite a form being edited.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persona?.id, apiKey]);
 
   if (!persona) return null;
   const p = persona;
@@ -79,7 +82,7 @@ export default function PersonaDrawer({ persona, onClose, apiKey, browsers, onCh
   return (
     <>
       <Dialog open={!!persona} onClose={onClose} title={p.name} size="drawer"
-        description={<span className="font-mono">{p.id}{p.isDefault ? ' · default persona' : ''}</span>}
+        description={<span className="font-mono">{p.id}{p.isDefault ? ' · default profile' : ''}</span>}
         footer={
           <>
             {!p.isDefault && (
@@ -88,11 +91,17 @@ export default function PersonaDrawer({ persona, onClose, apiKey, browsers, onCh
                 <Trash2 className="h-3.5 w-3.5" /> Delete
               </button>
             )}
-            <button className="btn-ghost" onClick={clone} disabled={busy === 'clone'}><Copy className="h-3.5 w-3.5" /> Clone as new persona</button>
+            <button className="btn-ghost" onClick={clone} disabled={busy === 'clone'}><Copy className="h-3.5 w-3.5" /> Clone as new profile</button>
             <button className="btn-primary" onClick={save} disabled={!dirty || busy === 'save'}>{busy === 'save' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Save</button>
           </>
         }>
         <div className="space-y-5">
+          <section>
+            <h3 className="label">Saved account sessions</h3>
+            <p className="mb-3 break-words text-sm text-text-secondary">{p.login?.sites.length ? p.login.sites.join(' · ') : 'No account sessions saved yet.'}</p>
+            <button className="btn-primary" disabled={!!busy} onClick={() => run('pair', async () => { window.location.href = await desktopSignInUrl(apiKey, p.id); })}>Sign in on desktop</button>
+            <p className="mt-2 text-xs text-text-muted">This opens the same Oya desktop window using this profile.</p>
+          </section>
           {/* Running */}
           <section>
             <div className="flex items-center justify-between">
@@ -170,11 +179,11 @@ export default function PersonaDrawer({ persona, onClose, apiKey, browsers, onCh
           <section>
             <div className="mb-1.5 flex items-center gap-1.5">
               <Lock className="h-3 w-3 text-text-dim" />
-              <h3 className="label mb-0">Device — fixed for this persona's life</h3>
+              <h3 className="label mb-0">Device — fixed for this profile</h3>
             </div>
             <Preview fp={p.fingerprint} title="Fingerprint" />
             <p className="mt-1.5 text-[11.5px] text-text-muted">
-              A device that changes under an existing cookie jar is the "one account, many devices" signal. Want a different one? Clone — same kind of machine, new identity, empty jar.
+              Clone this profile to create a new device identity with an empty login state. The original device stays consistent across sessions.
             </p>
           </section>
         </div>

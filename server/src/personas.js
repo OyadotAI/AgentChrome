@@ -27,6 +27,7 @@ import {
 import { metrics } from './metrics.js';
 import * as mfa from './mfa.js';
 import * as proxies from './proxies.js';
+import { summary as loginSummary, clear as clearLogin } from './cookie-store.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STORE = process.env.OYA_DATA_DIR
@@ -88,6 +89,7 @@ export function describe(p) {
     prefs: p.prefs || null,
     fingerprint: describeProfile(fingerprintFor(p)),
     mfa: mfa.describe(p.id),
+    login: loginSummary(p.id),
   };
 }
 
@@ -210,6 +212,8 @@ export function remove(apiKey, id) {
   if (p.isDefault) throw Object.assign(new Error('The default persona cannot be deleted'), { status: 400 });
   if ((active.get(id)?.size || 0) > 0) throw Object.assign(new Error('Persona is in use'), { status: 409 });
   personas.delete(id);
+  clearLogin(id);
+  mfa.clear(id);
   active.delete(id);
   dirty = true;
   return true;

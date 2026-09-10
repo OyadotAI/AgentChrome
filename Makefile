@@ -117,8 +117,7 @@ install: server-install ui-install browser-install ## Install all dependencies
 setup: install ## First-time setup
 	cd server && cp -n .env.example .env 2>/dev/null || true
 	cd ui && cp -n .env.example .env.local 2>/dev/null || true
-	@echo "\n✓ Done. Edit server/.env and ui/.env.local then run: make server-dev & make ui-dev"
+	@echo "\n✓ Done. Edit server/.env and ui/.env.local then run: npm run dev"
 
-dev: ## Start server + UI in dev mode (parallel)
-	@echo "Starting server and UI..."
-	@make server-dev & make ui-dev
+dev: ## Start API and Next.js on http://localhost:3100
+	npm run dev

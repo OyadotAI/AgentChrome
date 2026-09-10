@@ -179,7 +179,6 @@ async function cmdInit(flags: Flags): Promise<void> {
   const solver = await choose('Solve CAPTCHAs automatically?', [
     { id: '', label: 'No', note: 'providers that solve natively still will' },
     { id: 'capsolver', label: 'Yes, via CapSolver' },
-    { id: '2captcha', label: 'Yes, via 2Captcha' },
   ]);
   updates.captcha_solver = solver;
   if (solver) {

@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { validateApiKey } from './auth.js';
 import { registry, summarise } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
-import { mergeDump, applyChange, getAll as getAllCookies, getForDomains } from './cookie-store.js';
+import { mergeDump, applyChange, getAll as getAllCookies, getForDomains, getStorage, mergeStorage, drain as drainLogins, summary as loginSummary } from './cookie-store.js';
 import { metrics } from './metrics.js';
 import * as usage from './usage.js';
 import * as personas from './personas.js';
@@ -62,6 +62,7 @@ export function handleConnection(ws, req) {
 
     // ── Auth ──
     if (msg.type === 'auth') {
+      if (authenticated) { ws.close(4003, 'Already authenticated'); return; }
       clearTimeout(authTimeout);
 
       // Draining: finish what is in flight, accept nothing new, so an
@@ -159,6 +160,9 @@ export function handleConnection(ws, req) {
         type: 'auth_ok',
         browser_id: browserId,
         fingerprint,
+        persona: { id: persona.id, name: persona.name },
+        cookies: getAllCookies(persona.id),
+        origins: getStorage(persona.id),
       }));
 
       // Send this API key's cookie jar so this browser syncs immediately.
@@ -215,6 +219,20 @@ export function handleConnection(ws, req) {
         const merged = mergeDump(persona.id, msg.cookies);
         console.log(`[ws] Cookie dump from ${browserId}: ${msg.cookies.length} cookies, jar now ${merged.length}`);
       }
+      return;
+    }
+
+    if (msg.type === 'storage_changed') {
+      mergeStorage(persona.id, msg.origins);
+      return;
+    }
+
+    if (msg.type === 'profile_flush') {
+      drainLogins().then(() => {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'profile_saved', ...loginSummary(persona.id) }));
+      }).catch(() => {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'profile_saved', error: 'Could not save profile. Try again.' }));
+      });
       return;
     }
 

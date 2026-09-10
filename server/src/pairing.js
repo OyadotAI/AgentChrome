@@ -29,14 +29,14 @@ function sweep() {
 }
 
 /** @returns {{ code: string, expiresAt: number }} */
-export function issue(apiKey) {
+export function issue(apiKey, persona = 'default') {
   sweep();
   if (codes.size >= MAX_OUTSTANDING) {
     throw Object.assign(new Error('Too many outstanding pairing codes; try again shortly'), { status: 429 });
   }
   const code = randomBytes(32).toString('base64url');
   const expiresAt = Date.now() + TTL_MS;
-  codes.set(digest(code), { apiKey, expiresAt });
+  codes.set(digest(code), { apiKey, persona, expiresAt });
   return { code, expiresAt };
 }
 
@@ -44,7 +44,7 @@ export function issue(apiKey) {
  * Redeem a code. Single use: claimed or expired, it is gone.
  * @returns {string|null} the API key, or null
  */
-export function claim(code) {
+export function claimDetails(code) {
   sweep();
   if (typeof code !== 'string' || code.length < 16 || code.length > 128) return null;
   const hash = digest(code);
@@ -55,8 +55,10 @@ export function claim(code) {
   // The lookup above is a hash-table hit rather than a comparison, so there is
   // no secret-dependent branch to time. This keeps that true if it ever changes.
   const a = Buffer.from(hash), b = Buffer.from(digest(code));
-  return a.length === b.length && timingSafeEqual(a, b) ? entry.apiKey : null;
+  return a.length === b.length && timingSafeEqual(a, b) ? { apiKey: entry.apiKey, persona: entry.persona } : null;
 }
+
+export function claim(code) { return claimDetails(code)?.apiKey || null; }
 
 /** Test hook. */
 export function reset() { codes.clear(); }

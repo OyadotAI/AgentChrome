@@ -14,12 +14,13 @@ const crypto = require('crypto');
 const WebSocket = require('ws');
 const { applyTelemetryFlags, applyDomainBlocking } = require('./anonymity/telemetry');
 const { buildInjectionScript } = require('./anonymity/inject');
-const { generateProfile, buildFingerprintInjectScript } = require('./anonymity/fingerprint');
+const { LoginState } = require('./login-state');
 const { configureProxy, applyDNSLeakPrevention } = require('./anonymity/proxy');
 const { ProfileStore } = require('./anonymity/profile-store');
 
 // Default to light mode
 nativeTheme.themeSource = 'light';
+if (process.env.OYA_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.OYA_USER_DATA_DIR));
 
 // Prevent crashes from unhandled errors
 process.on('uncaughtException', (err) => {
@@ -54,6 +55,7 @@ const CONFIG_DEFAULTS = {
 
 let activeProfile = null;
 let profileStore = null;
+let loginState = null;
 
 let config = { ...CONFIG_DEFAULTS };
 let configPath = null;
@@ -377,6 +379,7 @@ async function dumpCookies() {
       name: c.name, value: c.value, domain: c.domain, path: c.path,
       secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite || 'unspecified',
       expirationDate: c.expirationDate,
+      hostOnly: c.hostOnly,
     }));
     ws.send(JSON.stringify({ type: 'cookie_dump', cookies: slim }));
   } catch (e) {
@@ -396,12 +399,12 @@ async function applyCookieSync(cookies) {
         url,
         name: c.name,
         value: c.value,
-        domain: c.domain,
+        ...(c.hostOnly || !c.domain.startsWith('.') ? {} : { domain: c.domain }),
         path: c.path || '/',
         secure: c.secure || false,
         httpOnly: c.httpOnly || false,
-        sameSite: c.sameSite || 'unspecified',
-        expirationDate: c.expirationDate || undefined,
+        sameSite: ({ Strict: 'strict', Lax: 'lax', None: 'no_restriction' })[c.sameSite] || c.sameSite || 'unspecified',
+        expirationDate: Number(c.expirationDate ?? c.expires) > 0 ? Number(c.expirationDate ?? c.expires) : undefined,
       });
       applied++;
     } catch {}
@@ -472,8 +475,11 @@ function flushCookieChanges() {
   try { ws.send(JSON.stringify({ type: 'cookie_changed', changes })); } catch {}
 }
 
+let watchedCookies = null, cookieListener = null;
 function startCookieChangeListener() {
-  getBrowserSession().cookies.on('changed', (event, cookie, cause, removed) => {
+  if (watchedCookies && cookieListener) watchedCookies.removeListener('changed', cookieListener);
+  watchedCookies = getBrowserSession().cookies;
+  cookieListener = (event, cookie, cause, removed) => {
     if (applyingCookieSync) return;
     // Only forward explicit changes — ignore overwrite (intermediate removal
     // when a cookie is replaced), expired, and evicted events to prevent
@@ -487,11 +493,13 @@ function startCookieChangeListener() {
         name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path,
         secure: cookie.secure, httpOnly: cookie.httpOnly, sameSite: cookie.sameSite || 'unspecified',
         expirationDate: cookie.expirationDate,
+        hostOnly: cookie.hostOnly,
       },
     });
     if (cookieBatch.size >= 200) { clearTimeout(cookieFlushTimer); flushCookieChanges(); return; }
     if (!cookieFlushTimer) cookieFlushTimer = setTimeout(flushCookieChanges, COOKIE_FLUSH_MS);
-  });
+  };
+  watchedCookies.on('changed', cookieListener);
 }
 
 // ─── WebSocket ───
@@ -512,8 +520,18 @@ let missedPongs = 0;
  * This guarantees every browser with the same API key gets the exact same
  * fingerprint — the server is the single source of truth.
  */
-async function applyServerFingerprint(profile) {
+async function applyServerFingerprint(profile, cookies = []) {
   if (!profile?.id) return;
+
+  // WebContents partitions are immutable. Rebuild views when the profile
+  // changes so the tabs, listener and cookie exporter all use the same jar.
+  const switched = activeProfile?.id !== profile.id;
+  const reopen = switched ? tabs.map((tab) => tab.url || 'about:blank') : [];
+  if (switched) {
+    flushCookieChanges();
+    while (tabs.length) closeTab(tabs[0].id);
+    pulledAt.clear();
+  }
 
   // Persist it so it survives restarts (and loads before reconnect)
   if (profileStore) {
@@ -527,11 +545,14 @@ async function applyServerFingerprint(profile) {
 
   // Re-setup session with the new fingerprint (user-agent, proxy, headers)
   await setupBrowserSession();
+  startCookieChangeListener();
+  await applyCookieSync(cookies);
+  for (const url of reopen) createTab(url);
 
   // Re-inject into all open tabs so they pick up the new fingerprint
   for (const tab of tabs) {
     if (!tab.view.webContents.isDestroyed()) {
-      setupTabCDP(tab.view);
+      if (!switched) setupTabCDP(tab.view);
     }
   }
 
@@ -671,7 +692,7 @@ async function applyDeepLink(rawUrl) {
   if (response !== 1) return false;
 
   const claimUrl = `${parsed.protocol === 'wss:' ? 'https' : 'http'}://${parsed.host}/api/pairing/claim`;
-  let apiKey;
+  let apiKey, persona;
   try {
     const res = await fetch(claimUrl, {
       method: 'POST',
@@ -683,16 +704,18 @@ async function applyDeepLink(rawUrl) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok || !body.apiKey) throw new Error(body.error || `Pairing failed (${res.status})`);
     apiKey = body.apiKey;
+    persona = body.persona || 'default';
   } catch (e) {
     await ask({ type: 'error', title: 'Could not pair', message: 'Pairing failed', detail: e.message });
     return false;
   }
 
+  disconnect();
   config.serverUrl = parsed.href;
   config.apiKey = apiKey;
+  config.persona = persona;
   saveConfig();
   // connect() emits ws-status, which is how the renderer learns about this.
-  disconnect();
   connect();
   mainWindow?.show();
   return true;
@@ -783,7 +806,7 @@ function createTab(url, activate = true) {
   tabs.push(tab);
 
   // Attach CDP debugger and auto-inject scripts into every new document
-  setupTabCDP(view);
+  const tabReady = setupTabCDP(view);
 
   view.webContents.on('did-finish-load', () => {
     injectScripts(view);
@@ -937,13 +960,14 @@ function createTab(url, activate = true) {
     menu.popup({ window: mainWindow });
   });
 
-  if (url) view.webContents.loadURL(url);
+  tab.ready = Promise.resolve(tabReady).then(() => url ? view.webContents.loadURL(url) : undefined);
+  tab.ready.catch((e) => console.error('[tab] Could not open page:', e.message));
   if (activate) activateTab(id);
   sendTabList();
   return id;
 }
 
-function setupTabCDP(view) {
+async function setupTabCDP(view) {
   const fail = (what, err) => {
     // A silent failure here means a tab that loads with no fingerprint and no
     // stealth, and at fleet scale you cannot tell which browsers are naked.
@@ -956,10 +980,16 @@ function setupTabCDP(view) {
     // Main world: only what the page itself must see, as one script in one
     // scope so the toString mask covers the fingerprint patches too. The
     // analyzer is loaded separately into an isolated world by ensureWorld().
-    view.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+    if (view.oyaConfigured) return;
+    view.oyaConfigured = true;
+    await view.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
       source: buildInjectionScript(activeProfile),
     }).catch((e) => fail('fingerprint/stealth injection', e));
     view.webContents.debugger.sendCommand('Page.enable').catch((e) => fail('Page.enable', e));
+    if (loginState) await loginState.attach(
+      (method, params = {}) => cdp(view, method, params),
+      (method, fn) => view.webContents.debugger.on('message', (_event, event, params) => { if (event === method) fn(params); }),
+    );
 
     // A fresh document means a fresh isolated world; rebuild it eagerly so the
     // first command after a navigation does not pay for it.
@@ -1119,74 +1149,6 @@ ipcMain.handle('resize-dev-panel', (e, width) => {
   devPanelWidth = Math.max(250, Math.min(width, 1200));
   layoutActiveTab();
   return devPanelWidth;
-});
-
-// ─── Profile Management IPC ───
-
-ipcMain.handle('list-profiles', () => {
-  return profileStore ? profileStore.list() : [];
-});
-
-ipcMain.handle('create-profile', (e, options) => {
-  if (!profileStore) return null;
-  const profile = generateProfile(options || {});
-  profileStore.save(profile);
-  return { id: profile.id, platform: profile.navigator.platform, timezone: profile.timezone };
-});
-
-ipcMain.handle('activate-profile', async (e, profileId) => {
-  if (!profileStore) return false;
-  const profile = profileStore.get(profileId);
-  if (!profile) return false;
-
-  // Close all tabs before switching
-  while (tabs.length > 0) closeTab(tabs[0].id);
-
-  activeProfile = profile;
-  config.activeProfileId = profileId;
-  profileStore.setActiveId(profileId);
-  saveConfig();
-
-  // Re-setup session with new profile (proxy, headers, etc.)
-  await setupBrowserSession();
-
-  // Open a fresh tab
-  enterBrowsingMode('https://google.com');
-  return true;
-});
-
-ipcMain.handle('deactivate-profile', async () => {
-  while (tabs.length > 0) closeTab(tabs[0].id);
-
-  activeProfile = null;
-  config.activeProfileId = null;
-  if (profileStore) profileStore.clearActive();
-  saveConfig();
-
-  await setupBrowserSession();
-  enterBrowsingMode('https://google.com');
-  return true;
-});
-
-ipcMain.handle('delete-profile', (e, profileId) => {
-  if (!profileStore) return false;
-  if (activeProfile?.id === profileId) {
-    activeProfile = null;
-    config.activeProfileId = null;
-    profileStore.clearActive();
-    saveConfig();
-  }
-  return profileStore.delete(profileId);
-});
-
-ipcMain.handle('get-active-profile', () => {
-  if (!activeProfile) return null;
-  return {
-    id: activeProfile.id,
-    platform: activeProfile.navigator.platform,
-    timezone: activeProfile.timezone,
-    hasProxy: !!activeProfile.proxy?.host,
-  };
 });
 
 ipcMain.handle('get-fingerprint', () => {
@@ -1448,6 +1410,7 @@ function connect() {
 }
 
 function disconnect() {
+  flushCookieChanges();
   stopStream();
   clearTimeout(reconnectTimer); clearInterval(pingInterval);
   reconnectTimer = null; reconnectAttempts = 0; missedPongs = 0;
@@ -1462,20 +1425,41 @@ function scheduleReconnect() {
     Math.min(500 * Math.pow(1.5, reconnectAttempts), 10000) + Math.random() * 500);
 }
 
-function sendStatus() { sendToRenderer('ws-status', { connected: wsReady, browserId }); }
+function sendStatus() { sendToRenderer('ws-status', { connected: wsReady, browserId, profileName: config.profileName || 'Default' }); }
+
+ipcMain.handle('save-profile', async () => {
+  if (!wsReady || ws?.readyState !== WebSocket.OPEN) throw new Error('Connect the desktop before saving your profile.');
+  flushCookieChanges();
+  await dumpCookies();
+  await getBrowserSession().cookies.flushStore();
+  getBrowserSession().flushStorageData();
+  ws.send(JSON.stringify({ type: 'profile_flush' }));
+});
 
 async function handleServerMessage(msg) {
   switch (msg.type) {
     case 'auth_ok':
-      wsReady = true; reconnectAttempts = 0;
+      reconnectAttempts = 0;
       if (msg.browser_id) browserId = msg.browser_id;
-      startPingLoop(); sendStatus();
+      if (!loginState || activeProfile?.id !== msg.fingerprint?.id) loginState = new LoginState(msg.origins || {}, (origins) => {
+        if (wsReady && ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'storage_changed', origins }));
+        }
+      });
       // Apply fingerprint from the server — the server is the single source of truth.
       // Same API key = same fingerprint on every browser, guaranteed.
-      if (msg.fingerprint) await applyServerFingerprint(msg.fingerprint);
+      if (msg.fingerprint) await applyServerFingerprint(msg.fingerprint, msg.cookies || []);
+      wsReady = true;
+      config.profileName = msg.persona?.name || 'Default';
+      saveConfig();
+      startPingLoop(); sendStatus();
       if (!browsingMode) enterBrowsingMode('https://google.com');
       // Send our cookies to the server for pool sync
-      dumpCookies();
+      await dumpCookies();
+      ws.send(JSON.stringify({ type: 'profile_flush' }));
+      break;
+    case 'profile_saved':
+      sendToRenderer('profile-saved', msg);
       break;
     case 'cookie_sync':
       await applyCookieSync(msg.cookies);
@@ -1555,7 +1539,7 @@ async function handleCommand(msg) {
     }
     if (action === 'open_tab') {
       const tabId = createTab(params?.url || 'about:blank', true);
-      if (params?.url) await waitForLoad();
+      await tabs.find((t) => t.id === tabId)?.ready;
       sendResult(id, true, { tab_id: tabId, url: params?.url || 'about:blank' });
       return;
     }
@@ -1581,6 +1565,8 @@ async function handleCommand(msg) {
     // ── Navigate ──
 
     if (action === 'navigate' && params?.url) {
+      await tabs.find((t) => t.view === view)?.ready;
+      await pullCookiesFor(params.url);
       const maxRetries = 2;
       let lastErr = null;
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1876,6 +1862,15 @@ async function handleCommand(msg) {
 
     if (action === 'scroll') {
       const view = getActiveView();
+      // Live control already has a pointer position and a trackpad delta.
+      // Dispatch it once: synthetic smoothing and page analysis add hundreds
+      // of milliseconds and cause successive gestures to overlap.
+      if (params?.smooth === false && Number.isFinite(params?.x) && Number.isFinite(params?.y)) {
+        const amount = Math.max(0, Number(params.amount) || 0);
+        await cdpScroll(view, params.x, params.y, 0, params.direction === 'up' ? -amount : amount);
+        sendResult(id, true, { direction: params.direction, amount });
+        return;
+      }
       await injectScripts(view);
       const vp = await cdpEval(view, `({ w: window.innerWidth, h: window.innerHeight })`);
       const cx = Math.round((vp?.w || 800) / 2);
@@ -1927,42 +1922,6 @@ async function handleCommand(msg) {
         return { ok: true, data: { selected: el.value } };
       })()`, true);
       sendResult(id, result?.ok ?? true, result?.data, result?.error);
-      return;
-    }
-
-    // ── Profile management ──
-
-    if (action === 'list_profiles') {
-      const profiles = profileStore ? profileStore.list() : [];
-      const active = activeProfile ? { id: activeProfile.id, platform: activeProfile.navigator.platform } : null;
-      sendResult(id, true, { profiles, active });
-      return;
-    }
-
-    if (action === 'create_profile') {
-      if (!profileStore) { sendResult(id, false, null, 'Profile store not initialized'); return; }
-      const profile = generateProfile(params || {});
-      profileStore.save(profile);
-      sendResult(id, true, { id: profile.id, platform: profile.navigator.platform, timezone: profile.timezone });
-      return;
-    }
-
-    if (action === 'set_profile') {
-      if (!profileStore) { sendResult(id, false, null, 'Profile store not initialized'); return; }
-      const profileId = params?.profile_id;
-      if (!profileId) { sendResult(id, false, null, 'profile_id required'); return; }
-      const profile = profileStore.get(profileId);
-      if (!profile) { sendResult(id, false, null, `Profile ${profileId} not found`); return; }
-
-      // Close all tabs, switch profile, re-setup
-      while (tabs.length > 0) closeTab(tabs[0].id);
-      activeProfile = profile;
-      config.activeProfileId = profileId;
-      profileStore.setActiveId(profileId);
-      saveConfig();
-      await setupBrowserSession();
-      enterBrowsingMode('https://google.com');
-      sendResult(id, true, { activated: profileId, platform: profile.navigator.platform });
       return;
     }
 

@@ -1,8 +1,10 @@
 'use client';
 
+import Image from 'next/image';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertTriangle, Circle, Clock, Film, Gauge, HardDrive, Play, Pause,
+  Activity, AlertTriangle, Circle, Clock, Film, Gauge, Play, Pause,
   Plus, RefreshCw, Server, ShieldCheck, Trash2, Users, X, Zap,
 } from 'lucide-react';
 import { apiUrl, apiKeyHeaders } from '@/lib/api';
@@ -586,7 +588,7 @@ function Player({ sessionId, headers, onClose }: { sessionId: string; headers: H
       <div className="-mx-5 -my-4">
         <div className="bg-black flex items-center justify-center min-h-[300px]">
           {error ? <p className="text-text-dim text-sm p-8">{error}</p>
-            : src ? <img src={src} alt={`Frame ${index + 1}`} className="max-h-[70vh] w-auto" />
+            : src ? <Image unoptimized src={src} alt={`Frame ${index + 1}`} width={1920} height={1080} className="max-h-[70vh] w-auto object-contain" />
             : <p className="text-text-dim text-sm p-8">Loading…</p>}
         </div>
         <div className="flex items-center gap-3 px-4 py-3 border-t border-border">

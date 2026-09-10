@@ -11,6 +11,8 @@ export type Provider =
   | 'cdp';
 
 export interface StartOptions {
+  /** Saved login profile. Defaults to the desktop's default profile. */
+  profile?: string;
   /**
    * Which identity to run as. A persona is one device: fingerprint, cookie jar
    * and proxy bound together and stable for its life.
@@ -72,7 +74,9 @@ export interface CaptchaResult {
 export interface MfaResult {
   present: boolean;
   completed: boolean;
-  method?: 'totp' | 'email' | 'sms' | 'handoff';
+  method?: 'totp' | 'email' | 'sms' | 'handoff' | 'none';
+  filled?: boolean;
+  submitted?: boolean;
   /** Open this to finish by hand when nothing automated can. */
   liveViewUrl?: string | null;
   error?: string;
@@ -98,6 +102,7 @@ export interface PersonaInfo {
   prefs: PersonaPrefs | null;
   fingerprint: Fingerprint;
   mfa: { configured: boolean; type?: string };
+  login: { cookies: number; sites: string[]; updatedAt: string | null };
   createdAt: string;
   lastUsedAt: string | null;
 }

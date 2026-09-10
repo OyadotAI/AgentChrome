@@ -15,7 +15,7 @@ import { sendCommand } from './ws-handler.js';
 import { runChat } from './chat-service.js';
 import { runtimeConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
-import { getAll as getAllCookies, clear as clearCookies } from './cookie-store.js';
+import { getAll as getAllCookies, clear as clearCookies, getStorage, mergeStorage, mergeDump, drain as drainLogins } from './cookie-store.js';
 import { isConfigured as sandboxConfigured, missingSettings, createSandbox, removeSandbox } from './sandbox.js';
 import { metrics, render as renderMetrics, snapshot as metricsSnapshot } from './metrics.js';
 import { audit, history as auditHistory, fingerprint } from './audit.js';
@@ -38,6 +38,12 @@ import { PREF_OPTIONS } from './fingerprint.js';
 import * as pairing from './pairing.js';
 
 export const router = Router();
+
+function browserCdpUrl(req, id) {
+  const host = req.headers.host || `localhost:${process.env.PORT || 3100}`;
+  const scheme = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https') ? 'wss' : 'ws';
+  return `${scheme}://${host}/connect?token=${encodeURIComponent(getKey(req))}&browser=${encodeURIComponent(id)}`;
+}
 
 /**
  * HTTP metrics. Labelled by the route pattern, never the concrete path — at
@@ -314,6 +320,15 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
   const key = getKey(req);
   const browser = registry.get(browserId);
   if (!browser || !canAccess(req, browserId)) return { id: browserId, ok: false, error: 'Browser not connected' };
+  if (browser.driver && browser.persona) {
+    try {
+      const { cookies } = await browser.driver.conn.send('Network.getAllCookies', {}, browser.driver.sessionId);
+      mergeDump(browser.persona.id, cookies);
+      await drainLogins();
+    } catch (err) {
+      return { id: browserId, ok: false, error: `Could not save profile before stopping: ${err.message}` };
+    }
+  }
 
   // Whether a sandbox exists is decided by asking Daytona, not by what the
   // browser said about itself: an older image sends no provider, and a stop
@@ -354,7 +369,9 @@ router.post('/browsers/stop', authMiddleware, async (req, res) => {
   const ids = req.body?.all === true
     ? [...registry.browsers.entries()].filter(([, b]) => b.apiKey === key).map(([id]) => id)
     : (Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 5000) : []);
-  if (!ids.length) return res.status(400).json({ error: 'Pass ids: [...] or all: true' });
+  if (!ids.length) return req.body?.all === true
+    ? res.json({ ok: true, stopped: 0, results: [] })
+    : res.status(400).json({ error: 'Pass ids: [...] or all: true' });
   // Sandboxes are deleted over the network; a few at a time keeps a 1k-browser
   // "stop all" from opening a thousand connections to Daytona at once.
   const results = [];
@@ -370,7 +387,9 @@ router.get('/browsers/:browserId', authMiddleware, (req, res) => {
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
-  res.json(registry.describe(browserId));
+  const detail = registry.describe(browserId);
+  if (detail.clientType === 'cdp') detail.cdpUrl = browserCdpUrl(req, browserId);
+  res.json(detail);
 });
 
 /** Force a browser off the fleet — a stuck client, a runaway, an abusive key. */
@@ -589,7 +608,8 @@ router.delete('/personas/:id', authMiddleware, (req, res) => {
 router.post('/pairing', authMiddleware, enforce('provision'), (req, res) => {
   const key = getKey(req);
   try {
-    const { code, expiresAt } = pairing.issue(key);
+    const persona = personas.resolve(key, req.body?.profile || req.body?.persona);
+    const { code, expiresAt } = pairing.issue(key, persona.id);
     audit({ action: 'pairing.issue', actorKey: key, targetType: 'key', targetId: fingerprint(key), req });
     res.status(201).json({ code, expiresAt });
   } catch (err) {
@@ -607,11 +627,11 @@ router.post('/pairing/claim', (req, res) => {
   if (!consume('connect', `pair:${from}`).allowed) {
     return res.status(429).json({ error: 'Too many pairing attempts' });
   }
-  const apiKey = pairing.claim(req.body?.code);
-  if (!apiKey) return res.status(404).json({ error: 'That pairing code is invalid, used or expired' });
-  keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
+  const paired = pairing.claimDetails(req.body?.code);
+  if (!paired) return res.status(404).json({ error: 'That pairing code is invalid, used or expired' });
+  const { apiKey, persona } = paired;
   audit({ action: 'pairing.claim', actorKey: apiKey, targetType: 'key', targetId: fingerprint(apiKey), req });
-  res.json({ apiKey });
+  res.json({ apiKey, persona });
 });
 
 // ─── Start a browser ─────────────────────────────────────────────────────────
@@ -627,7 +647,7 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
 
   let persona;
   try {
-    persona = personas.resolve(key, req.body?.persona);
+    persona = personas.resolve(key, req.body?.profile || req.body?.persona);
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
@@ -666,9 +686,10 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
     }
 
     // Everything else is a CDP browser we dial out to.
-    if (wanted === 'cdp' && req.body?.wsUrl) await assertSafeTarget(req.body.wsUrl, { label: 'wsUrl' });
+    const wsUrl = req.body?.wsUrl || keyConfig.envFor(key).OYA_CDP_WS_URL;
+    if (wanted === 'cdp' && wsUrl) await assertSafeTarget(wsUrl, { label: 'wsUrl' });
     const session = await acquireBrowser({
-      provider: wanted, wsUrl: req.body?.wsUrl, env: keyConfig.envFor(key),
+      provider: wanted, wsUrl, env: keyConfig.envFor(key),
     });
     const browserId = uuidv4();
     // The concurrency slot is taken before the vendor session is driven, so a
@@ -686,6 +707,8 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
         wsUrl: session.wsUrl,
         provider: session.provider,
         fingerprint: personas.fingerprintFor(persona),
+        login: { cookies: getAllCookies(persona.id), origins: structuredClone(getStorage(persona.id)) },
+        onStorage: (values) => mergeStorage(persona.id, values),
         onClose: () => { if (registry.get(browserId)) registry.remove(browserId); },
       }).connect();
     } catch (connectErr) {
@@ -704,13 +727,11 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
     usage.browserConnected(key, browserId);
     metrics.browsersConnected.set({}, registry.browsers.size);
 
-    const host = req.headers.host || `localhost:${process.env.PORT || 3100}`;
-    const scheme = (req.headers['x-forwarded-proto'] || '').includes('https') ? 'wss' : 'ws';
     return done({
       id: browserId, provider: session.provider, persona: persona.id, status: 'ready',
       // Our gateway URL, not the vendor's: an agent handed this gets routing,
       // profiles and recording without knowing any of that exists.
-      cdpUrl: `${scheme}://${host}/connect?token=${encodeURIComponent(key)}`,
+      cdpUrl: browserCdpUrl(req, browserId),
     });
   } catch (err) {
     audit({ action: 'browser.start', actorKey: key, outcome: 'error', meta: { provider: wanted, error: err.message }, req });
@@ -759,7 +780,7 @@ router.post('/browsers/:browserId/mfa', authMiddleware, enforce('command'), asyn
   const personaId = browser.persona?.id || personas.defaultFor(getKey(req)).id;
   try {
     const result = await mfa.complete((expr) => evaluateIn(browserId, expr), personaId, {
-      liveViewUrl: `/api/live/${browserId}`,
+      liveViewUrl: `/dashboard/?browser=${encodeURIComponent(browserId)}`,
     });
     if (result.present) {
       audit({ action: 'mfa.complete', actorKey: getKey(req), targetType: 'browser', targetId: browserId,

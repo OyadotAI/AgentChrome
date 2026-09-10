@@ -32,8 +32,7 @@ interface Element { id: number; type: string; text?: string; visible: boolean }
 export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpenPersona, onConnect, urlRef, now }: Props) {
   const toast = useToast();
   const [detail, setDetail] = useState<BrowserDetail | null>(null);
-  const [url, setUrl] = useState('');
-  const [urlDirty, setUrlDirty] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<{ ts: string; line: string }[]>([]);
   const [shot, setShot] = useState<string | null>(null);
@@ -47,7 +46,6 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
   const frames = useRef(0);
 
   useEffect(() => {
-    setDetail(null); setFrame(null); setUrl(''); setUrlDirty(false); setOptimistic([]); setElements(null);
     const es = new EventSource(apiUrl(`/live/${browserId}?key=${encodeURIComponent(apiKey)}`));
     es.onmessage = (e) => { setFrame(e.data); frames.current++; setFrameAt(Date.now()); };
     es.onerror = () => { setFrame(null); };
@@ -59,13 +57,12 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
     try {
       const d = await api<BrowserDetail>(`/browsers/${browserId}`, { key: apiKey });
       setDetail(d);
-      setUrl((u) => (urlDirty ? u : d.currentUrl || u));
       // The server has caught up with whatever we did; drop the placeholders.
       setOptimistic((o) => o.filter((x) => Date.now() - new Date(x.ts).getTime() < 3000));
     } catch (err) {
       if ((err as { status?: number }).status === 404) onClose();
     }
-  }, [browserId, apiKey, urlDirty, onClose]);
+  }, [browserId, apiKey, onClose]);
 
   useEffect(() => {
     refresh();
@@ -88,10 +85,10 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
     setOptimistic((o) => [{ ts: new Date().toISOString(), line }, ...o].slice(0, 5));
   }, []);
 
-  const go = async (target = url) => {
+  const go = async (target = url ?? detail?.currentUrl ?? '') => {
     const t = target.trim();
     if (!t) return;
-    setBusy('navigate'); setUrlDirty(false);
+    setBusy('navigate'); setUrl(null);
     onInput(`navigate ${t}`);
     await send('navigate', { url: t });
     setBusy(null);
@@ -174,9 +171,9 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
           </button>
           <input
             ref={urlRef}
-            value={url}
-            onChange={(e) => { setUrl(e.target.value); setUrlDirty(true); }}
-            onKeyDown={(e) => { if (e.key === 'Escape') { setUrl(d?.currentUrl || ''); setUrlDirty(false); (e.target as HTMLInputElement).blur(); } }}
+            value={url ?? d?.currentUrl ?? ''}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setUrl(null); (e.target as HTMLInputElement).blur(); } }}
             placeholder="Enter a URL and press Enter"
             className="field flex-1 font-mono text-[12.5px]"
             aria-label="Navigate to URL"
@@ -187,7 +184,7 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
 
         {/* Live view */}
         <div className="group">
-          <LiveView browserId={browserId} frameSrc={frame} fps={fps} frameAgeMs={frameAt ? now - frameAt : null} send={send} onInput={onInput} />
+          <LiveView frameSrc={frame} fps={fps} frameAgeMs={frameAt ? now - frameAt : null} send={send} onInput={onInput} />
         </div>
 
         {/* Actions */}
@@ -221,8 +218,8 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
             </div>
             <div className="max-h-[200px] overflow-y-auto rounded-md border border-border bg-bg font-mono text-[12px]">
               {elements.map((e) => (
-                <button key={e.id} className="flex w-full items-center gap-2 border-b border-border/60 px-2 py-1 text-left hover:bg-white/5"
-                  onClick={() => { onInput(`click #${e.id}`); send('click', { selector: `[data-ac-id="${e.id}"]` }); }}>
+                <button key={e.id} className="flex w-full items-center gap-2 border-b border-border/60 px-2 py-1 text-left hover:bg-text/5"
+                  onClick={() => { onInput(`click #${e.id}`); send('click', { element_id: e.id, selector: `[data-ac-id="${e.id}"]` }); }}>
                   <span className="w-8 shrink-0 text-right text-accent">#{e.id}</span>
                   <span className="w-14 shrink-0 text-text-muted">{e.type}</span>
                   <span className="truncate text-text-secondary">{e.text || ''}</span>

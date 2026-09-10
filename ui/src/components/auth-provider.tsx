@@ -35,8 +35,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionVersion = useRef(0);
 
   const clearSession = useCallback(() => {
+    sessionVersion.current++;
     setUser(null);
     setToken(null);
     localStorage.removeItem('oya_token');
@@ -47,10 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Refresh the access token using the refresh token
   const doRefresh = useCallback(async (): Promise<string | null> => {
+    const version = sessionVersion.current;
     const rt = localStorage.getItem('oya_refresh_token');
     if (!rt) return null;
     try {
       const data = await apiRefreshToken(rt);
+      if (version !== sessionVersion.current) return null;
       const newToken = data.access_token;
       const newRefresh = data.refresh_token;
       setToken(newToken);
@@ -59,80 +63,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.user) setUser(data.user);
       return newToken;
     } catch {
-      clearSession();
+      if (version === sessionVersion.current) clearSession();
       return null;
     }
   }, [clearSession]);
 
-  // Schedule token refresh 60s before expiry
-  const scheduleRefresh = useCallback((tok: string) => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    const exp = getTokenExpiry(tok);
-    if (!exp) return;
-    const msUntilRefresh = (exp - 60) * 1000 - Date.now();
-    if (msUntilRefresh <= 0) {
-      // Already close to expiry, refresh now
-      doRefresh();
-      return;
-    }
-    refreshTimerRef.current = setTimeout(() => {
-      doRefresh().then((newToken) => {
-        if (newToken) scheduleRefresh(newToken);
-      });
-    }, msUntilRefresh);
-  }, [doRefresh]);
-
-  // Restore session on mount
+  // A renewed token schedules its own next refresh, including near-expiry tokens.
   useEffect(() => {
-    const savedToken = localStorage.getItem('oya_token');
-    if (!savedToken) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
+    const exp = getTokenExpiry(token);
+    if (!exp) return;
+    refreshTimerRef.current = setTimeout(() => { void doRefresh(); }, Math.max(1000, (exp - 60) * 1000 - Date.now()));
+    return () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); };
+  }, [token, doRefresh]);
 
-    // Check if expired — try refresh
-    const exp = getTokenExpiry(savedToken);
-    const isExpired = exp ? Date.now() / 1000 > exp - 30 : false;
-
-    if (isExpired) {
-      // Token expired, try refresh
-      doRefresh().then((newToken) => {
-        if (newToken) {
-          scheduleRefresh(newToken);
-          getProfile(newToken)
-            .then((profile) => setUser(profile))
-            .catch(() => clearSession())
-            .finally(() => setLoading(false));
-        } else {
-          setLoading(false);
-        }
-      });
-      return;
-    }
-
-    // Token is still valid
-    setToken(savedToken);
-    scheduleRefresh(savedToken);
-    getProfile(savedToken)
-      .then((profile) => {
-        if (profile && typeof profile === 'object') {
-          setUser(profile);
-        } else {
-          throw new Error('Invalid profile');
-        }
-      })
-      .catch(() => clearSession())
-      .finally(() => setLoading(false));
-  }, [clearSession, doRefresh, scheduleRefresh]);
+  useEffect(() => {
+    let cancelled = false;
+    const version = sessionVersion.current;
+    const restore = async () => {
+      const saved = localStorage.getItem('oya_token');
+      if (!saved) return;
+      const exp = getTokenExpiry(saved);
+      const tok = exp && Date.now() / 1000 > exp - 30 ? await doRefresh() : saved;
+      if (!tok) return;
+      const profile = await getProfile(tok);
+      if (!cancelled && version === sessionVersion.current) {
+        setToken(tok);
+        setUser(profile);
+      }
+    };
+    restore()
+      .catch(() => { if (!cancelled && version === sessionVersion.current) clearSession(); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [clearSession, doRefresh]);
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await apiLogin(email, password);
+    sessionVersion.current++;
     setToken(data.access_token);
     localStorage.setItem('oya_token', data.access_token);
     if (data.refresh_token) localStorage.setItem('oya_refresh_token', data.refresh_token);
     setUser(data.user);
-    scheduleRefresh(data.access_token);
-  }, [scheduleRefresh]);
+  }, []);
 
   const signup = useCallback(async (email: string, password: string, displayName?: string) => {
     await apiSignup(email, password, displayName);

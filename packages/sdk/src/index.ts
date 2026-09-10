@@ -47,7 +47,7 @@ export class Oya {
     /** Start a browser and wait until it can take commands. */
     start: async (options: StartOptions = {}): Promise<Browser> => {
       const started = await this.http.request<StartResult>('POST', '/api/browsers/start', {
-        persona: options.persona,
+        profile: options.profile || options.persona,
         provider: options.provider,
         wsUrl: options.wsUrl,
         name: options.name,
@@ -62,11 +62,9 @@ export class Oya {
 
     /** Reattach to a browser that is already running. */
     get: async (id: string): Promise<Browser> => {
-      const all = await this.browser.list();
-      const found = all.find((b) => b.id === id);
-      if (!found) throw new OyaError(`No such browser: ${id}`, 404, null);
+      const found = await this.http.request<BrowserInfo & { cdpUrl?: string }>('GET', `/api/browsers/${encodeURIComponent(id)}`);
       return new Browser(this.http, {
-        id: found.id, provider: found.provider || 'cdp', persona: found.persona || 'default', status: 'ready',
+        id: found.id, provider: found.provider || 'cdp', persona: found.persona || 'default', status: 'ready', cdpUrl: found.cdpUrl,
       }, false);
     },
 
@@ -126,6 +124,9 @@ export class Oya {
     set: <T = Record<string, unknown>>(values: Record<string, unknown>): Promise<T> =>
       this.http.request<T>('POST', '/api/config', values),
   };
+
+  /** Saved profiles. `personas` is retained as an alias for existing clients. */
+  readonly profiles = this.personas;
 
   usage(): Promise<unknown> { return this.http.request('GET', '/api/usage'); }
 

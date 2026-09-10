@@ -764,9 +764,9 @@
     <button class="tab-new" id="btn-new-tab" title="New Tab">+</button>
   </div>
 
-  <!-- ── Fingerprint Debug Bar ── -->
+  <!-- ── Profile sync ── -->
   <div class="fp-bar" id="fp-bar">
-    <span class="fp-none" id="fp-content">No fingerprint profile active</span>
+    <span id="fp-content">Connect Oya to save your account sessions</span><span id="profile-save-status" role="status" style="margin-left:auto"></span><button id="save-profile" style="margin-left:12px;font:inherit;border:0;background:transparent;color:#246d21;cursor:pointer">Save profile</button>
   </div>
 
   <!-- ── Dev Panel (right side) ── -->
@@ -1049,34 +1049,26 @@
 
     const fpContent = document.getElementById('fp-content');
 
-    function renderFingerprint(fp) {
-      if (!fp) {
-        fpContent.className = 'fp-none';
-        fpContent.textContent = 'No fingerprint profile active';
-        return;
-      }
-      fpContent.className = '';
-      fpContent.innerHTML =
-        '<span class="fp-label">FP</span> ' +
-        '<span class="fp-val">' + fp.id + '</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">' + fp.platform + '</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">' + fp.screen + ' @' + fp.dpr + 'x</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">' + fp.gpu + '</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">cores:' + fp.hardwareConcurrency + ' mem:' + fp.deviceMemory + 'GB</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">' + fp.timezone + '</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">canvas:' + fp.canvasNoise + ' audio:' + fp.audioNoise + '</span>' +
-        ' <span class="fp-sep">|</span> ' +
-        '<span class="fp-val">' + fp.fonts + ' fonts</span>';
-    }
-
-    oyaBrowser.getFingerprint().then(renderFingerprint);
-    oyaBrowser.onFingerprintChanged(renderFingerprint);
+    const saveProfileButton = document.getElementById('save-profile');
+    const profileSaveStatus = document.getElementById('profile-save-status');
+    let saveTimeout;
+    oyaBrowser.onWsStatus(s => {
+      fpContent.textContent = s.connected ? 'Profile · ' + (s.profileName || 'Default') + ' · Account sessions sync automatically' : 'Offline · Your account sessions remain on this desktop';
+      saveProfileButton.disabled = !s.connected;
+    });
+    saveProfileButton.addEventListener('click', async () => {
+      saveProfileButton.disabled = true;
+      profileSaveStatus.textContent = 'Saving…';
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => { profileSaveStatus.textContent = 'Save not confirmed. Try again.'; saveProfileButton.disabled = false; }, 15000);
+      try { await oyaBrowser.saveProfile(); }
+      catch (error) { clearTimeout(saveTimeout); profileSaveStatus.textContent = error.message; saveProfileButton.disabled = false; }
+    });
+    oyaBrowser.onProfileSaved(state => {
+      clearTimeout(saveTimeout);
+      saveProfileButton.disabled = false;
+      profileSaveStatus.textContent = state.error || ('Saved · ' + (state.sites?.length || 0) + ' sites');
+    });
 
     // ── Init ──
 

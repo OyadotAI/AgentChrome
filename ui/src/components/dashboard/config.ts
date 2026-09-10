@@ -1,4 +1,4 @@
-import { apiUrl, apiKeyHeaders } from '@/lib/api';
+import { apiUrl, apiKeyHeaders, apiOrigin } from '@/lib/api';
 
 /** What GET /api/config returns. Settings belong to the API key, not an account. */
 export interface KeyConfig {
@@ -12,6 +12,7 @@ export interface KeyConfig {
   browserbase_project_id: string;
   steel_api_key: string;
   browseruse_api_key: string;
+  cdp_ws_url: string;
   captcha_solver: string;
   captcha_api_key: string;
   onboarded: string;
@@ -63,10 +64,10 @@ export const isOyaProvider = (id: string) => id === 'oya-cloud' || id === 'oya-s
  * the user visits, and it lands in OS logs on the way. The code expires in
  * minutes, redeems once, and the desktop app still asks before acting on it.
  */
-export async function desktopSignInUrl(apiKey: string): Promise<string> {
-  const res = await fetch(apiUrl('/pairing'), { method: 'POST', headers: apiKeyHeaders(apiKey) });
+export async function desktopSignInUrl(apiKey: string, profile = 'default'): Promise<string> {
+  const res = await fetch(apiUrl('/pairing'), { method: 'POST', headers: apiKeyHeaders(apiKey), body: JSON.stringify({ profile }) });
   if (!res.ok) throw new Error(await reason(res, 'Could not start desktop sign-in'));
   const { code } = await res.json();
-  const ws = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+  const ws = `${apiOrigin().replace(/^http/, 'ws')}/ws`;
   return `oya://connect?code=${encodeURIComponent(code)}&server=${encodeURIComponent(ws)}`;
 }

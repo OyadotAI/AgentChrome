@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Radio, Key, Plus, Trash2, ChevronDown, Settings, LogOut,
-  User, Eye, EyeOff, Loader2, Check, Copy, Import
+  Key, Plus, Trash2, ChevronDown, Settings, LogOut,
+  User, Loader2, Check, Copy, Import
 } from 'lucide-react';
+import { OyaWordmark } from '@/components/oya-logo';
+import ThemeToggle from '@/components/theme-toggle';
 import { useAuth } from '@/components/auth-provider';
-import { apiUrl, authHeaders, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
+import { apiUrl, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
 import { useToast } from './toast';
 
 interface ApiKeyEntry {
@@ -189,12 +191,8 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
   const selectedKeyLabel = keys.find(k => k.key === apiKey)?.label || (apiKey ? `${apiKey.slice(0, 8)}...` : 'Select key');
 
   return (
-    <header className="flex items-center gap-3 px-4 lg:px-6 h-14 bg-bg border-b border-border">
-      {/* Logo */}
-      <div className="flex items-center gap-2 mr-1">
-        <div className="w-2 h-2 rounded-full bg-accent" />
-        <span className="text-sm font-semibold text-text tracking-tight hidden sm:block">Oya</span>
-      </div>
+    <header className="flex items-center gap-3 px-4 lg:px-6 h-[52px] bg-bg border-b border-border">
+      <OyaWordmark href="/dashboard" />
 
       {/* Health */}
       <div
@@ -214,7 +212,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
       <div className="relative" ref={keyDropdownRef}>
         <button
           onClick={() => setShowKeyDropdown(!showKeyDropdown)}
-          className="flex items-center gap-1.5 hover:bg-white/5 border border-border rounded-md px-3 py-2 text-sm text-text-muted hover:text-text transition-colors"
+          className="flex items-center gap-1.5 hover:bg-text/5 border border-border rounded-md px-3 py-2 text-sm text-text-muted hover:text-text transition-colors"
         >
           <Key className="w-3.5 h-3.5 shrink-0" />
           <span className="max-w-[100px] truncate hidden sm:inline font-mono text-xs">{selectedKeyLabel}</span>
@@ -237,8 +235,8 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                   key={k.key}
                   className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors group ${
                     apiKey === k.key
-                      ? 'bg-white/10 text-text'
-                      : 'hover:bg-white/5'
+                      ? 'bg-text/10 text-text'
+                      : 'hover:bg-text/5'
                   }`}
                   onClick={() => handleSelectKey(k.key)}
                 >
@@ -248,7 +246,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleCopyKey(k.key); }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/5 rounded transition-colors"
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-text/5 rounded transition-colors"
                     title="Copy key"
                   >
                     {copiedKey === k.key ? <Check className="w-3.5 h-3.5 text-accent" /> : <Copy className="w-3.5 h-3.5 text-text-dim" />}
@@ -300,7 +298,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                 <button
                   onClick={handleCreateKey}
                   disabled={creatingKey}
-                  className="flex-1 flex items-center justify-center gap-1.5 h-9 px-3 rounded-md bg-accent text-neutral-950 text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-1.5 h-9 px-3 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-50"
                 >
                   {creatingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   {showLabelInput ? 'Create' : 'New'}
@@ -308,7 +306,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
                 <button
                   onClick={handleImportKey}
                   disabled={importingKey}
-                  className="flex-1 flex items-center justify-center gap-1.5 h-9 px-3 rounded-md border border-border text-text-muted text-sm font-medium hover:bg-white/5 hover:text-text transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-1.5 h-9 px-3 rounded-md border border-border text-text-muted text-sm font-medium hover:bg-text/5 hover:text-text transition-colors disabled:opacity-50"
                 >
                   {importingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Import className="w-4 h-4" />}
                   {showImportInput ? 'Add' : 'Add Existing'}
@@ -319,10 +317,12 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
         )}
       </div>
 
+      <ThemeToggle />
+
       {/* Settings */}
       <button
         onClick={onOpenSettings}
-        className="p-2 hover:bg-white/5 rounded-md text-text-dim hover:text-text transition-colors"
+        className="p-2 hover:bg-text/5 rounded-md text-text-dim hover:text-text transition-colors"
         title="Settings"
       >
         <Settings className="w-4 h-4" />
@@ -332,7 +332,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
       <div className="relative" ref={userMenuRef}>
         <button
           onClick={() => setShowUserMenu(!showUserMenu)}
-          className="flex items-center p-1 hover:bg-white/5 rounded-md transition-colors"
+          className="flex items-center p-1 hover:bg-text/5 rounded-md transition-colors"
         >
           <div className="w-7 h-7 rounded-full bg-indigo-500/10 flex items-center justify-center">
             <User className="w-4 h-4 text-indigo-400" />

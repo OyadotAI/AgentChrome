@@ -29,6 +29,8 @@ jobs:
             - 'server/**'
             - 'ui/**'
             - 'browser/scripts/**'
+            - 'browser/anonymity/**'
+            - 'browser/login-state.js'
             - 'Dockerfile'
           browser:
             - 'browser/**'
@@ -59,16 +61,6 @@ jobs:
         gh release download "$LATEST_TAG" --pattern '*.dmg' --dir server/downloads --clobber || true
         gh release download "$LATEST_TAG" --pattern '*.AppImage' --dir server/downloads --clobber || true
         ls -lh server/downloads/ || true
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Update download URLs in UI
-      run: |
-        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
-        VERSION="${LATEST_TAG#v}"
-        echo "Updating download links to version $VERSION"
-        sed -i "s/Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*-/Oya.Browser-${VERSION}-/g" ui/src/app/page.tsx
-        grep -o 'Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*' ui/src/app/page.tsx | head -2
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

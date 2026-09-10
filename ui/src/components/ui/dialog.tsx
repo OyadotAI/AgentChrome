@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -24,6 +25,8 @@ const SIZES: Record<Size, string> = {
 };
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+let scrollLocks = 0;
+let originalOverflow = '';
 
 /**
  * The one overlay. Focus is trapped inside, Escape and the backdrop close it,
@@ -33,6 +36,7 @@ const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:n
 export default function Dialog({ open, onClose, title, description, size = 'md', children, footer }: DialogProps) {
   const panel = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const close = useEffectEvent(onClose);
 
   useEffect(() => {
     if (!open) return;
@@ -40,30 +44,33 @@ export default function Dialog({ open, onClose, title, description, size = 'md',
     const node = panel.current;
     // First focusable, or the panel itself so keys still land inside.
     const first = node?.querySelector<HTMLElement>(FOCUSABLE);
-    (first ?? node)?.focus();
+    (first ?? node)?.focus({ preventScroll: true });
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs[dialogs.length - 1] !== node) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); return; }
       if (e.key !== 'Tab' || !node) return;
       const items = [...node.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
       if (!items.length) { e.preventDefault(); return; }
       const firstEl = items[0], lastEl = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
-      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+      if (e.shiftKey && (document.activeElement === firstEl || !node.contains(document.activeElement))) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && (document.activeElement === lastEl || !node.contains(document.activeElement))) { e.preventDefault(); firstEl.focus(); }
     };
     document.addEventListener('keydown', onKey, true);
-    const prevOverflow = document.body.style.overflow;
+    if (scrollLocks++ === 0) originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey, true);
-      document.body.style.overflow = prevOverflow;
-      opener.current?.focus?.();
+      if (--scrollLocks === 0) document.body.style.overflow = originalOverflow;
+      if (opener.current?.isConnected) opener.current.focus({ preventScroll: true });
     };
-  }, [open, onClose]);
+  }, [open]);
 
   const drawer = size === 'drawer';
 
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -82,23 +89,23 @@ export default function Dialog({ open, onClose, title, description, size = 'md',
             animate={{ x: 0, y: 0, opacity: 1 }}
             exit={drawer ? { x: 24, opacity: 0 } : { y: 8, opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className={`${SIZES[size]} flex flex-col border border-border bg-bg-card shadow-[var(--shadow-elevated)] outline-none ${drawer ? 'border-y-0 border-r-0' : 'rounded-xl'}`}
+            className={`${SIZES[size]} flex flex-col border border-border bg-bg-card shadow-[var(--shadow-elevated)] outline-none ${drawer ? 'border-y-0 border-r-0' : 'max-h-[calc(92dvh-2rem)] rounded-xl'}`}
           >
-            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
               <div className="min-w-0">
                 <h2 className="text-[15px] font-semibold text-text">{title}</h2>
                 {description && <p className="mt-0.5 text-[13px] text-text-muted">{description}</p>}
               </div>
-              <button onClick={onClose} aria-label="Close" className="-mr-1 rounded-md p-1 text-text-muted hover:bg-white/5 hover:text-text">
+              <button onClick={onClose} aria-label="Close" className="-mr-1 rounded-md p-1 text-text-muted hover:bg-text/5 hover:text-text">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className={`min-h-0 flex-1 px-5 py-4 ${drawer ? 'overflow-y-auto' : ''}`}>{children}</div>
-            {footer && <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
+            {footer && <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>, document.body
   );
 }
 

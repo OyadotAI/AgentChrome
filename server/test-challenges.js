@@ -142,14 +142,14 @@ try {
 
   await goto('/otp');
   const done = await mfa.complete(evaluate, persona);
-  assert(done.completed === true && done.method === 'totp', 'the challenge is completed with a TOTP code');
+  assert(done.filled === true && done.completed === false && done.method === 'totp', 'a filled code without site confirmation is not reported as complete');
   const typedCode = await evaluate(`document.querySelector('[name="otp"]').value`);
   assert(/^\d{6}$/.test(typedCode), `a six-digit code was typed (${typedCode})`);
   assert(typedCode === mfa.totp('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'), 'and it is the correct code for now');
 
   await goto('/otp-boxes');
   const segmented = await mfa.complete(evaluate, persona);
-  assert(segmented.completed === true, 'segmented inputs are filled too');
+  assert(segmented.filled === true, 'segmented inputs are filled too');
   const joined = await evaluate(`[...document.querySelectorAll('input')].map(i=>i.value).join('')`);
   assert(/^\d{6}$/.test(joined), `each box got one digit (${joined})`);
 

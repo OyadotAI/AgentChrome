@@ -25,9 +25,10 @@ COPY server/src/ ./src/
 # fingerprint patch — silently.
 COPY browser/scripts/ /browser/scripts/
 COPY browser/anonymity/ /browser/anonymity/
+COPY browser/login-state.js /browser/login-state.js
 
-# Static UI from build stage
-COPY --from=ui-build /ui/out/ ./ui-static/
+# Standard Next.js runtime, traced dependencies, and static assets
+COPY --from=ui-build /ui/.next/standalone/ /ui/.next/standalone/
 
 # Browser binaries for download (populated by CI before build)
 COPY server/downloads/ ./downloads/
@@ -36,5 +37,6 @@ EXPOSE 3100
 
 ENV NODE_ENV=production
 ENV PORT=3100
+ENV OYA_UI_MODE=production
 
 CMD ["node", "src/index.js"]

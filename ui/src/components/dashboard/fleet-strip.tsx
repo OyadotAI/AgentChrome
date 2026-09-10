@@ -34,7 +34,7 @@ export default function FleetStrip({ fleet, rate, filter, onFilter }: Props) {
 
   const chip = (active: boolean, extra = '') =>
     `inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12.5px] num transition-colors ${
-      active ? 'border-accent/50 bg-accent/10 text-text' : 'border-border bg-transparent text-text-secondary hover:border-white/20 hover:text-text'} ${extra}`;
+      active ? 'border-accent/50 bg-accent/10 text-text' : 'border-border bg-transparent text-text-secondary hover:border-text/20 hover:text-text'} ${extra}`;
 
   return (
     <div className="border-b border-border bg-bg-card/40">

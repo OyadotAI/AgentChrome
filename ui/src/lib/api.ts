@@ -4,6 +4,12 @@ export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
+/** API deployment, which can differ from the UI origin during development. */
+export function apiOrigin(): string {
+  const url = new URL(API_URL, typeof window === 'undefined' ? 'http://localhost:3100' : window.location.origin);
+  return url.origin;
+}
+
 export function authHeaders(token: string): HeadersInit {
   return {
     'Authorization': `Bearer ${token}`,

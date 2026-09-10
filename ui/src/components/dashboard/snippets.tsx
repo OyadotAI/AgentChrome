@@ -4,12 +4,13 @@ import { useState } from 'react';
 import { Copy, Check, Eye, EyeOff } from 'lucide-react';
 import Dialog from '@/components/ui/dialog';
 import type { BrowserRow } from './types';
+import { apiOrigin } from '@/lib/api';
 
 /** Where this dashboard is served from is where the API is. */
 export function origins() {
   if (typeof window === 'undefined') return { http: '', ws: '' };
-  const { protocol, host } = window.location;
-  return { http: `${protocol}//${host}`, ws: `${protocol === 'https:' ? 'wss' : 'ws'}://${host}` };
+  const http = apiOrigin();
+  return { http, ws: http.replace(/^http/, 'ws') };
 }
 
 interface Snippet { id: string; label: string; file: string; code: (key: string) => string; note?: string }

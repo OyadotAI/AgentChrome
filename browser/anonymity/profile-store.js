@@ -19,6 +19,7 @@ class ProfileStore {
   }
 
   _profilePath(id) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Invalid profile id');
     return path.join(this.dir, `${id}.json`);
   }
 
@@ -37,34 +38,6 @@ class ProfileStore {
     }
   }
 
-  list() {
-    this._ensureDir();
-    const files = fs.readdirSync(this.dir).filter(f => f.endsWith('.json') && f !== 'active.json');
-    return files.map(f => {
-      try {
-        const profile = JSON.parse(fs.readFileSync(path.join(this.dir, f), 'utf8'));
-        return {
-          id: profile.id,
-          createdAt: profile.createdAt,
-          platform: profile.navigator?.platform,
-          timezone: profile.timezone,
-          hasProxy: !!profile.proxy?.host,
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
-  }
-
-  delete(id) {
-    const p = this._profilePath(id);
-    if (fs.existsSync(p)) {
-      fs.unlinkSync(p);
-      return true;
-    }
-    return false;
-  }
-
   getActiveId() {
     const p = path.join(this.dir, 'active.json');
     try {
@@ -79,10 +52,7 @@ class ProfileStore {
     fs.writeFileSync(path.join(this.dir, 'active.json'), JSON.stringify({ activeId: id }));
   }
 
-  clearActive() {
-    const p = path.join(this.dir, 'active.json');
-    if (fs.existsSync(p)) fs.unlinkSync(p);
-  }
+
 }
 
 module.exports = { ProfileStore };

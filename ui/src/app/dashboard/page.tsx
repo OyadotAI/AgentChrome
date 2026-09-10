@@ -28,8 +28,8 @@ type MainTab = 'browsers' | 'personas' | 'control';
 
 const TABS: { key: MainTab; label: string; icon: typeof Monitor }[] = [
   { key: 'browsers', label: 'Browsers', icon: Monitor },
-  { key: 'personas', label: 'Personas', icon: Users },
-  { key: 'control', label: 'Control', icon: Activity },
+  { key: 'personas', label: 'Profiles', icon: Users },
+  { key: 'control', label: 'Usage & activity', icon: Activity },
 ];
 
 const NO_FILTER: FleetFilter = { health: null, provider: null, persona: null, text: '' };
@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [config, setConfig] = useState<KeyConfig | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [selected, setSelected] = useState<string | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
@@ -74,7 +75,8 @@ export default function DashboardPage() {
   // ── Data ──
   const fetchBrowsers = useCallback(async () => {
     if (!apiKey || hidden.current) return;
-    try { setBrowsers(await api<BrowserRow[]>('/browsers', { key: apiKey })); } catch { setBrowsers([]); }
+    try { setBrowsers(await api<BrowserRow[]>('/browsers', { key: apiKey })); setLoadError(null); }
+    catch (err) { setLoadError(errorMessage(err)); }
   }, [apiKey]);
 
   const fetchFleet = useCallback(async () => {
@@ -113,6 +115,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const saved = localStorage.getItem('oya_api_key') || '';
     if (saved) setApiKey(saved);
+    setSelected(new URLSearchParams(window.location.search).get('browser'));
   }, []);
 
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
@@ -123,7 +126,7 @@ export default function DashboardPage() {
     const a = setInterval(fetchBrowsers, 3000);
     const b = setInterval(fetchFleet, 5000);
     const c = setInterval(fetchPersonas, 10000);
-    const d = setInterval(() => setNow(Date.now()), 1000);
+    const d = setInterval(() => { if (!document.hidden) setNow(Date.now()); }, 5000);
     const onVis = () => { hidden.current = document.hidden; if (!document.hidden) { fetchBrowsers(); fetchFleet(); } };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(a); clearInterval(b); clearInterval(c); clearInterval(d); document.removeEventListener('visibilitychange', onVis); };
@@ -131,13 +134,13 @@ export default function DashboardPage() {
 
   // A browser that leaves the fleet leaves the selection too.
   useEffect(() => {
-    if (selected && browsers.length && !browsers.some((b) => b.id === selected)) setSelected(null);
+    if (selected && !loadError && !browsers.some((b) => b.id === selected)) setSelected(null);
     if (checked.size) {
       const alive = new Set(browsers.map((b) => b.id));
       const next = new Set([...checked].filter((id) => alive.has(id)));
       if (next.size !== checked.size) setChecked(next);
     }
-  }, [browsers, selected, checked]);
+  }, [browsers, selected, checked, loadError]);
 
   // ── Actions ──
   const requestStop = useCallback((ids: string[]) => { if (ids.length) setStopIds(ids); }, []);
@@ -216,10 +219,11 @@ export default function DashboardPage() {
       <Header apiKey={apiKey} setApiKey={setApiKey} onOpenSettings={() => setShowSettings(true)} />
 
       {onboarding ? (
-        <Onboarding apiKey={apiKey} config={config} onDone={() => { setShowOnboarding(false); fetchConfig(); }} />
+        <Onboarding apiKey={apiKey} config={config} personas={personas} browsers={browsers} onDone={() => { setShowOnboarding(false); fetchConfig(); }} />
       ) : (
         <>
           {needsDesktop && <DesktopBanner apiKey={apiKey} onDismiss={() => setBannerDismissed(true)} />}
+          {loadError && <div role="alert" className="flex items-center gap-3 border-b border-red/30 bg-red/10 px-6 py-2 text-sm text-red"><span className="flex-1">Could not refresh browsers: {loadError}. Showing the last received state.</span><button className="btn-ghost" onClick={fetchBrowsers}>Retry</button></div>}
 
           {/* Tabs */}
           <div className="flex items-center gap-1 border-b border-border px-4 lg:px-6">
@@ -254,7 +258,7 @@ export default function DashboardPage() {
 
             {tab === 'browsers' && selected && (
               <div className="fixed inset-0 z-40 flex justify-end bg-black/50 lg:static lg:z-auto lg:bg-transparent" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
-                <BrowserPanel apiKey={apiKey} browserId={selected} onClose={() => setSelected(null)} onStop={requestStop}
+                <BrowserPanel key={`${apiKey}:${selected}`} apiKey={apiKey} browserId={selected} onClose={() => setSelected(null)} onStop={requestStop}
                   onOpenPersona={setOpenPersona} onConnect={setConnectId} urlRef={urlRef} now={now} />
               </div>
             )}
@@ -268,9 +272,9 @@ export default function DashboardPage() {
           browsers={browsers} onChanged={fetchPersonas} onShowBrowsers={showBrowsersFor} now={now} />
       )}
 
-      <StartBrowser open={showStart} onClose={() => setShowStart(false)} apiKey={apiKey} personas={personas}
+      {showStart && <StartBrowser open onClose={() => setShowStart(false)} apiKey={apiKey} personas={personas}
         defaultProvider={config?.browser_provider || 'cdp'} providers={providersForStart}
-        onStarted={() => { fetchBrowsers(); fetchFleet(); }} />
+        onStarted={() => { fetchBrowsers(); fetchFleet(); }} />}
 
       <Confirm open={!!stopIds} onClose={() => setStopIds(null)} onConfirm={doStop} danger busy={stopping}
         title={stopTargets.length === 1 ? `Stop ${stopTargets[0].name}?` : `Stop ${stopTargets.length} browsers?`}

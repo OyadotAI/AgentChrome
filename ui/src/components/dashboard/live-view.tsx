@@ -7,7 +7,6 @@ import Kbd from '@/components/ui/kbd';
 type Send = (action: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 interface Props {
-  browserId: string;
   frameSrc: string | null;
   fps: number;
   frameAgeMs: number | null;
@@ -29,7 +28,7 @@ const SPECIAL: Record<string, string> = {
  *
  * Bounded on purpose. The fleet is the page; this is a window into one row.
  */
-export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, onInput }: Props) {
+export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: Props) {
   const img = useRef<HTMLImageElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [captured, setCaptured] = useState(false);
@@ -40,7 +39,16 @@ export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, o
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const down = useRef<{ x: number; y: number; t: number } | null>(null);
   const lastMove = useRef(0);
-  const lastWheel = useRef(0);
+  const inputQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const mounted = useRef(true);
+
+  // A click must finish before typing, and typing before Enter. Parallel HTTP
+  // requests can arrive (and finish) in a different order from user input.
+  const enqueue = useCallback((action: string, params?: Record<string, unknown>) => {
+    const next = inputQueue.current.then(() => mounted.current ? send(action, params) : undefined);
+    inputQueue.current = next.catch(() => undefined);
+    return inputQueue.current;
+  }, [send]);
 
   // Displayed → page pixels. The frame is the page at its natural size.
   const toPage = useCallback((clientX: number, clientY: number) => {
@@ -62,8 +70,8 @@ export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, o
     typed.current = '';
     if (!text) return;
     onInput?.(`type ${text.length} chars`);
-    void send('keyboard_type', { text });
-  }, [send, onInput]);
+    void enqueue('keyboard_type', { text });
+  }, [enqueue, onInput]);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!captured) return;
@@ -88,13 +96,17 @@ export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, o
     if (!key) return;
     flushTyped();
     onInput?.(`press ${key}`);
-    void send('press_key', { key });
-  }, [captured, flushTyped, send, onInput]);
+    void enqueue('press_key', { key });
+  }, [captured, flushTyped, enqueue, onInput]);
 
   const onMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const p = toPage(e.clientX, e.clientY);
     if (!p) return;
+    e.preventDefault();
+    flushTyped();
+    wrap.current?.focus({ preventScroll: true });
+    setCaptured(true);
     down.current = { x: p.x, y: p.y, t: Date.now() };
   };
 
@@ -102,25 +114,23 @@ export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, o
     const start = down.current;
     down.current = null;
     const p = toPage(e.clientX, e.clientY);
-    wrap.current?.focus();
-    setCaptured(true);
     if (!p || !start) return;
     const moved = Math.hypot(p.x - start.x, p.y - start.y);
     if (moved > 6) {
       onInput?.(`drag ${start.x},${start.y} → ${p.x},${p.y}`);
-      void send('drag', { from_x: start.x, from_y: start.y, to_x: p.x, to_y: p.y });
+      void enqueue('drag', { from_x: start.x, from_y: start.y, to_x: p.x, to_y: p.y });
       return;
     }
     setRipple({ x: p.localX, y: p.localY, id: Date.now() });
     onInput?.(`click ${p.x},${p.y}`);
-    void send('click_coordinates', { x: p.x, y: p.y });
+    void enqueue('click_coordinates', { x: p.x, y: p.y });
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
     const p = toPage(e.clientX, e.clientY);
     if (!p) return;
     onInput?.(`double-click ${p.x},${p.y}`);
-    void send('double_click', { x: p.x, y: p.y });
+    void enqueue('double_click', { x: p.x, y: p.y });
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
@@ -132,19 +142,45 @@ export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, o
     if (p) void send('mouse_move', { x: p.x, y: p.y });
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const now = Date.now();
-    if (now - lastWheel.current < 100) return;
-    lastWheel.current = now;
-    const direction = e.deltaY > 0 ? 'down' : 'up';
-    const amount = Math.min(800, Math.max(120, Math.round(Math.abs(e.deltaY) * 3)));
-    onInput?.(`scroll ${direction} ${amount}`);
-    void send('scroll', { direction, amount });
-  };
+  useEffect(() => {
+    const node = wrap.current;
+    if (!node) return;
+    let pending = 0, x = 0, y = 0, running = false, disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const flush = async () => {
+      timer = undefined;
+      if (disposed || running || Math.abs(pending) < 1) return;
+      const delta = Math.trunc(pending);
+      pending -= delta;
+      running = true;
+      const direction = delta > 0 ? 'down' : 'up';
+      const amount = Math.abs(delta);
+      onInput?.(`scroll ${direction} ${amount}`);
+      await enqueue('scroll', { direction, amount, x, y, smooth: false, analyze: false });
+      running = false;
+      if (!disposed && Math.abs(pending) >= 1) timer = setTimeout(flush, 40);
+    };
+    const wheel = (e: WheelEvent) => {
+      if (e.ctrlKey || !e.deltaY) return;
+      const p = toPage(e.clientX, e.clientY);
+      if (!p) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? node.clientHeight : 1;
+      pending += e.deltaY * unit;
+      x = p.x; y = p.y;
+      if (!running && !timer) timer = setTimeout(flush, 40);
+    };
+    // React's delegated wheel listener is passive, so preventDefault there
+    // cannot stop the dashboard from scrolling underneath the remote page.
+    node.addEventListener('wheel', wheel, { passive: false });
+    return () => { disposed = true; clearTimeout(timer); node.removeEventListener('wheel', wheel); };
+  }, [enqueue, onInput, toPage]);
 
-  useEffect(() => () => { if (flushTimer.current) clearTimeout(flushTimer.current); }, []);
-  useEffect(() => { setCaptured(false); typed.current = ''; }, [browserId]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; if (flushTimer.current) clearTimeout(flushTimer.current); };
+  }, []);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-black">
@@ -172,7 +208,6 @@ export default function LiveView({ browserId, frameSrc, fps, frameAgeMs, send, o
         onMouseUp={onMouseUp}
         onDoubleClick={onDoubleClick}
         onMouseMove={onMouseMove}
-        onWheel={onWheel}
         className={`relative select-none outline-none ${fit === 'fit' ? 'max-h-[420px]' : 'max-h-[70vh] overflow-auto'} ${captured ? 'ring-1 ring-inset ring-accent/60' : ''}`}
         style={{ cursor: 'crosshair' }}
         aria-label="Live view — click to control, Esc to release the keyboard"

@@ -83,12 +83,12 @@ export default function PersonaForm({ open, onClose, apiKey, onCreated }: Props)
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title="New persona" size="lg"
+    <Dialog open={open} onClose={onClose} title="New profile" size="lg"
       description="One identity: a fingerprint, a cookie jar and a proxy, bound together and stable for its life."
       footer={
         <>
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={create} disabled={busy}>{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Create persona</button>
+          <button className="btn-primary" onClick={create} disabled={busy}>{busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Create profile</button>
         </>
       }>
       <div className="grid gap-6 md:grid-cols-[1fr_260px]">

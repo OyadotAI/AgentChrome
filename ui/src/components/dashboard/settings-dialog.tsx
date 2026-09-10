@@ -85,7 +85,7 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
                   {LLM_PRESETS.map((p) => (
                     <button key={p.id} onClick={() => set('llm_provider', p.id)}
                       className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
-                        value('llm_provider') === p.id ? 'border-accent bg-accent/10 text-text' : 'border-border text-text-dim hover:bg-white/5'}`}>
+                        value('llm_provider') === p.id ? 'border-accent bg-accent/10 text-text' : 'border-border text-text-dim hover:bg-text/5'}`}>
                       {p.label}
                     </button>
                   ))}
@@ -135,7 +135,6 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
                   onChange={(e) => set('captcha_solver', e.target.value)}>
                   <option value="">None</option>
                   <option value="capsolver">CapSolver</option>
-                  <option value="2captcha">2Captcha</option>
                 </select>
                 {value('captcha_solver') && (
                   <input className={`${field} mt-2`} type="password" autoComplete="off"
@@ -147,12 +146,12 @@ export default function SettingsDialog({ open, onClose, apiKey, onRerunSetup }: 
               {isOyaProvider(value('browser_provider')) && apiKey && (
                 <div className="flex flex-wrap gap-2">
                   <button onClick={openDesktop} disabled={pairing}
-                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text hover:bg-white/5 disabled:opacity-60">
+                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text hover:bg-text/5 disabled:opacity-60">
                     {pairing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Sign in on the desktop browser
                   </button>
                   <a href="/downloads" target="_blank" rel="noreferrer"
-                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-dim hover:bg-white/5 hover:text-text">
+                    className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-dim hover:bg-text/5 hover:text-text">
                     Download <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 </div>

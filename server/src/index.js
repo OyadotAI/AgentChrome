@@ -1,9 +1,10 @@
 /**
  * Oya Browser server — HTTP + WebSocket + MCP API.
- * API routes are served under /api, static UI at /.
+ * API routes are served under /api; Next.js handles the frontend at /.
  */
 
 import 'dotenv/config';
+import { startFrontend } from './frontend.js';
 
 // Prevent crashes from unhandled errors
 process.on('uncaughtException', (err) => {
@@ -27,6 +28,7 @@ import {
 import * as usage from './usage.js';
 import * as personas from './personas.js';
 import * as keyConfig from './key-config.js';
+import { drain as drainLogins } from './cookie-store.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
 import { validateApiKey } from './auth.js';
@@ -36,7 +38,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3100', 10);
 
 const app = express();
-app.use(express.json());
+
 app.use(cors());
 
 // ── Legacy domain redirect: *.oya.ai → *.getoya.ai ──
@@ -70,15 +72,16 @@ app.get('/openapi.json', (req, res) => res.type('application/json').sendFile(joi
 app.get('/json/version', handleJsonVersion);
 app.get('/json/list', handleJsonList);
 
-app.use('/api', apiRouter);
+app.use('/api', express.json(), apiRouter);
 // Prometheus convention is /metrics at the root; the same handler also serves
 // /api/metrics for callers that prefix everything.
-app.use('/', apiRouter);
+app.get(['/health', '/metrics'], apiRouter);
 
 // ── Downloads (binary files) ──
 app.use('/downloads', express.static(join(__dirname, '..', 'downloads')));
 
 // ── MCP endpoints (root level — clients connect directly) ──
+app.use('/mcp', express.json());
 app.post('/mcp/pool', handlePoolMcpRequest);
 app.get('/mcp/pool', handlePoolMcpRequest);
 app.delete('/mcp/pool', handlePoolMcpRequest);
@@ -86,29 +89,10 @@ app.post('/mcp/:browserId', handleMcpRequest);
 app.get('/mcp/:browserId', handleMcpRequest);
 app.delete('/mcp/:browserId', handleMcpRequest);
 
-// ── Static UI (Next.js export) ──
-const uiDir = join(__dirname, '..', 'ui-static');
-app.use(express.static(uiDir, { extensions: ['html'] }));
-// SPA fallback — serve index.html for any unmatched route
-app.get('*', (req, res, next) => {
-  // Don't intercept API, MCP, WS, or file requests
-  if (req.path.startsWith('/api') || req.path.startsWith('/mcp') ||
-      req.path.startsWith('/ws') || req.path.startsWith('/downloads') ||
-      req.path.startsWith('/.well-known') || req.path.includes('.')) {
-    return next();
-  }
-  res.sendFile(join(uiDir, '404.html'), (err) => {
-    if (!err) return;
-    res.sendFile(join(uiDir, 'index.html'), (fallbackErr) => {
-      // Both are missing — usually the UI has not been built into ui-static.
-      // Swallowing this left the request hanging forever, because the server's
-      // own timeouts are disabled for long-running commands.
-      if (!fallbackErr || res.headersSent) return;
-      res.status(404).type('text/plain').send(
-        'UI not built. Run `npm run build` in ui/ and copy ui/out to server/ui-static.\n');
-    });
-  });
-});
+// ── Next.js runtime (optional for API-only hosts) ──
+const frontend = startFrontend();
+if (frontend) app.use((req, res) => frontend.handle(req, res));
+else app.use((req, res) => res.status(404).json({ error: 'Not found. Run npm run dev from the repository root to start the console.' }));
 
 const server = createServer(app);
 
@@ -134,6 +118,7 @@ server.on('upgrade', (req, socket, head) => {
       try { socket.destroy(); } catch {}
     });
   }
+  if (frontend?.upgrade(req, socket, head)) return;
   console.warn(`[ws] ✗ upgrade to unknown path ${pathname} — use /ws (Oya client) or /connect (CDP)`);
   socket.destroy();
 });
@@ -168,11 +153,12 @@ keyConfig.restore().catch(() => {});
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, async () => {
     registry.draining = true;
+    frontend?.stop();
     // End gateway sessions cleanly so profiles are captured and recordings
     // get their manifest, rather than being cut off mid-write.
     await Promise.allSettled([...gatewaySessions.values()].map((s) => s.destroy('server shutting down')));
-    await Promise.allSettled([drainAudit(), usage.drain(), personas.drain(), keyConfig.drain()]);
-    process.exit(0);
+    await Promise.allSettled([drainAudit(), drainLogins(), usage.drain(), personas.drain(), keyConfig.drain()]);
+    process.exit(process.exitCode || 0);
   });
 }
 

@@ -1,230 +1,102 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Loader2, ExternalLink, ArrowRight } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { ArrowRight, Check, Copy, Download, Loader2, Monitor, Terminal } from 'lucide-react';
+import { saveConfig, desktopSignInUrl, type KeyConfig } from './config';
+import { apiOrigin } from '@/lib/api';
+import { errorMessage } from '@/lib/api-client';
 import { useToast } from './toast';
-import { saveConfig, desktopSignInUrl, LLM_PRESETS, isOyaProvider, type KeyConfig } from './config';
+import type { Persona, BrowserRow } from './types';
 
-interface OnboardingProps {
-  apiKey: string;
-  config: KeyConfig;
-  onDone: () => void;
-}
+interface Props { apiKey: string; config: KeyConfig; personas: Persona[]; browsers: BrowserRow[]; onDone: () => void }
 
-const STEPS = ['Model', 'Browsers', 'Challenges', 'Sign in'] as const;
-
-/**
- * Four questions, once. Everything here is stored against the API key that is
- * open in this dashboard — it is the identity for browsers, personas, cookies
- * and usage, so it is the identity for configuration too.
- */
-export default function Onboarding({ apiKey, config, onDone }: OnboardingProps) {
+export default function Onboarding({ apiKey, config, personas, browsers, onDone }: Props) {
   const toast = useToast();
-  const [step, setStep] = useState(0);
-  const [saving, setSaving] = useState(false);
-
-  const [llm, setLlm] = useState(config.llm_provider || 'anthropic');
-  const [llmKey, setLlmKey] = useState('');
-  const [model, setModel] = useState(config.chat_model || '');
+  const [profileId, setProfileId] = useState('default');
   const [provider, setProvider] = useState(config.browser_provider || 'oya-cloud');
-  const [providerKeys, setProviderKeys] = useState<Record<string, string>>({});
-  const [solver, setSolver] = useState(config.captcha_solver || '');
-  const [solverKey, setSolverKey] = useState('');
-  const [pairing, setPairing] = useState(false);
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const profile = personas.find((p) => profileId === 'default' ? p.isDefault : p.id === profileId);
+  const desktop = browsers.find((b) => b.provider === 'oya-desktop' && b.persona === profile?.id);
+  const sites = profile?.login?.sites || [];
+  const needs = config.providers.find((p) => p.id === provider)?.needs || [];
+  const code = (key: string) => `import { Oya } from "@oya/browser";\nconst oya = new Oya({ apiKey: ${JSON.stringify(key)}, baseUrl: ${JSON.stringify(apiOrigin())} });\nconst browser = await oya.browser.start({ profile: ${JSON.stringify(profileId)}, captcha: "auto" });\nawait browser.goto("https://example.com");\nconst mfa = await browser.completeMfa();\nconsole.log(await browser.analyze());`;
 
-  // The code is minted on click and lives for minutes, so it is not sitting in
-  // the DOM of a tab left open all afternoon.
-  const openDesktop = async () => {
-    setPairing(true);
-    try { window.location.href = await desktopSignInUrl(apiKey); }
-    catch (err) { toast(err instanceof Error ? err.message : 'Could not start sign-in', 'error'); }
-    finally { setPairing(false); }
+  const pair = async () => {
+    setBusy('pair');
+    try { window.location.href = await desktopSignInUrl(apiKey, profileId); }
+    catch (err) { toast(errorMessage(err), 'error'); }
+    finally { setBusy(null); }
   };
-
-  const needs = config.providers.find((p) => p.id === provider)?.needs ?? [];
-
-  const persist = async (values: Record<string, string>) => {
-    setSaving(true);
-    try {
-      await saveConfig(apiKey, values);
-      return true;
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not save', 'error');
-      return false;
-    } finally {
-      setSaving(false);
-    }
+  const finish = async () => {
+    setBusy('save');
+    try { await saveConfig(apiKey, { ...credentials, browser_provider: provider, onboarded: 'true' }); onDone(); }
+    catch (err) { toast(errorMessage(err), 'error'); }
+    finally { setBusy(null); }
   };
-
-  const next = async () => {
-    if (step === 0) {
-      const values: Record<string, string> = { llm_provider: llm };
-      if (llmKey) values.openai_api_key = llmKey;
-      if (model) values.chat_model = model;
-      if (!(await persist(values))) return;
-    }
-    if (step === 1) {
-      const values: Record<string, string> = { browser_provider: provider };
-      for (const field of needs) if (providerKeys[field]) values[field] = providerKeys[field];
-      if (!(await persist(values))) return;
-    }
-    if (step === 2) {
-      const values: Record<string, string> = { captcha_solver: solver };
-      if (solverKey) values.captcha_api_key = solverKey;
-      if (!(await persist(values))) return;
-    }
-    // The desktop sign-in is the last step, and it only exists for browsers on
-    // our own infrastructure — there is nothing to hand cookies to otherwise.
-    const finishing = step === STEPS.length - 1 || (step === 2 && !isOyaProvider(provider));
-    if (finishing) {
-      if (!(await persist({ onboarded: 'true' }))) return;
-      onDone();
-      return;
-    }
-    setStep(step + 1);
-  };
-
-  const field = 'w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:border-accent focus:outline-none';
-  const card = (active: boolean) =>
-    `rounded-lg border px-4 py-3 text-left transition-colors ${
-      active ? 'border-accent bg-accent/10' : 'border-border bg-bg-card hover:bg-white/5'}`;
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <div className="mb-8 flex items-center gap-2">
-          {STEPS.filter((_, i) => i < STEPS.length - 1 || isOyaProvider(provider)).map((label, i) => (
-            <div key={label} className="flex items-center gap-2">
-              <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
-                i < step ? 'bg-accent text-black' : i === step ? 'border border-accent text-accent' : 'border border-border text-text-dim'}`}>
-                {i < step ? <Check className="h-3 w-3" /> : i + 1}
+      <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-12">
+        <div className="mb-9 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-accent">Your browser control plane</p>
+            <h1 className="font-display text-3xl tracking-tight text-text sm:text-4xl">Sign in once. Build from there.</h1>
+            <p className="mt-3 max-w-xl text-sm text-text-secondary">One desktop browser saves your accounts to a profile. Start browsers with those sessions from your code.</p>
+          </div>
+          <button className="btn-ghost" onClick={finish} disabled={!!busy}>Go to console <ArrowRight className="h-4 w-4" /></button>
+        </div>
+
+        <div className="grid gap-8 lg:grid-cols-[1fr_1.12fr] lg:gap-12">
+          <div className="space-y-7">
+            <section>
+              <div className="mb-3 flex items-center gap-3"><span className="font-mono text-xs text-accent">01</span><h2 className="text-base font-semibold">Connect your desktop</h2></div>
+              <label htmlFor="setup-profile" className="label">Save accounts to</label>
+              <select id="setup-profile" className="field mb-3" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+                <option value="default">Default profile</option>
+                {personas.filter((p) => !p.isDefault).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-primary" onClick={pair} disabled={!!busy}>{busy === 'pair' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Monitor className="h-4 w-4" />}{desktop ? 'Open desktop' : 'Connect desktop'}</button>
+                <a className="btn-ghost" href="/downloads" target="_blank" rel="noreferrer"><Download className="h-4 w-4" />Download</a>
               </div>
-              <span className={`text-xs ${i === step ? 'text-text' : 'text-text-dim'}`}>{label}</span>
-              {(i < STEPS.length - 2 || isOyaProvider(provider)) && i < STEPS.length - 1 && <div className="h-px w-6 bg-border" />}
+              <p className="mt-3 text-xs text-text-muted" role="status">{desktop ? 'Desktop connected. You can sign in now.' : 'Already installed? Connect opens your existing Oya window.'}</p>
+            </section>
+
+            <section className="border-t border-border pt-6">
+              <div className="mb-3 flex items-center gap-3"><span className="font-mono text-xs text-accent">02</span><h2 className="text-base font-semibold">Sign in to your accounts</h2>{sites.length > 0 && <Check className="ml-auto h-4 w-4 text-accent" />}</div>
+              <p className="text-sm text-text-secondary">Log in normally in Oya, including any CAPTCHA or MFA. Click <strong className="font-medium text-text">Save profile</strong> in the desktop toolbar when you’re done.</p>
+              <div className="mt-3 rounded-md border border-border bg-bg-sunken px-4 py-3 text-sm" role="status">
+                {sites.length ? <><span className="text-accent">Saved state for {sites.length} {sites.length === 1 ? 'site' : 'sites'}</span><p className="mt-1 break-words text-xs text-text-secondary">{sites.join(' · ')}</p></> : <span className="text-text-muted">Waiting for saved account sessions…</span>}
+              </div>
+              <p className="mt-2 text-xs text-text-muted">Cookies and local storage sync. A site may still ask you to verify a new session.</p>
+            </section>
+
+            <section className="border-t border-border pt-6">
+              <div className="mb-3 flex items-center gap-3"><span className="font-mono text-xs text-accent">03</span><h2 className="text-base font-semibold">Choose where browsers run</h2></div>
+              <label htmlFor="setup-provider" className="sr-only">Browser provider</label>
+              <select id="setup-provider" className="field" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                {config.providers.map((p) => <option key={p.id} value={p.id}>{p.label}{p.configured ? ' · ready' : ' · setup needed'}</option>)}
+              </select>
+              {needs.map((name) => <div key={name} className="mt-3"><label className="label" htmlFor={`setup-${name}`}>{name.replace(/_/g, ' ')}</label><input id={`setup-${name}`} className="field" type="password" autoComplete="off" value={credentials[name] || ''} placeholder={config.providers.find((p) => p.id === provider)?.configured ? 'Already saved — leave blank to keep' : 'Enter credential'} onChange={(e) => setCredentials({ ...credentials, [name]: e.target.value })} /></div>)}
+              <p className="mt-2 text-xs text-text-muted">CAPTCHA solver and MFA factors are optional settings in the console.</p>
+              <button className="btn-primary mt-4" onClick={finish} disabled={!!busy}>{busy === 'save' && <Loader2 className="h-4 w-4 animate-spin" />}Save and open console <ArrowRight className="h-4 w-4" /></button>
+            </section>
+          </div>
+
+          <aside className="min-w-0 self-start overflow-hidden rounded-lg border border-border bg-bg-sunken lg:sticky lg:top-6">
+            <div className="flex items-center gap-2 border-b border-border px-5 py-4 text-sm"><Terminal className="h-4 w-4 text-accent" /><span className="font-medium">Your first browser, in six lines</span></div>
+            <div className="border-b border-border px-5 py-3 font-mono text-xs text-text-muted">npm install @oya/browser</div>
+            <pre className="overflow-x-auto p-5 font-mono text-xs leading-7 text-text-secondary">{code('<your-api-key>')}</pre>
+            <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-4">
+              <button className="btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(code(apiKey)); setCopied(true); } catch { toast('Could not copy. Select the code and copy it manually.', 'error'); } }}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? 'Copied with your key' : 'Copy with your key'}</button>
+              <a className="ml-auto text-xs text-text-muted hover:text-text" href="/docs/">Read the API guide ↗</a>
             </div>
-          ))}
+            <p className="border-t border-border px-5 py-4 text-xs leading-relaxed text-text-muted">A saved profile is reused automatically. Check the MFA result for a human handoff, and call <code>browser.stop()</code> when the job is done.</p>
+          </aside>
         </div>
-
-        <motion.div key={step} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}>
-          {step === 0 && (
-            <>
-              <h2 className="text-lg font-semibold text-text">Which model drives your agents?</h2>
-              <p className="mt-1 text-sm text-text-dim">
-                Stored against this API key and used for natural-language control.
-                {config.inherited && ' This deployment already has a key configured; yours overrides it.'}
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {LLM_PRESETS.map((p) => (
-                  <button key={p.id} className={card(llm === p.id)}
-                    onClick={() => { setLlm(p.id); if (!model) setModel(p.model); }}>
-                    <div className="text-sm font-medium text-text">{p.label}</div>
-                    <div className="mt-0.5 font-mono text-xs text-text-dim">{p.model}</div>
-                  </button>
-                ))}
-              </div>
-              <input className={`${field} mt-4`} type="password" autoComplete="off"
-                placeholder={config.has_openai_key ? config.openai_api_key || 'Configured' : LLM_PRESETS.find((p) => p.id === llm)?.hint}
-                value={llmKey} onChange={(e) => setLlmKey(e.target.value)} />
-              <input className={`${field} mt-3`} placeholder="Default model"
-                value={model} onChange={(e) => setModel(e.target.value)} />
-            </>
-          )}
-
-          {step === 1 && (
-            <>
-              <h2 className="text-lg font-semibold text-text">Where should your browsers run?</h2>
-              <p className="mt-1 text-sm text-text-dim">
-                One setting. Your code calls <code className="font-mono text-text-muted">oya.browser.start()</code> either way.
-              </p>
-              <div className="mt-4 grid gap-2">
-                {config.providers.map((p) => (
-                  <button key={p.id} className={card(provider === p.id)} onClick={() => setProvider(p.id)}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-text">{p.label}</span>
-                      {p.needs.length > 0 && (
-                        <span className={`text-xs ${p.configured ? 'text-accent' : 'text-text-dim'}`}>
-                          {p.configured ? 'configured' : 'needs an API key'}
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-              {needs.map((f) => (
-                <input key={f} className={`${field} mt-3`} type="password" autoComplete="off"
-                  placeholder={f.replace(/_/g, ' ')}
-                  value={providerKeys[f] || ''}
-                  onChange={(e) => setProviderKeys({ ...providerKeys, [f]: e.target.value })} />
-              ))}
-            </>
-          )}
-
-          {step === 2 && (
-            <>
-              <h2 className="text-lg font-semibold text-text">Solve CAPTCHAs automatically?</h2>
-              <p className="mt-1 text-sm text-text-dim">
-                Providers that solve natively still will. This adds a solver for the rest.
-                Sessions that used one are recorded in the audit trail.
-              </p>
-              <div className="mt-4 grid gap-2">
-                {[
-                  { id: '', label: 'No solver' },
-                  { id: 'capsolver', label: 'CapSolver' },
-                  { id: '2captcha', label: '2Captcha' },
-                ].map((o) => (
-                  <button key={o.id || 'none'} className={card(solver === o.id)} onClick={() => setSolver(o.id)}>
-                    <span className="text-sm font-medium text-text">{o.label}</span>
-                  </button>
-                ))}
-              </div>
-              {solver && (
-                <input className={`${field} mt-3`} type="password" autoComplete="off" placeholder="Solver API key"
-                  value={solverKey} onChange={(e) => setSolverKey(e.target.value)} />
-              )}
-            </>
-          )}
-
-          {step === 3 && (
-            <>
-              <h2 className="text-lg font-semibold text-text">Sign in once, on your own machine</h2>
-              <p className="mt-1 text-sm text-text-dim">
-                Open the desktop browser and log into the sites your agents need. Those cookies
-                move to your remote browsers, which run the same fingerprint as this identity —
-                so the sessions look like one device returning, not a fleet sharing an account.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={openDesktop} disabled={pairing}
-                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
-                  {pairing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                  Open the desktop browser
-                </button>
-                <a href="/downloads" target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg-card px-4 py-2 text-sm text-text hover:bg-white/5">
-                  Download it first <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </div>
-              <p className="mt-3 text-xs text-text-dim">
-                The desktop browser will ask you to confirm before connecting. Optional — Settings has
-                the same button.
-              </p>
-            </>
-          )}
-        </motion.div>
-
-        <div className="mt-8 flex items-center gap-3">
-          <button onClick={next} disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-60">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            {step === STEPS.length - 1 || (step === 2 && !isOyaProvider(provider)) ? 'Finish' : 'Continue'}
-          </button>
-          {step > 0 && (
-            <button onClick={() => setStep(step - 1)} className="text-sm text-text-dim hover:text-text">Back</button>
-          )}
-          {/* A skipped setup is still a finished one — otherwise the wizard nags on every visit. */}
-          <button onClick={async () => { await persist({ onboarded: 'true' }); onDone(); }} className="ml-auto text-sm text-text-dim hover:text-text">Skip setup</button>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }

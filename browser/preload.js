@@ -31,13 +31,8 @@ contextBridge.exposeInMainWorld('oyaBrowser', {
   getPageSource: () => ipcRenderer.invoke('get-page-source'),
   devAction: (action, params) => ipcRenderer.invoke('dev-action', action, params),
   sendChat: (messages) => ipcRenderer.invoke('send-chat', messages),
-  // Profiles
-  listProfiles: () => ipcRenderer.invoke('list-profiles'),
-  createProfile: (options) => ipcRenderer.invoke('create-profile', options),
-  activateProfile: (id) => ipcRenderer.invoke('activate-profile', id),
-  deactivateProfile: () => ipcRenderer.invoke('deactivate-profile'),
-  deleteProfile: (id) => ipcRenderer.invoke('delete-profile', id),
-  getActiveProfile: () => ipcRenderer.invoke('get-active-profile'),
   getFingerprint: () => ipcRenderer.invoke('get-fingerprint'),
+  saveProfile: () => ipcRenderer.invoke('save-profile'),
+  onProfileSaved: (cb) => ipcRenderer.on('profile-saved', (e, state) => cb(state)),
   onFingerprintChanged: (cb) => ipcRenderer.on('fingerprint-changed', (e, fp) => cb(fp)),
 });

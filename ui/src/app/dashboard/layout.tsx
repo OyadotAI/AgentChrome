@@ -23,10 +23,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     const key = localStorage.getItem('oya_api_key') || '';
-    if (!key) { setKeyOk(false); return; }
     let cancelled = false;
-    fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) })
-      .then((res) => { if (!cancelled) setKeyOk(res.ok); })
+    const check = key ? fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) }).then((res) => res.ok) : Promise.resolve(false);
+    check.then((ok) => { if (!cancelled) setKeyOk(ok); })
       .catch(() => { if (!cancelled) setKeyOk(false); });
     return () => { cancelled = true; };
   }, []);

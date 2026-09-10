@@ -195,7 +195,7 @@ export default function FleetTable({
                     onClick={() => onSelect(selected ? null : r.id)}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ at: { x: e.clientX, y: e.clientY }, row: r }); }}
                     className={`row-lazy group cursor-pointer border-b border-border/60 transition-colors ${
-                      selected ? 'bg-accent/[0.08]' : 'hover:bg-white/[0.035]'}`}
+                      selected ? 'bg-accent/[0.08]' : 'hover:bg-text/[0.035]'}`}
                     aria-selected={selected}
                   >
                     <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>

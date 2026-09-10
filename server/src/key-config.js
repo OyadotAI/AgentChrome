@@ -23,6 +23,7 @@ import { db } from './db.js';
 import { fingerprint as ownerOf } from './audit.js';
 import { sealText, openText } from './secrets.js';
 import { runtimeConfig, validateBaseUrl } from './runtime-config.js';
+import { isConfigured as cloudConfigured } from './sandbox.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STORE = process.env.OYA_DATA_DIR
@@ -47,6 +48,7 @@ export const FIELDS = {
   browserbase_project_id: { envVar: 'BROWSERBASE_PROJECT_ID' },
   steel_api_key:          { secret: true, envVar: 'STEEL_API_KEY' },
   browseruse_api_key:     { secret: true, envVar: 'BROWSERUSE_API_KEY' },
+  cdp_ws_url:             { secret: true, envVar: 'OYA_CDP_WS_URL' },
 
   captcha_solver:         { envVar: 'OYA_CAPTCHA_PROVIDER' },        // 'capsolver' | '2captcha' | ''
   captcha_api_key:        { secret: true, envVar: 'OYA_CAPTCHA_API_KEY' },
@@ -61,12 +63,11 @@ export const FIELDS = {
 /** What onboarding offers, in the order it offers it. */
 export const PROVIDER_CHOICES = [
   { id: 'oya-cloud',      label: 'Oya Browsers on Cloud',  needs: [] },
-  { id: 'oya-selfhosted', label: 'Oya Browsers self-hosted', needs: [] },
   { id: 'browseruse',     label: 'Browser Use Cloud',      needs: ['browseruse_api_key'] },
   { id: 'browserbase',    label: 'Browserbase',            needs: ['browserbase_api_key'] },
   { id: 'steel',          label: 'Steel',                  needs: ['steel_api_key'] },
   { id: 'anchor',         label: 'Anchor',                 needs: ['anchor_api_key'] },
-  { id: 'cdp',            label: 'Bring your own CDP URL', needs: [] },
+  { id: 'cdp',            label: 'Your own Chrome (CDP)', needs: ['cdp_ws_url'] },
 ];
 
 /** Sensible defaults per LLM provider, so onboarding is key + model and nothing else. */
@@ -118,7 +119,7 @@ export function get(apiKey) {
     chat_model: own.chat_model || llm.model,
     providers: PROVIDER_CHOICES.map((p) => ({
       ...p,
-      configured: p.needs.every((f) => !!own[f]),
+      configured: p.id === 'oya-cloud' ? cloudConfigured() : p.needs.every((f) => !!own[f] || !!process.env[FIELDS[f]?.envVar]),
     })),
   };
 }
