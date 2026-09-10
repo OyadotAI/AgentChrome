@@ -8,7 +8,7 @@ import {
   authMiddleware, userAuthMiddleware,
   registerApiKey, listApiKeys, deleteApiKey,
   provisionKeys,
-  signup, login, getProfile,
+  signup, login, getProfile, updateProfile,
 } from './auth.js';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
@@ -169,6 +169,17 @@ router.get('/auth/me', userAuthMiddleware, async (req, res) => {
     res.json(profile);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Rename yourself. Email is the login and role is authority; neither moves here. */
+router.patch('/auth/me', userAuthMiddleware, async (req, res) => {
+  try {
+    const profile = await updateProfile(req.user.id, { display_name: req.body?.display_name });
+    audit({ action: 'account.update', actorKey: null, targetType: 'user', targetId: req.user.id, req });
+    res.json(profile);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

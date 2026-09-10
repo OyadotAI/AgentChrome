@@ -8,6 +8,7 @@ import {
 import { OyaWordmark } from '@/components/oya-logo';
 import ThemeToggle from '@/components/theme-toggle';
 import { useAuth } from '@/components/auth-provider';
+import ProfileDialog from '@/components/dashboard/profile-dialog';
 import { apiUrl, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
 import { useToast } from './toast';
 
@@ -32,6 +33,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
   const [keys, setKeys] = useState<ApiKeyEntry[]>([]);
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [creatingKey, setCreatingKey] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const keyDropdownRef = useRef<HTMLDivElement>(null);
@@ -351,6 +353,13 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
             </div>
             <div className="p-1">
               <button
+                onClick={() => { setShowProfile(true); setShowUserMenu(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text hover:bg-text/5 rounded-md transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Profile settings
+              </button>
+              <button
                 onClick={() => { logout(); setShowUserMenu(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
               >
@@ -361,6 +370,8 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
           </div>
         )}
       </div>
+
+      <ProfileDialog open={showProfile} onClose={() => setShowProfile(false)} />
     </header>
   );
 }

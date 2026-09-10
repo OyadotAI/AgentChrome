@@ -181,6 +181,27 @@ export async function getProfile(userId) {
   return data;
 }
 
+/**
+ * Change what a person is allowed to change about themselves: their name.
+ *
+ * Email is the login and role is an authority grant, so neither is editable
+ * here — a profile form that could raise its own role would be a privilege
+ * escalation with a text input in front of it.
+ */
+export async function updateProfile(userId, { display_name }) {
+  if (!supabase) throw Object.assign(new Error('Accounts need Supabase'), { status: 409 });
+  const name = String(display_name ?? '').trim().slice(0, 100);
+  if (!name) throw Object.assign(new Error('display_name cannot be empty'), { status: 400 });
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ display_name: name })
+    .eq('id', userId)
+    .select('id, email, display_name, role, created_at')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 // ── Admin / fleet helpers ──
 
 /**

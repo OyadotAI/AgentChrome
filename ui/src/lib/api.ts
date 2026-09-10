@@ -64,6 +64,19 @@ export async function refreshToken(refreshToken: string) {
   return res.json();
 }
 
+export async function updateProfile(token: string, displayName: string) {
+  const res = await fetch(apiUrl('/auth/me'), {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify({ display_name: displayName }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'Could not save your profile');
+  }
+  return res.json();
+}
+
 export async function getProfile(token: string) {
   const res = await fetch(apiUrl('/auth/me'), {
     headers: authHeaders(token),

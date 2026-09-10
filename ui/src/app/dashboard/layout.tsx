@@ -21,14 +21,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const [keyOk, setKeyOk] = useState<boolean | null>(null);
 
+  // Re-checked whenever the session changes, not just on mount. Logging out
+  // clears the stored key, but a keyOk left over from mount kept `allowed`
+  // true, so the redirect below never fired and log out appeared to do
+  // nothing — the session was gone, the page just stayed.
   useEffect(() => {
     const key = localStorage.getItem('oya_api_key') || '';
+    if (!key) { setKeyOk(false); return; }
     let cancelled = false;
-    const check = key ? fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) }).then((res) => res.ok) : Promise.resolve(false);
-    check.then((ok) => { if (!cancelled) setKeyOk(ok); })
+    fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) })
+      .then((res) => { if (!cancelled) setKeyOk(res.ok); })
       .catch(() => { if (!cancelled) setKeyOk(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [user]);
 
   const checking = loading || keyOk === null;
   const allowed = !!user || keyOk === true;

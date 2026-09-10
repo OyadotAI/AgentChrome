@@ -8,6 +8,7 @@ interface User {
   email: string;
   display_name?: string;
   role?: string;
+  created_at?: string;
 }
 
 interface AuthContextType {
@@ -17,6 +18,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => void;
+  /** Adopt a profile the server just returned, so the UI is not stale until reload. */
+  applyProfile: (profile: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -116,8 +119,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }, [clearSession]);
 
+  const applyProfile = useCallback((profile: User) => setUser(profile), []);
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, signup, logout, applyProfile }}>
       {children}
     </AuthContext.Provider>
   );
