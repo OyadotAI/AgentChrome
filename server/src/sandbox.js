@@ -108,7 +108,8 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
   const sandbox = await daytona.create({
     name: PREFIX + browserId,
     snapshot: config.snapshot,
-    labels: { 'oya-browser': 'true', 'oya-browser-id': browserId, 'oya-owner': ownerTag(apiKey) },
+    labels: { 'oya-browser': 'true', 'oya-browser-id': browserId, 'oya-owner': ownerTag(apiKey),
+      'oya-name': name || `Cloud browser ${browserId.slice(0, 8)}`, ...(persona ? { 'oya-persona': persona } : {}) },
     envVars: {
       OYA_SERVER_URL: config.wsUrl,
       OYA_API_KEY: apiKey,
@@ -127,7 +128,7 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
   // Hard cap behind the idle stop, so a wedged sandbox still stops billing.
   await sandbox.setTtl(config.ttlMinutes + 10);
 
-  // The snapshot's entrypoint just sleeps; this starts the browser. Check it
+  // Legacy snapshots sleep; current images run the browser as their entrypoint. Check it
   // exists first: fired async, a snapshot that is not the Oya browser image
   // fails invisibly and the caller waits out the full enrol window for a
   // browser that was never going to arrive.
@@ -139,12 +140,17 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
       + 'Build one from browser/Dockerfile, push it, and point DAYTONA_SNAPSHOT at that.'), { status: 409 });
   }
 
-  await sandbox.process.createSession(SESSION);
-  await sandbox.process.executeSessionCommand(SESSION, {
-    command: 'cd /app && /docker-entrypoint.sh',
-    runAsync: true,
-  });
+  const entrypoint = await sandbox.process.getEntrypointSession();
+  const alreadyRunning = entrypoint.commands?.some(command =>
+    command.command?.includes('/docker-entrypoint.sh') && command.exitCode == null);
+  if (!alreadyRunning) {
+    await sandbox.process.createSession(SESSION);
+    await sandbox.process.executeSessionCommand(SESSION, {
+      command: 'cd /app && /docker-entrypoint.sh', runAsync: true,
+    });
+  }
 
+  inventory.delete(ownerTag(apiKey));
   provisioned.add(browserId);
   return { browserId, sandboxId: sandbox.id, sandboxName: PREFIX + browserId };
 }
@@ -169,9 +175,56 @@ export async function removeSandbox(browserId, apiKey) {
       return false;
     }
     await sandbox.delete(60, true);
+    inventory.delete(ownerTag(apiKey));
+    provisioned.delete(browserId);
     return true;
   } catch (err) {
     if (isNotFound(err)) return false;
     throw err;
   }
+}
+
+
+// Sandbox lifetime is independent of its WebSocket. Keep the inventory outside
+// the command registry so disconnected clients remain visible but never routable.
+const inventory = new Map();
+export async function listSandboxBrowsers(apiKey, connected = []) {
+  if (!isConfigured() || !apiKey) return connected;
+  const owner = ownerTag(apiKey);
+  let entry = inventory.get(owner);
+  if (!entry) {
+    if (inventory.size >= 500) inventory.delete(inventory.keys().next().value);
+    entry = { rows: [], at: 0, pending: null };
+    inventory.set(owner, entry);
+  }
+  if (Date.now() - entry.at > 5000 && !entry.pending) {
+    entry.pending = (async () => {
+      const daytona = await client();
+      const rows = [];
+      for await (const sandbox of daytona.list({ labels: { 'oya-browser': 'true', 'oya-owner': owner } })) {
+        // Also verify locally: never trust an upstream filter for tenant isolation.
+        const labels = sandbox.labels || {};
+        const id = labels['oya-browser-id'];
+        if (labels['oya-owner'] !== owner || labels['oya-browser'] !== 'true' || !id || ['deleted', 'destroyed'].includes(sandbox.state)) continue;
+        rows.push({ id, name: labels['oya-name'] || `Cloud browser ${id.slice(0, 8)}`,
+          clientType: 'oya', provider: 'oya-cloud', persona: labels['oya-persona'] || null,
+          personaName: null, health: 'dead', currentUrl: '', connectedAt: null, lastSeen: null,
+          commands: 0, errors: 0, pending: 0, lastCommandAt: null,
+          lastError: `Browser disconnected · sandbox ${sandbox.state || 'available'}`,
+          streaming: false, sandboxState: sandbox.state || 'unknown',
+        });
+      }
+      entry.rows = rows;
+    })().catch(err => {
+      console.warn(`[sandbox] Inventory refresh failed: ${err.message}`);
+    }).finally(() => { entry.at = Date.now(); entry.pending = null; });
+  }
+  if (entry.pending) {
+    let timer;
+    await Promise.race([entry.pending, new Promise(resolve => { timer = setTimeout(resolve, 3000); })]);
+    clearTimeout(timer);
+  }
+  const rows = new Map(entry.rows.map(row => [row.id, row]));
+  for (const row of connected) rows.set(row.id, rows.has(row.id) ? { ...row, provider: 'oya-cloud' } : row);
+  return [...rows.values()];
 }

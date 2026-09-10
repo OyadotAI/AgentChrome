@@ -31,11 +31,18 @@ import * as keyConfig from './key-config.js';
 import { drain as drainLogins } from './cookie-store.js';
 import { handleConnection } from './ws-handler.js';
 import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
-import { validateApiKey } from './auth.js';
+import { validateApiKey, authReady } from './auth.js';
 import { registry } from './connection-registry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3100', 10);
+
+// Browsers treat an invalid key as fatal. Never accept a reconnect while the
+// persisted key cache or the profile bound to it is still being restored.
+const [authLoaded] = await Promise.all([
+  authReady, usage.restore(), personas.restore(), keyConfig.restore(),
+]);
+if (!authLoaded) throw new Error('API keys could not be loaded; refusing to accept browser connections');
 
 const app = express();
 
@@ -144,11 +151,6 @@ registry.on('browser:disconnected', ({ id, name }) => {
   console.log(`[oya] Browser disconnected: ${name} (${id})`);
 });
 
-// Continue this hour's usage buckets across a restart, so a quota cannot be
-// reset by bouncing the process.
-usage.restore().catch(() => {});
-personas.restore().catch(() => {});
-keyConfig.restore().catch(() => {});
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, async () => {

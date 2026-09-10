@@ -2,541 +2,120 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@/components/auth-provider';
-import {
-  ArrowRight,
-  Globe,
-  Terminal,
-  Monitor,
-  MousePointer,
-  Type,
-  Keyboard,
-  Camera,
-  ArrowDown,
-  Layout,
-  Layers,
-  X,
-  Clock,
-  Menu,
-  Copy,
-  Check,
-  Shield,
-  Fingerprint,
-  UserPlus,
-  RefreshCw,
-  Lock,
-} from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, Copy, Fingerprint, Globe2, Layers, Monitor, Terminal, Menu, X, ChevronRight, Command, Play, ShieldCheck } from 'lucide-react';
+import { OyaWordmark, OyaLogo } from '@/components/oya-logo';
+import ThemeToggle from '@/components/theme-toggle';
+import SyntaxCode from '@/components/ui/syntax-code';
 
-/* ─── Copy button ─── */
-function CopyBtn({ text }: { text: string; variant?: 'default' | 'dark' }) {
-  const [copied, setCopied] = useState(false);
-  const base = 'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200';
-  const colors =
-    'text-text-muted hover:text-text border-border hover:border-accent/35 bg-bg-card hover:bg-bg-elevated';
-
-  return (
-    <button
-      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className={`${base} ${colors}`}
-    >
-      {copied
-        ? <><Check className="w-3 h-3 inline mr-1.5 align-middle text-accent" />Copied</>
-        : <><Copy className="w-3 h-3 inline mr-1.5 align-middle" />Copy</>
-      }
-    </button>
-  );
-}
-
-/* ─── Tools data ─── */
-const tools = [
-  { name: 'analyze_page', desc: 'Full page as structured markdown with numbered elements', icon: Layout },
-  { name: 'navigate', desc: 'Navigate to any URL in the active tab', icon: Globe },
-  { name: 'click', desc: 'Click any element by its number', icon: MousePointer },
-  { name: 'type', desc: 'Type text into inputs and textareas', icon: Type },
-  { name: 'press_key', desc: 'Send keyboard shortcuts and key combos', icon: Keyboard },
-  { name: 'screenshot', desc: 'Capture full-page PNG screenshot', icon: Camera },
-  { name: 'scroll', desc: 'Scroll up, down, or to elements', icon: ArrowDown },
-  { name: 'open_tab', desc: 'Open a new browser tab', icon: Layers },
-  { name: 'switch_tab', desc: 'Switch between open tabs', icon: Monitor },
-  { name: 'list_tabs', desc: 'List all open browser tabs', icon: Terminal },
-  { name: 'close_tab', desc: 'Close a specific tab', icon: X },
-  { name: 'wait', desc: 'Wait for page loads and transitions', icon: Clock },
-  { name: 'list_profiles', desc: 'List available anonymity profiles', icon: Fingerprint },
-  { name: 'create_profile', desc: 'Create a new randomized fingerprint profile', icon: UserPlus },
-  { name: 'set_profile', desc: 'Switch fingerprint, proxy, and cookie store', icon: RefreshCw },
-];
-
-/* ─── MCP config strings ─── */
-/* ─── Terminal / code block ─── */
-function CodeBlock({
-  children,
-  copyText,
-  title,
-}: {
-  children: React.ReactNode;
-  copyText?: string;
-  title?: string;
-}) {
-  return (
-    <div className="rounded-xl overflow-hidden border border-border bg-bg-card shadow-[var(--shadow-card)]">
-      {/* Title bar */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border bg-bg-elevated/50">
-        <div className="flex items-center gap-1.5">
-          <span className="w-[9px] h-[9px] rounded-full bg-red/90" />
-          <span className="w-[9px] h-[9px] rounded-full bg-accent" />
-          <span className="w-[9px] h-[9px] rounded-full bg-indigo" />
-        </div>
-        <div className="flex items-center gap-3">
-          {title && (
-            <span className="text-[11px] text-text-dim font-mono tracking-tight">
-              {title}
-            </span>
-          )}
-          {copyText && <CopyBtn text={copyText} />}
-        </div>
-      </div>
-      {/* Content */}
-      <pre className="px-5 py-4 font-mono text-[12px] leading-[1.85] overflow-x-auto text-text-muted">
-        {children}
-      </pre>
-    </div>
-  );
-}
-
-/* ─── Use it from: SDK · CLI · Agents ─── */
-const SNIPPETS: { id: string; label: string; title: string; code: string }[] = [
-  {
-    id: 'sdk', label: 'TypeScript', title: 'checkout.ts',
-    code: `const browser = await oya.browser.start({ persona: "acme-ops" });
-await browser.goto("https://shop.example/cart");
-
-const page = await browser.analyze();      // markdown + numbered elements
-await browser.click(13);                   // "Checkout"
-await browser.type(9, "hello@example.com");
-await browser.pressKey("Enter");
-
-await browser.solveCaptcha();              // { solved, method }
-await browser.completeMfa();               // TOTP · email · SMS · handoff
-await browser.close();`,
-  },
-  {
-    id: 'cli', label: 'CLI', title: 'terminal',
-    code: `$ oya init                     # model · provider · solver · desktop sign-in
-$ oya personas new acme-ops    # one device, chosen once
-$ oya start --persona acme-ops
-$ oya goto https://shop.example/cart
-$ oya ask "add the first item to the cart and check out"
-$ oya ls
-$ oya rm --all`,
-  },
-  {
-    id: 'mcp', label: 'Agents (MCP)', title: 'mcp.json',
-    code: `{
-  "mcpServers": {
-    "oya-browser": {
-      "url": "https://browser.getoya.ai/mcp/pool",
-      "headers": { "Authorization": "Bearer <api-key>" }
-    }
-  }
-}
-
-// Claude, Cursor, Windsurf: analyze_page → click(13) → type(9, …)
-// The pool hands each call to the next healthy browser.`,
-  },
-];
-
-function UseItFrom() {
-  const [active, setActive] = useState('sdk');
-  const s = SNIPPETS.find((x) => x.id === active)!;
-  return (
-    <section className="py-12 sm:py-14 border-t border-border/80">
-      <SectionLabel>Use it from</SectionLabel>
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
-        <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight text-text">
-          Code, terminal, or an agent
-        </h2>
-        <div className="inline-flex rounded-lg border border-border p-1 bg-bg-card/70" role="tablist">
-          {SNIPPETS.map((x) => (
-            <button key={x.id} role="tab" aria-selected={active === x.id} onClick={() => setActive(x.id)}
-              className={`px-3.5 py-1.5 rounded-md text-[13px] font-medium transition-colors ${active === x.id ? 'bg-accent/15 text-text' : 'text-text-muted hover:text-text'}`}>
-              {x.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <CodeBlock title={s.title} copyText={s.code}>{s.code}</CodeBlock>
-    </section>
-  );
-}
-
-/* ─── Section label (small caps pill above headings) ─── */
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-accent mb-3 font-mono">
-      {children}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════
-   MAIN PAGE
-   ═══════════════════════════════════════════════════════════ */
-export default function Home() {
-  const { user, loading } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  return (
-    <div className="min-h-screen text-text font-sans antialiased relative">
-      <div className="pointer-events-none fixed inset-0 landing-grid opacity-50 z-0" aria-hidden />
-      <div className="relative z-10">
-      {/* ─── NAV ─── */}
-      <nav className="sticky top-0 z-50 border-b border-border/70 bg-bg/65 backdrop-blur-xl supports-[backdrop-filter]:bg-bg/45">
-        <div className="max-w-5xl mx-auto px-6 h-[3.75rem] flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative w-9 h-9 rounded-lg bg-bg-card border border-border flex items-center justify-center shadow-[var(--shadow-card)] group-hover:border-accent/35 transition-colors">
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent shadow-[0_0_12px_rgba(57,237,53,0.55)]" />
-              <Globe className="w-4 h-4 text-indigo" />
-            </div>
-            <span className="font-display text-[17px] font-bold tracking-tight">
-              Oya <span className="text-text-muted font-medium">Browser</span>
-            </span>
-          </Link>
-
-          <div className="hidden md:flex items-center gap-1">
-            <a href="#self-host" className="px-3 py-2 text-sm font-medium text-text-muted hover:text-text rounded-lg hover:bg-bg-card/80 transition-colors">
-              Self-host
-            </a>
-            <a href="#download" className="px-3 py-2 text-sm font-medium text-text-muted hover:text-text rounded-lg hover:bg-bg-card/80 transition-colors">
-              Desktop
-            </a>
-            <Link href="/docs" className="px-3 py-2 text-sm font-medium text-text-muted hover:text-text rounded-lg hover:bg-bg-card/80 transition-colors">
-              Docs
-            </Link>
-            <Link
-              href={user ? '/dashboard' : '/login'}
-              className="ml-2 px-4 py-2 text-[13px] font-semibold rounded-lg bg-accent text-accent-foreground hover:bg-accent-hover shadow-[0_0_24px_-4px_rgba(57,237,53,0.35)]"
-            >
-              {loading ? '' : 'Dashboard'}
-            </Link>
-          </div>
-
-          <button type="button" className="md:hidden p-2 -mr-2 text-text-muted hover:text-text rounded-lg" onClick={() => setMenuOpen(!menuOpen)} aria-expanded={menuOpen}>
-            {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-
-        {menuOpen && (
-          <div className="md:hidden border-t border-border bg-bg-card/95 backdrop-blur-md p-3 space-y-0.5">
-            <a href="#self-host" onClick={() => setMenuOpen(false)} className="block px-4 py-2.5 text-sm text-text-muted hover:text-text rounded-lg hover:bg-bg-elevated">
-              Self-host
-            </a>
-            <a href="#download" onClick={() => setMenuOpen(false)} className="block px-4 py-2.5 text-sm text-text-muted hover:text-text rounded-lg hover:bg-bg-elevated">
-              Desktop
-            </a>
-            <Link href="/docs" onClick={() => setMenuOpen(false)} className="block px-4 py-2.5 text-sm text-text-muted hover:text-text rounded-lg hover:bg-bg-elevated">
-              Docs
-            </Link>
-            <Link
-              href={user ? '/dashboard' : '/login'}
-              onClick={() => setMenuOpen(false)}
-              className="block px-4 py-2.5 text-sm font-semibold text-accent"
-            >
-              Dashboard
-            </Link>
-          </div>
-        )}
-      </nav>
-
-      <main className="flex-1">
-        <div className="max-w-5xl mx-auto px-6">
-
-          {/* ─── HERO ─── */}
-          <section className="pt-14 sm:pt-20 pb-12 sm:pb-14">
-            <div className="grid lg:grid-cols-12 gap-10 items-start">
-              <div className="lg:col-span-7">
-                <p className="text-[10px] font-mono uppercase tracking-[0.28em] text-indigo mb-4">
-                  One API · Every browser provider · Every identity
-                </p>
-                <h1 className="font-display text-[2.5rem] sm:text-[3.25rem] lg:text-[3.5rem] font-bold tracking-tight leading-[1.05] mb-5">
-                  <span className="text-text">The OpenRouter</span>
-                  <br />
-                  <span className="text-accent">for browsers.</span>
-                </h1>
-                <p className="text-[17px] text-text-muted leading-relaxed max-w-xl mb-7">
-                  One control plane in front of Oya Cloud, Browserbase, Steel, Anchor, Browser Use and
-                  your own Chrome. Your agents get thousands of browsers, each a stable identity with its
-                  own logins and exit IP, with CAPTCHA and MFA handled — and the provider is a setting,
-                  not a rewrite.
-                </p>
-                <div className="flex flex-wrap gap-3 mb-2">
-                  <Link href={user ? '/dashboard' : '/login'}
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent text-accent-foreground text-[15px] font-semibold hover:bg-accent-hover shadow-[0_0_28px_-6px_rgba(57,237,53,0.4)]">
-                    Open the console <ArrowRight className="w-4 h-4" />
-                  </Link>
-                  <Link href="/docs"
-                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-border bg-bg-card/60 text-text text-[15px] font-semibold hover:border-accent/30 hover:bg-bg-elevated/80 backdrop-blur-sm">
-                    Read the docs
-                  </Link>
-                </div>
-              </div>
-              <div className="lg:col-span-5">
-                <CodeBlock title="agent.ts" copyText={`import { Oya } from "@oya/browser";
-
-const oya = new Oya();
-const browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
-await browser.goto("https://example.com");`}>
-{`import { Oya } from "@oya/browser";
+const examples = [
+  { label: 'TypeScript', language: 'typescript' as const, file: 'browser.ts', code: `import { Oya } from "@oya/browser";
 
 const oya = new Oya();
 const browser = await oya.browser.start({
-  persona: "auto",   // a stable identity, rotated
-  captcha: "auto",   // cleared as they appear
+  persona: "acme-ops",
 });
-await browser.goto("https://example.com");`}
-                </CodeBlock>
-                <p className="mt-3 text-[12.5px] text-text-dim">
-                  That is the whole surface. Which provider ran it is configuration on your API key.
-                </p>
-              </div>
-            </div>
 
-            {/* Providers */}
-            <div className="mt-10 flex flex-wrap items-center gap-x-2 gap-y-2 text-[12.5px]">
-              <span className="text-text-dim mr-1 font-mono uppercase tracking-[0.18em] text-[10px]">Runs on</span>
-              {[
-                ['Oya Cloud', 'fully managed'],
-                ['Oya self-hosted', ''],
-                ['Browserbase', ''],
-                ['Steel', ''],
-                ['Anchor', ''],
-                ['Browser Use', ''],
-                ['Your own Chrome', 'any CDP endpoint'],
-              ].map(([name, note]) => (
-                <span key={name} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-bg-card/70 px-2.5 py-1 text-text-secondary">
-                  {name}{note && <span className="text-text-dim">· {note}</span>}
-                </span>
-              ))}
-            </div>
-          </section>
+await browser.goto("https://example.com");
+const page = await browser.analyze();
+await browser.click(page.elements[0].id);` },
+  { label: 'CLI', language: 'bash' as const, file: 'Terminal', code: `npm install -g oya
+oya login
+oya init
 
-          {/* ─── USE IT FROM ─── */}
-          <UseItFrom />
+oya personas new acme-ops
+oya start --persona acme-ops
+oya goto https://example.com
+oya ask "Find the pricing page"
+oya ls` },
+  { label: 'MCP', language: 'json' as const, file: 'mcp.json', code: `{
+  "mcpServers": {
+    "oya-browser": {
+      "url": "https://browser.getoya.ai/mcp/pool",
+      "headers": {
+        "Authorization": "Bearer <your-api-key>"
+      }
+    }
+  }
+}` },
+];
+const demoBrowsers = [
+  { name: 'Research workspace', provider: 'Oya Cloud', profile: 'research', page: 'example.com', action: 'Analyzing the page', health: 'Running' },
+  { name: 'Operations', provider: 'Steel', profile: 'acme-ops', page: 'shop.example', action: 'Waiting for your next command', health: 'Ready' },
+  { name: 'Personal browser', provider: 'Desktop', profile: 'personal', page: 'about:blank', action: 'Connected to your desktop', health: 'Ready' },
+];
 
-          {/* ─── WHY A CONTROL PLANE ─── */}
-          <section className="py-12 sm:py-14 border-t border-border/80">
-            <SectionLabel>Why a control plane</SectionLabel>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-8 text-text">
-              Providers give you a browser. Oya gives you a fleet.
-            </h2>
-            <div className="grid md:grid-cols-3 gap-4">
-              {[
-                {
-                  icon: Layers, title: 'One API, any provider',
-                  body: 'Start on Oya Cloud, move to Browserbase for a region, fall back to your own Chrome — in Settings, not in code. Routing, profiles and recording travel with you, and the CDP URL you hand Playwright is ours, not the vendor\'s.',
-                },
-                {
-                  icon: Fingerprint, title: 'Identities, not sessions',
-                  body: 'A persona is a fingerprint, a cookie jar and an exit IP bound together and stable for its life. Rotation means choosing a different persona — never a new device under an old login, which is the tell that gets accounts flagged.',
-                },
-                {
-                  icon: Monitor, title: 'A console built for a thousand',
-                  body: 'Every browser with its health, persona, provider and current page in one table. Pick one: watch it live, see every command it ran, take the keyboard, stop it. Sandboxes actually die when you say stop.',
-                },
-              ].map((c) => (
-                <div key={c.title} className="rounded-2xl border border-border bg-bg-card/80 p-6 hover:border-accent/30 transition-colors">
-                  <div className="w-10 h-10 rounded-xl bg-green-surface border border-green-border flex items-center justify-center mb-4">
-                    <c.icon className="w-5 h-5 text-accent" />
-                  </div>
-                  <h3 className="text-[16px] font-bold text-text mb-2">{c.title}</h3>
-                  <p className="text-[13.5px] text-text-muted leading-relaxed">{c.body}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* ─── WHAT YOU GET, WHATEVER RUNS THE BROWSER ─── */}
-          <section className="py-12 sm:py-14 border-t border-border/80">
-            <SectionLabel>On top of every provider</SectionLabel>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-3 text-text">
-              The same API, whatever is underneath
-            </h2>
-            <p className="text-text-muted mb-6 leading-relaxed text-[15px] max-w-2xl">
-              Browserbase, Steel, Anchor and Browser Use each sell a browser. Oya sits above them and adds
-              what a fleet needs — and does not double-patch what they already do well.
-            </p>
-            <div className="overflow-x-auto rounded-xl border border-border">
-              <table className="w-full text-[13.5px]">
-                <thead className="bg-bg-elevated/50 text-left text-[11px] uppercase tracking-[0.12em] text-text-muted">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">With Oya in front</th>
-                    <th className="px-4 py-3 font-medium">On any provider</th>
-                    <th className="px-4 py-3 font-medium">On Oya Cloud</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/70">
-                  {[
-                    ['One SDK, CLI and MCP surface; switch provider in Settings', '✓', '✓'],
-                    ['Personas: stable fingerprint + cookie jar + exit IP, with a concurrency cap', '✓', '✓'],
-                    ['Sign in once on your desktop; every browser inherits the logins', '—', '✓'],
-                    ['CAPTCHA: provider-native where it exists, your solver elsewhere', '✓', '✓'],
-                    ['MFA: TOTP, email and SMS codes, or a human handoff link', '✓', '✓'],
-                    ['Fleet console: health, activity, live control, one-click stop', '✓', '✓'],
-                    ['Stealth measured against real detectors — never layered on a vendor\'s own', 'theirs', 'ours'],
-                    ['Per-key usage, audit trail, quotas, Prometheus metrics', '✓', '✓'],
-                    ['Fully managed browsers that stop billing when you stop them', '—', '✓'],
-                    ['Self-host the whole control plane with docker compose', '✓', '✓'],
-                  ].map(([what, any, oya]) => (
-                    <tr key={what} className="hover:bg-text/[0.02]">
-                      <td className="px-4 py-2.5 text-text-secondary">{what}</td>
-                      <td className={`px-4 py-2.5 num ${any === '✓' ? 'text-accent' : 'text-text-dim'}`}>{any}</td>
-                      <td className={`px-4 py-2.5 num ${oya === '✓' || oya === 'ours' ? 'text-accent' : 'text-text-dim'}`}>{oya}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* ─── SELF-HOST ─── */}
-          <section id="self-host" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
-            <SectionLabel>Self-host</SectionLabel>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-3 text-text">
-              Up in two commands. Configured from the dashboard.
-            </h2>
-            <p className="text-text-muted mb-6 leading-relaxed text-[15px] max-w-2xl">
-              Nothing hides in an environment variable. The API key you create is the identity for
-              everything — browsers, personas, cookies, settings, usage — and onboarding asks for your
-              model, your provider and your solver, once.
-            </p>
-            <div className="grid md:grid-cols-2 gap-4">
-              <CodeBlock title="terminal" copyText={`git clone https://github.com/oyadotai/oya-browser && cd oya-browser
-docker compose up
-# open http://localhost:3100, create an API key, walk through onboarding`}>
-{`$ git clone https://github.com/oyadotai/oya-browser
-$ cd oya-browser && docker compose up
-
-# open http://localhost:3100
-# create an API key → onboarding: model, provider, solver`}
-              </CodeBlock>
-              <CodeBlock title="terminal" copyText={`npm i -g @oya/browser oya
-oya login --url http://localhost:3100
-oya start && oya goto https://example.com
-oya ls`}>
-{`$ npm i -g @oya/browser oya
-$ oya login --url http://localhost:3100
-$ oya start && oya goto https://example.com
-$ oya ls
-
-40ab25d1…  cdp   Default   checkout-worker`}
-              </CodeBlock>
-            </div>
-            <p className="mt-4 text-[12.5px] text-text-dim">
-              Personas, settings and the secret that seals credentials live in a data volume; add Supabase for a database, or don&apos;t.
-            </p>
-          </section>
-
-          {/* ─── PERSONAS ─── */}
-          <section id="anonymity" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
-            <SectionLabel>Personas</SectionLabel>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-4 text-text">
-              One persona is one device
-            </h2>
-            <p className="text-text-muted mb-6 leading-relaxed text-[15px] max-w-2xl">
-              A persona is a fingerprint, a cookie jar and a proxy, bound together and stable for its
-              life. That binding is the point: one account seen from many devices reads as a bot farm,
-              and one device across many accounts reads as a device farm. Rotation means choosing a
-              different persona — never giving one a new fingerprint.
-            </p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-              {[
-                { icon: Fingerprint, title: 'Stable fingerprints', desc: 'Derived from a stored seed and the device you chose at creation — byte-identical across restarts' },
-                { icon: Shield, title: 'Stealth, measured', desc: 'Scored against real detectors rather than asserted. Run oya stealth-test and read the number' },
-                { icon: Globe, title: 'Proxy per persona', desc: 'A sticky exit per identity, with a timezone-versus-geo coherence check. Credentials sealed at rest' },
-                { icon: Lock, title: 'Capped concurrency', desc: 'One laptop cannot be in a thousand places at once, so each persona has a visible ceiling' },
-              ].map((f) => (
-                <div key={f.title} className="group rounded-xl border border-border bg-bg-card/80 p-4 hover:border-accent/30 hover:bg-bg-elevated/60 transition-all duration-300">
-                  <f.icon className="w-4 h-4 text-accent mb-2.5" />
-                  <p className="text-[13px] font-semibold text-text mb-1.5">{f.title}</p>
-                  <p className="text-[11.5px] text-text-muted leading-snug">{f.desc}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* ─── TOOLS ─── */}
-          <section id="tools" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
-            <SectionLabel>For agents</SectionLabel>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-3 text-text">
-              {tools.length} tools. Pages as markdown, elements by number.
-            </h2>
-            <p className="text-text-muted mb-6 leading-relaxed text-[15px] max-w-2xl">
-              Every browser is an MCP server. The agent reads <code className="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border font-mono text-[13px] text-text-muted">[#13 button &quot;Search&quot;]</code> and says <code className="px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border font-mono text-[13px] text-text-muted">click(13)</code>. No vision model, no selectors.
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-              {tools.map((t) => (
-                <div key={t.name} className="rounded-xl border border-border bg-bg-card/80 p-3.5 hover:border-accent/30 transition-colors">
-                  <t.icon className="w-4 h-4 text-indigo mb-2" />
-                  <p className="font-mono text-[12.5px] font-semibold text-text mb-1">{t.name}</p>
-                  <p className="text-[11.5px] text-text-muted leading-snug">{t.desc}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* ─── FILM ─── */}
-          <section className="py-12 sm:py-14 border-t border-border/80">
-            <SectionLabel>In motion</SectionLabel>
-            <div className="rounded-2xl border border-border overflow-hidden bg-bg-card shadow-[var(--shadow-card)] ring-1 ring-white/[0.04]">
-              <div className="px-4 py-2 border-b border-border flex items-center justify-between bg-bg-elevated/40">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-text-dim">Product film</span>
-                <span className="text-[10px] font-mono text-accent">REC</span>
-              </div>
-              <video autoPlay loop muted playsInline className="w-full block">
-                <source src="/oya-browser.mp4" type="video/mp4" />
-              </video>
-            </div>
-          </section>
-
-          {/* ─── DESKTOP ─── */}
-          <section id="download" className="py-12 sm:py-14 border-t border-border/80 scroll-mt-20">
-            <SectionLabel>Desktop</SectionLabel>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight leading-tight mb-3 text-text">
-              Sign in once, on your own machine
-            </h2>
-            <p className="text-text-muted mb-6 leading-relaxed text-[15px] max-w-2xl">
-              For browsers on Oya Cloud, the desktop app is a one-time step: log into the sites your
-              agents need. Those cookies move to the remote browsers, which run the same fingerprint —
-              so the site sees one device returning, not a fleet sharing an account.
-            </p>
-            <div className="grid sm:grid-cols-2 gap-4 max-w-2xl">
-              <a href="/downloads/Oya.Browser-1.0.46-universal.dmg"
-                className="group rounded-2xl border border-border bg-bg-card/80 p-5 hover:border-accent/35 transition-colors">
-                <Monitor className="w-5 h-5 text-accent mb-3" />
-                <p className="text-[15px] font-bold text-text">macOS</p>
-                <p className="text-[12.5px] text-text-muted">Universal · Intel and Apple Silicon</p>
-              </a>
-              <a href="/downloads/Oya.Browser-1.0.46-arm64.AppImage"
-                className="group rounded-2xl border border-border bg-bg-card/80 p-5 hover:border-accent/35 transition-colors">
-                <Terminal className="w-5 h-5 text-accent mb-3" />
-                <p className="text-[15px] font-bold text-text">Linux</p>
-                <p className="text-[12.5px] text-text-muted">AppImage · arm64</p>
-              </a>
-            </div>
-          </section>
-
-        </div>
-      </main>
-
-      <footer className="border-t border-border/80 py-12 mt-4">
-        <div className="max-w-5xl mx-auto px-6 text-center text-[13px] text-text-dim">
-          <a href="https://oya.ai" className="text-text-muted hover:text-accent transition-colors">Oya.ai</a>
-          {' · '}
-          <Link href="/docs" className="text-text-muted hover:text-accent transition-colors">Docs</Link>
-          {' · '}
-          <Link href="/dashboard" className="text-text-muted hover:text-accent transition-colors">Dashboard</Link>
-        </div>
-      </footer>
+function ProductPreview() {
+  const [selected, setSelected] = useState(0);
+  const browser = demoBrowsers[selected];
+  return <div className="product-preview" aria-label="Interactive browser console preview">
+    <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+      <div className="flex items-center gap-2.5"><OyaLogo size={19} /><span className="text-[12px] font-medium">Workspace</span><ChevronRight size={13} className="text-text-dim" /><span className="text-[12px] text-text-muted">Browsers</span></div>
+      <span className="eyebrow text-text-dim">Product preview</span>
+    </div>
+    <div className="grid min-w-0 md:grid-cols-[1.45fr_1fr]">
+      <div className="min-w-0 md:border-r border-border">
+        <div className="flex items-center justify-between px-5 py-5"><span className="text-[15px] font-semibold">Your browsers <span className="ml-2 text-text-dim">03</span></span><span className="flex items-center gap-1.5 text-[11px] text-text-muted"><span className="h-1.5 w-1.5 rounded-full bg-accent" />All connected</span></div>
+        <div className="preview-columns border-y border-border bg-bg-sunken/60 py-2 text-[10px] uppercase tracking-widest text-text-dim"><span>Browser</span><span>Provider</span><span>Status</span></div>
+        {demoBrowsers.map((row, index) => <button key={row.name} onClick={() => setSelected(index)} aria-pressed={index === selected} className={`preview-columns w-full border-b border-border/60 py-4 text-left ${index === selected ? 'bg-accent/[0.06]' : 'hover:bg-text/[0.03]'}`}>
+          <span className="flex min-w-0 items-center gap-3"><Monitor size={15} className={index === selected ? 'text-accent shrink-0' : 'text-text-dim shrink-0'} /><span className="min-w-0"><span className="block truncate text-[12px] font-medium">{row.name}</span><span className="mt-1 block truncate font-mono text-[10px] text-text-dim">{row.profile}</span></span></span><span className="text-[11px] text-text-muted">{row.provider}</span><span className="text-[10px] text-accent">{row.health}</span>
+        </button>)}
+        <div className="flex items-center gap-2 px-5 py-4 text-[10px] text-text-dim"><Command size={11} />One workspace. Every provider.</div>
+      </div>
+      <div className="flex min-w-0 flex-col p-5">
+        <div className="flex items-center justify-between gap-2"><span className="truncate text-[12px] font-medium">{browser.name}</span><span className="eyebrow text-accent">Connected</span></div>
+        <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-bg-sunken px-3 py-2 font-mono text-[10px] text-text-muted"><ShieldCheck size={11} />{browser.page}</div>
+        <div className="my-4 flex flex-1 items-center justify-center rounded-lg border border-border bg-bg-sunken p-6"><div className="text-center"><Globe2 size={26} strokeWidth={1} className="mx-auto mb-3 text-text-dim" /><p className="text-[13px] font-medium">A browser your agent can use.</p><p className="mt-2 text-[11px] text-text-dim">Observe. Act. Keep going.</p></div></div>
+        <p aria-live="polite" className="flex items-center gap-2 text-[11px] text-text-muted"><span className="h-1.5 w-1.5 rounded-full bg-accent" />{browser.action}</p>
       </div>
     </div>
-  );
+  </div>;
+}
+
+export default function Home() {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [example, setExample] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+  const snippet = examples[example];
+  async function copyCode() {
+    try { await navigator.clipboard.writeText(snippet.code); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch { setCopyError('Select the code below to copy it.'); }
+  }
+  return <div className="marketing-page min-h-screen bg-bg text-text">
+    <header className="sticky top-0 z-30 border-b border-border bg-bg/95 backdrop-blur-md">
+      <div className="site-width flex h-[72px] items-center justify-between gap-5">
+        <OyaWordmark />
+        <nav aria-label="Main navigation" className="hidden items-center gap-8 text-[13px] text-text-muted md:flex"><a href="#product" className="hover:text-text">Product</a><a href="#developers" className="hover:text-text">Developers</a><Link href="/docs" className="hover:text-text">Documentation</Link></nav>
+        <div className="flex items-center gap-3"><ThemeToggle /><Link href="/dashboard" className="btn-primary h-9 px-4 text-[12px]">Open console <ArrowUpRight size={13} /></Link><button className="btn-icon md:hidden" aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={19} /> : <Menu size={19} />}</button></div>
+      </div>
+      {menuOpen && <nav aria-label="Mobile navigation" className="site-width flex flex-col gap-4 border-t border-border py-5 text-sm"><a href="#product" onClick={() => setMenuOpen(false)}>Product</a><a href="#developers" onClick={() => setMenuOpen(false)}>Developers</a><Link href="/docs">Documentation</Link></nav>}
+    </header>
+    <main>
+      <section className="site-width pt-16 pb-12 sm:pt-24 sm:pb-20">
+        <div className="grid items-end gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-16">
+          <div><p className="eyebrow mb-6 flex items-center gap-2 text-text-muted"><span className="h-1.5 w-1.5 rounded-full bg-accent" />Browser infrastructure for agents</p><h1 className="marketing-title">Your agents.<br />The whole <span className="text-accent">web.</span></h1></div>
+          <div className="pb-1 lg:max-w-[385px]"><p className="text-[17px] leading-[1.75] text-text-muted">Give your agents real browsers, persistent identities, and a workspace to run it all. Across the cloud, your desktop, and the providers you already use.</p><div className="mt-7 flex flex-wrap items-center gap-6"><Link href="/dashboard" className="btn-primary h-11 px-5">Start building <ArrowRight size={15} /></Link><Link href="/docs#quickstart" className="inline-flex items-center gap-2 text-[13px] font-medium hover:text-accent">Read the quickstart <ArrowUpRight size={14} /></Link></div></div>
+        </div>
+        <div id="product" className="mt-14 scroll-mt-24 sm:mt-16"><ProductPreview /></div>
+        <div className="mt-7 flex flex-wrap items-center justify-between gap-x-7 gap-y-4 text-[12px] text-text-muted"><span className="eyebrow text-text-dim">One API. Your choice of provider.</span>{['Oya Cloud', 'Browserbase', 'Steel', 'Anchor', 'Browser Use', 'Your Chrome'].map(p => <span key={p}>{p}</span>)}</div>
+      </section>
+      <section className="site-width section-space border-t border-border">
+        <div className="grid gap-6 lg:grid-cols-[1fr_1.35fr]"><div><p className="eyebrow mb-5 text-accent">Built around your workflow</p><h2 className="marketing-heading max-w-sm">A browser is just<br />the beginning.</h2></div><p className="max-w-xl text-[17px] leading-[1.75] text-text-muted lg:pt-9">Keep the identity. Change the provider. See every browser in one place, and step in whenever your agent needs a hand.</p></div>
+        <div className="mt-12 grid gap-8 md:grid-cols-3 md:gap-12">{[
+          { icon: Fingerprint, title: 'A session that remembers.', text: 'Profiles keep a stable device identity and saved logins. Sign in on desktop, then use that profile from your agent.' },
+          { icon: Layers, title: 'One API. More possibilities.', text: 'Work with Oya Cloud, external providers, or your own Chrome through a shared SDK, CLI, and MCP interface.' },
+          { icon: Monitor, title: 'Always within reach.', text: 'Watch browsers live, inspect their activity, and take control. Your entire fleet stays visible in one workspace.' },
+        ].map((item, index) => <div key={item.title} className="border-t border-border pt-5"><div className="mb-7 flex items-center justify-between"><item.icon size={22} strokeWidth={1.4} className="text-text-muted" /><span className="font-mono text-[10px] text-text-dim">0{index+1}</span></div><h3 className="text-[18px] font-semibold tracking-tight">{item.title}</h3><p className="mt-3 text-[14px] leading-7 text-text-muted">{item.text}</p></div>)}</div>
+      </section>
+      <section id="developers" className="site-width section-space scroll-mt-16 border-t border-border">
+        <div className="grid items-start gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20"><div><p className="eyebrow mb-5 text-accent">Developer first</p><h2 className="marketing-heading">From an idea<br />to a running browser.</h2><p className="mt-5 max-w-sm text-[15px] leading-7 text-text-muted">Use TypeScript, work from your terminal, or connect your preferred agent with MCP. The browser stays the same.</p><Link href="/docs" className="mt-7 inline-flex items-center gap-2 text-[13px] font-medium hover:text-accent">Explore the documentation <ArrowRight size={15} /></Link><div className="mt-10 flex items-center gap-3 border-t border-border pt-5 text-[12px] text-text-dim"><Terminal size={15} /><code>npm install @oya/browser</code></div></div>
+          <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-bg-card"><div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2"><div role="tablist" aria-label="Integration language" className="flex gap-1">{examples.map((item,i)=><button key={item.label} role="tab" aria-selected={example===i} aria-controls="integration-code" onClick={()=>{setExample(i);setCopied(false);setCopyError('');}} className={`rounded-md px-3 py-2 text-[12px] ${example===i?'bg-text/5 text-text':'text-text-dim hover:text-text'}`}>{item.label}</button>)}</div><button aria-label="Copy example" onClick={copyCode} className="btn-icon">{copied?<Check size={14}/>:<Copy size={14}/>}</button></div><div id="integration-code" role="tabpanel" aria-label={snippet.label}><div className="px-5 pt-4 font-mono text-[10px] text-text-dim">{snippet.file}</div><pre className="min-h-[295px] overflow-x-auto p-5 font-mono text-[12px] leading-[1.9]"><SyntaxCode code={snippet.code} language={snippet.language}/></pre></div>{copyError&&<p role="status" className="px-5 pb-4 text-xs text-text-muted">{copyError}</p>}</div>
+        </div>
+      </section>
+      <section className="site-width section-space border-t border-border"><div className="mb-8 flex flex-wrap items-end justify-between gap-5"><div><p className="eyebrow mb-4 text-accent">See it in action</p><h2 className="marketing-heading">A little less abstract.</h2></div><span className="flex items-center gap-2 text-[12px] text-text-dim"><Play size={12}/>Oya Browser walkthrough</span></div><video controls playsInline preload="none" poster="/oya-browser-poster.jpg" aria-label="Oya Browser product walkthrough" className="aspect-video w-full rounded-xl border border-border bg-bg-card"><source src="/oya-browser.mp4" type="video/mp4"/></video></section>
+      <section className="site-width section-space grid gap-10 border-t border-border md:grid-cols-2 md:gap-20"><div id="download" className="scroll-mt-24"><Monitor size={23} strokeWidth={1.4} className="mb-6 text-text-muted"/><h2 className="text-[25px] font-semibold tracking-tight">Start on your desktop.</h2><p className="mt-3 max-w-md text-[14px] leading-7 text-text-muted">Sign in to your sites and save a profile for your agents. Your own browser, connected to your workspace.</p><a className="mt-6 inline-flex items-center gap-2 text-[13px] font-medium hover:text-accent" href="/downloads/Oya.Browser-1.0.46-universal.dmg">Download for macOS <ArrowUpRight size={14}/></a><p className="mt-2 text-[11px] text-text-dim">Apple Silicon & Intel</p></div><div id="self-host" className="scroll-mt-24"><Layers size={23} strokeWidth={1.4} className="mb-6 text-text-muted"/><h2 className="text-[25px] font-semibold tracking-tight">Run it on your terms.</h2><p className="mt-3 max-w-md text-[14px] leading-7 text-text-muted">Bring your own infrastructure, browser provider, or Chrome connection. Configure your workspace once and keep using the same interface.</p><Link href="/docs#settings" className="mt-6 inline-flex items-center gap-2 text-[13px] font-medium hover:text-accent">Explore configuration <ArrowUpRight size={14}/></Link></div></section>
+      <section className="border-y border-border bg-bg-card/40"><div className="site-width flex flex-col items-start justify-between gap-8 py-14 sm:flex-row sm:items-center"><div><p className="eyebrow mb-4 text-text-dim">Your next move</p><h2 className="marketing-heading">Put your agents to work.</h2></div><Link href="/dashboard" className="btn-primary h-12 shrink-0 px-6">Open your workspace <ArrowRight size={16}/></Link></div></section>
+    </main>
+    <footer className="site-width flex flex-wrap items-center justify-between gap-6 py-9"><OyaWordmark/><div className="flex items-center gap-6 text-[12px] text-text-muted"><Link href="/docs">Documentation</Link><Link href="/dashboard">Console</Link><span className="text-text-dim">Built by Oya</span></div></footer>
+  </div>;
 }

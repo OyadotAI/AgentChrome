@@ -27,6 +27,8 @@ type Routing = { strategy: string; queueDepth: number; capacity: number; active:
 type AuditEvent = { ts: string; action: string; actor: string | null; target_type: string | null; target_id: string | null; outcome: string; ip: string | null; meta: Record<string, unknown> | null };
 type Recording = { sessionId: string; provider?: string; profile?: string | null; startedAt?: string; durationMs?: number; frameCount?: number; bytes?: number; live?: boolean; truncated?: boolean };
 
+const metricLabel = (name: string) => { const text = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' '); return text[0].toUpperCase() + text.slice(1).toLowerCase(); };
+
 const STRATEGIES = ['priority', 'round-robin', 'least-connections', 'latency', 'weighted'];
 
 const num = (n: number | null | undefined, digits = 0) =>
@@ -48,15 +50,15 @@ const duration = (s: number) => {
 function Stat({ label, value, sub, tone = 'normal', icon: Icon }: {
   label: string; value: string; sub?: string; tone?: 'normal' | 'warn' | 'bad' | 'good'; icon?: typeof Activity;
 }) {
-  const toneClass = tone === 'bad' ? 'text-red-400' : tone === 'warn' ? 'text-amber-400' : tone === 'good' ? 'text-accent' : 'text-text';
+  const toneClass = tone === 'bad' ? 'text-red' : tone === 'warn' ? 'text-yellow' : tone === 'good' ? 'text-accent' : 'text-text';
   return (
-    <div className="border border-border rounded-lg p-4 bg-bg-elevated/40">
-      <div className="flex items-center gap-2 text-text-dim text-xs uppercase tracking-wider mb-2">
+    <div className="min-w-0 border border-border rounded-xl p-5 bg-bg-card/45">
+      <div className="flex items-center gap-2 text-text-muted text-[11px] mb-4">
         {Icon && <Icon className="w-3.5 h-3.5" />}
         {label}
       </div>
-      <div className={`font-mono tabular-nums text-2xl ${toneClass}`}>{value}</div>
-      {sub && <div className="text-text-dim text-xs mt-1">{sub}</div>}
+      <div className={`tabular-nums text-[30px] font-medium tracking-tight ${toneClass}`}>{value}</div>
+      {sub && <div className="text-text-dim text-[12px] mt-2">{sub}</div>}
     </div>
   );
 }
@@ -145,8 +147,8 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
   const throttled = (u?.rate_limited ?? 0) + (u?.quota_denied ?? 0);
 
   const views: { key: View; label: string; icon: typeof Activity }[] = [
-    { key: 'health', label: 'Health', icon: Activity },
-    { key: 'sessions', label: 'Sessions', icon: Users },
+    { key: 'health', label: 'Overview', icon: Activity },
+    { key: 'sessions', label: 'CDP sessions', icon: Users },
     { key: 'providers', label: 'Providers', icon: Server },
     { key: 'usage', label: 'Usage', icon: Gauge },
     { key: 'audit', label: 'Audit', icon: ShieldCheck },
@@ -154,13 +156,14 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
   ];
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-1 px-4 lg:px-6 py-2 border-b border-border overflow-x-auto shrink-0">
+    <div className="control-workspace flex min-w-0 flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-1 px-4 lg:px-6 py-3 border-b border-border overflow-x-auto shrink-0" role="tablist" aria-label="Control views">
         {views.map((v) => (
           <button
             key={v.key}
+            role="tab" aria-selected={view === v.key}
             onClick={() => setView(v.key)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-[12px] font-medium whitespace-nowrap transition-colors ${
               view === v.key ? 'bg-bg-elevated text-text' : 'text-text-dim hover:text-text-muted'
             }`}
           >
@@ -177,13 +180,17 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
       </div>
 
       {(error || notice) && (
-        <div className={`px-4 lg:px-6 py-2 text-xs flex items-center gap-2 shrink-0 ${error ? 'text-red-400' : 'text-accent'}`}>
+        <div className={`px-4 lg:px-6 py-2 text-xs flex items-center gap-2 shrink-0 ${error ? 'text-red' : 'text-accent'}`}>
           {error ? <AlertTriangle className="w-3.5 h-3.5" /> : <Circle className="w-3 h-3 fill-current" />}
           {error || notice}
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 lg:p-6">
+      <div className="control-content min-w-0 flex-1 overflow-y-auto p-4 lg:p-8">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div><p className="eyebrow mb-3 text-text-dim">Workspace control</p><h2 className="text-[28px] font-medium tracking-tight">{views.find(item => item.key === view)?.label}</h2>
+          <p className="mt-2 max-w-2xl text-[13px] leading-6 text-text-muted">{{ health: 'A clear view of browser health, capacity, and usage.', sessions: 'Persistent CDP connections from clients such as Playwright and Puppeteer. Individual REST or curl commands do not create a session; find them in the browser’s Activity history.', providers: 'Choose where your browsers run and how connections are distributed.', usage: 'Commands, browser time, and model usage for the current hour.', audit: 'A timeline of workspace changes and administrative actions.', recordings: 'Review recordings captured from your CDP sessions.' }[view]}</p></div>
+        </div>
         {view === 'health' && (
           !fleet ? (
             <p className="text-text-dim text-sm">Loading…</p>
@@ -192,7 +199,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <Stat label="Your browsers" value={num(fleet.browsers.total)} icon={Users}
                   sub={Object.entries(fleet.browsers.byClient).map(([k, v]) => `${k} ${v}`).join(' · ') || 'none connected'} />
-                <Stat label="Gateway sessions" value={num(fleet.sessions.total)} icon={Zap}
+                <Stat label="CDP sessions" value={num(fleet.sessions.total)} icon={Zap}
                   sub={`${fleet.sessions.attached} attached · ${fleet.sessions.recording} recording`} />
                 <Stat label="Command errors" value={`${errorRate.toFixed(1)}%`} icon={AlertTriangle}
                   tone={errorRate > 10 ? 'bad' : errorRate > 2 ? 'warn' : 'good'}
@@ -216,7 +223,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
 
               <div>
                 <h3 className="text-xs uppercase tracking-wider text-text-dim mb-2">Your remaining allowance</h3>
-                <div className="border border-border rounded-lg overflow-hidden">
+                <div className="control-table border border-border rounded-xl overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-bg-elevated/60 text-text-dim text-xs">
                       <tr><th className="text-left px-3 py-2">Limit</th><th className="text-right px-3 py-2">Per minute</th>
@@ -225,11 +232,11 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                     <tbody>
                       {Object.entries(fleet.limits).map(([name, l]) => (
                         <tr key={name} className="border-t border-border">
-                          <td className="px-3 py-2 font-mono text-xs">{name}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{metricLabel(name)}</td>
                           <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{l.disabled ? 'off' : num(l.limit)}</td>
                           <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{num(l.burst)}</td>
                           <td className={`px-3 py-2 text-right font-mono tabular-nums text-xs ${
-                            !l.disabled && l.remaining < (l.burst ?? 0) * 0.2 ? 'text-amber-400' : ''}`}>
+                            !l.disabled && l.remaining < (l.burst ?? 0) * 0.2 ? 'text-yellow' : ''}`}>
                             {l.disabled ? '∞' : num(l.remaining)}
                           </td>
                         </tr>
@@ -247,7 +254,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
         )}
 
         {view === 'sessions' && (
-          <div className="border border-border rounded-lg overflow-hidden">
+          <div className="control-table border border-border rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-bg-elevated/60 text-text-dim text-xs">
                 <tr>
@@ -266,7 +273,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{duration(s.seconds)}</td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-xs">{bytes(s.bytesUp + s.bytesDown)}</td>
                     <td className="px-3 py-2 text-xs">
-                      <span className={s.connected ? 'text-accent' : 'text-amber-400'}>
+                      <span className={s.connected ? 'text-accent' : 'text-yellow'}>
                         {s.connected ? 'attached' : 'held for resume'}
                       </span>
                       {s.recording && <span className="ml-2 text-text-dim">● rec</span>}
@@ -275,13 +282,13 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                       <button
                         disabled={!!busy}
                         onClick={() => void act(s.id, () => del(`/gateway/sessions/${s.id}`))}
-                        className="text-text-dim hover:text-red-400 disabled:opacity-40"
+                        className="text-text-dim hover:text-red disabled:opacity-40"
                         title="End session"
                       ><X className="w-3.5 h-3.5" /></button>
                     </td>
                   </tr>
                 ))}
-                {!sessions.length && <tr><td colSpan={7} className="px-3 py-8 text-center text-text-dim text-xs">No gateway sessions. Point a CDP client at /connect to start one.</td></tr>}
+                {!sessions.length && <tr><td colSpan={7} className="px-3 py-8 text-center text-text-dim text-xs">No CDP sessions yet. Connect Playwright or Puppeteer through /connect to start one. REST commands appear in each browser’s Activity history.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -292,7 +299,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={() => setShowAdd((v) => !v)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-accent text-bg hover:opacity-90"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-md text-[12px] font-medium bg-accent text-bg hover:opacity-90"
               >
                 <Plus className="w-3.5 h-3.5" /> Add provider
               </button>
@@ -402,7 +409,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                 <div key={p.name} className="border border-border rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <Circle className={`w-2.5 h-2.5 shrink-0 fill-current ${p.healthy ? 'text-accent' : 'text-red-400'}`} />
+                      <Circle className={`w-2.5 h-2.5 shrink-0 fill-current ${p.healthy ? 'text-accent' : 'text-red'}`} />
                       <span className="font-medium truncate">{p.name}</span>
                       <span className="text-text-dim text-xs">{p.type}</span>
                     </div>
@@ -412,7 +419,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                       <button
                         disabled={!!busy}
                         onClick={() => void act(p.name, () => del(`/gateway/providers/${p.name}`))}
-                        className="text-text-dim hover:text-red-400 disabled:opacity-40"
+                        className="text-text-dim hover:text-red disabled:opacity-40"
                         title="Remove provider"
                       ><Trash2 className="w-3.5 h-3.5" /></button>
                     )}
@@ -423,8 +430,8 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                     <span>Priority <span className="text-text font-mono">{p.priority}</span></span>
                     <span>Latency <span className="text-text font-mono">{p.latencyMs == null ? '—' : `${p.latencyMs}ms`}</span></span>
                     <span>Sessions <span className="text-text font-mono">{num(p.totalSessions)}</span></span>
-                    {p.totalFailures > 0 && <span className="text-amber-400">Failures <span className="font-mono">{p.totalFailures}</span></span>}
-                    {p.cooldownMsRemaining > 0 && <span className="text-red-400">Cooldown <span className="font-mono">{Math.ceil(p.cooldownMsRemaining / 1000)}s</span></span>}
+                    {p.totalFailures > 0 && <span className="text-yellow">Failures <span className="font-mono">{p.totalFailures}</span></span>}
+                    {p.cooldownMsRemaining > 0 && <span className="text-red">Cooldown <span className="font-mono">{Math.ceil(p.cooldownMsRemaining / 1000)}s</span></span>}
                   </div>
                 </div>
               ))}
@@ -442,7 +449,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
           !u ? <p className="text-text-dim text-sm">Loading…</p> : (
             <div className="space-y-4">
               <p className="text-text-dim text-xs">Hour beginning {new Date(u.hour).toLocaleString()}</p>
-              <div className="border border-border rounded-lg overflow-hidden">
+              <div className="control-table border border-border rounded-xl overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-bg-elevated/60 text-text-dim text-xs">
                     <tr><th className="text-left px-3 py-2">Metric</th><th className="text-right px-3 py-2">This hour</th></tr>
@@ -461,7 +468,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                       <tr key={label} className="border-t border-border">
                         <td className="px-3 py-2 text-xs">{label}</td>
                         <td className={`px-3 py-2 text-right font-mono tabular-nums text-xs ${
-                          /limited|denied|errors/.test(label) && (value ?? 0) > 0 ? 'text-amber-400' : ''}`}>
+                          /limited|denied|errors/.test(label) && (value ?? 0) > 0 ? 'text-yellow' : ''}`}>
                           {label === 'Browser time' ? duration(u.browser_seconds ?? 0)
                             : label === 'Bytes out' ? bytes(u.bytes_out ?? 0)
                             : num(value)}
@@ -476,7 +483,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
         )}
 
         {view === 'audit' && (
-          <div className="border border-border rounded-lg overflow-hidden">
+          <div className="control-table border border-border rounded-xl overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-bg-elevated/60 text-text-dim text-xs">
                 <tr>
@@ -495,7 +502,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                       {e.target_type ? `${e.target_type}${e.target_id ? ` ${String(e.target_id).slice(0, 12)}` : ''}` : '—'}
                     </td>
                     <td className="px-3 py-2 text-xs text-text-dim">{e.ip || '—'}</td>
-                    <td className={`px-3 py-2 text-xs ${e.outcome === 'ok' ? 'text-accent' : e.outcome === 'denied' ? 'text-amber-400' : 'text-red-400'}`}>{e.outcome}</td>
+                    <td className={`px-3 py-2 text-xs ${e.outcome === 'ok' ? 'text-accent' : e.outcome === 'denied' ? 'text-yellow' : 'text-red'}`}>{e.outcome}</td>
                   </tr>
                 ))}
                 {!audit.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-text-dim text-xs">No audit events (admin key required).</td></tr>}
@@ -515,7 +522,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                 <div className="text-xs text-text-dim space-y-0.5">
                   <div>{num(r.frameCount)} frames · {bytes(r.bytes || 0)}</div>
                   <div>{r.durationMs ? duration(r.durationMs / 1000) : '—'} · {r.provider || 'unknown'}</div>
-                  {r.truncated && <div className="text-amber-400">truncated at the frame cap</div>}
+                  {r.truncated && <div className="text-yellow">truncated at the frame cap</div>}
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button onClick={() => setPlayer(r.sessionId)} disabled={!r.frameCount}
@@ -524,7 +531,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
                   </button>
                   <button onClick={() => void act(r.sessionId, () => del(`/gateway/recordings/${r.sessionId}`))}
                     disabled={!!busy}
-                    className="flex items-center gap-1 text-xs px-2 py-1 rounded text-text-dim hover:text-red-400 disabled:opacity-40">
+                    className="flex items-center gap-1 text-xs px-2 py-1 rounded text-text-dim hover:text-red disabled:opacity-40">
                     <Trash2 className="w-3 h-3" /> Delete
                   </button>
                 </div>

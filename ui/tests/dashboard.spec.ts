@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
+test.use({ reducedMotion: 'reduce' });
+
 async function dashboard(page: Page, cloudReady = false) {
   const commands: Array<{ action: string; params: Record<string, unknown> }> = [];
   const browser = {
@@ -24,15 +26,16 @@ async function dashboard(page: Page, cloudReady = false) {
     let body: unknown = {};
     if (path === '/config') body = {
       onboarded: 'true', desktop_seen_at: 'now', browser_provider: 'oya-cloud',
-      effective: {}, providers: [
+      llm_provider: 'openai', chat_model: 'gpt-4o-mini', openai_api_key: '••••saved',
+      effective: { model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1' }, providers: [
         { id: 'oya-cloud', label: 'Oya Cloud', configured: cloudReady, needs: [] },
         { id: 'steel', label: 'Steel', configured: true, needs: ['steel_api_key'] },
       ],
     };
     if (path === '/browsers') body = [browser];
     if (path === '/browsers/qa-browser') body = browser;
-    if (path === '/personas') body = { personas: [] };
-    if (path === '/fleet') body = { browsers: { total: 1, commands: 0, errors: 0, pending: 0, byClient: {}, byProvider: {}, byHealth: { ok: 1 }, byPersona: {} } };
+    if (path === '/personas') body = { personas: [{ id: 'profile-qa', name: 'Research workspace', isDefault: false, createdAt: '2026-09-01T12:00:00Z', lastUsedAt: null, activeBrowsers: 1, maxConcurrent: 3, proxy: null, exit: null, prefs: null, fingerprint: { platform: 'MacIntel', timezone: 'America/Indiana/Indianapolis', screen: '1920 × 1080' }, mfa: { configured: false }, login: { sites: ['example.com', 'shop.example'], cookies: 8, updatedAt: null } }] };
+    if (path === '/fleet') body = { at: '2026-09-09T12:00:00Z', uptimeSeconds: 7200, sessions: { total: 0, attached: 0, recording: 0 }, routing: { strategy: 'priority', queueDepth: 0, capacity: 10, active: 1, healthy: 1, providers: [] }, usage: { hour: '2026-09-09T12:00:00Z', commands: 42, command_errors: 0, browser_seconds: 1800, browsers_started: 3 }, limits: { commandsPerMinute: { limit: 100, burst: 20, remaining: 20 } }, quotas: { chatTokensPerHour: 10000 }, browsers: { total: 1, commands: 0, errors: 0, pending: 0, byClient: {}, byProvider: {}, byHealth: { ok: 1 }, byPersona: {} } };
     if (path.endsWith('/command')) {
       commands.push(route.request().postDataJSON());
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -130,4 +133,112 @@ test('context-menu keyboard selection survives fleet refresh', async ({ page }) 
   await page.waitForTimeout(3600);
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog', { name: 'Connect to QA browser' })).toBeVisible();
+});
+
+
+test('settings discards cancelled drafts and saves a provider with its own credential', async ({ page }) => {
+  await dashboard(page, true);
+  const open = page.getByRole('button', { name: 'Settings', exact: true });
+  await open.click();
+  await page.getByLabel('Model', { exact: true }).selectOption('__custom');
+  await page.getByLabel('Custom model ID').fill('custom-test');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await open.click();
+  await expect(page.getByLabel('Model', { exact: true })).toHaveValue('gpt-4o-mini');
+  await page.getByLabel('API key', { exact: true }).fill('fake-openai-draft');
+  await page.getByRole('button', { name: /Claude/ }).click();
+  await expect(page.getByLabel('API key', { exact: true })).toHaveValue('');
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+  await expect(save).toBeDisabled();
+  await page.getByLabel('API key', { exact: true }).fill('fake-claude-test-key');
+  await page.getByLabel('Model', { exact: true }).selectOption('claude-haiku-4-5');
+  const posted = page.waitForRequest(req => req.url().endsWith('/api/config') && req.method() === 'POST');
+  await save.click();
+  expect((await posted).postDataJSON()).toMatchObject({ llm_provider: 'anthropic', chat_model: 'claude-haiku-4-5', openai_api_key: 'fake-claude-test-key' });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('code snippets have visible syntax colors and safely render masked keys', async ({ page }, testInfo) => {
+  await dashboard(page, true);
+  await page.getByText('QA browser', { exact: true }).click({ button: 'right' });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Connect to QA browser' });
+  await dialog.getByRole('tab', { name: 'TypeScript', exact: true }).click();
+  const code = dialog.locator('code.syntax-code');
+  await expect(code.locator('.token.keyword').first()).toHaveText('import');
+  await expect(code).toContainText('<your-api-key>');
+  expect(await code.locator('.token.keyword').first().evaluate(el => getComputedStyle(el).color)).not.toBe(await code.evaluate(el => getComputedStyle(el).color));
+  await page.waitForTimeout(250); // Let dialog and theme transitions settle for visual inspection.
+  await page.screenshot({ path: testInfo.outputPath('snippets-dark.png') });
+  await dialog.getByRole('tab', { name: 'Agents (MCP)', exact: true }).click();
+  await expect(code).toHaveAttribute('data-language', 'json');
+  expect(JSON.parse(await code.innerText()).mcpServers['qa-browser'].headers.Authorization).toBe('Bearer <your-api-key>');
+  await dialog.getByRole('tab', { name: 'curl', exact: true }).click();
+  await expect(code).toHaveAttribute('data-language', 'bash');
+  await expect(code.locator('.token.string').first()).toBeVisible();
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await page.waitForTimeout(250); // Let dialog and theme transitions settle for visual inspection.
+  await page.screenshot({ path: testInfo.outputPath('snippets-light.png') });
+});
+
+test('settings fits desktop and mobile with aligned controls', async ({ page }, testInfo) => {
+  await dashboard(page, true);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByLabel('Model', { exact: true })).toHaveValue('gpt-4o-mini');
+  await page.waitForTimeout(250); // Let dialog and theme transitions settle for visual inspection.
+  await page.screenshot({ path: testInfo.outputPath('settings-desktop.png') });
+  await page.setViewportSize({ width: 375, height: 812 });
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect(dialog.getByRole('tab', { name: 'Verification' })).toBeInViewport();
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
+  await page.waitForTimeout(250); // Let dialog and theme transitions settle for visual inspection.
+  await page.screenshot({ path: testInfo.outputPath('settings-mobile.png') });
+  await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+  await page.waitForTimeout(250); // Let dialog and theme transitions settle for visual inspection.
+  await page.screenshot({ path: testInfo.outputPath('settings-light.png') });
+});
+
+
+test('browser list contains long content and keeps actions reachable', async ({ page }, testInfo) => {
+  await dashboard(page, true);
+  await page.route('**/api/browsers', route => route.fulfill({ json: [{ id: 'long-browser', name: 'Long workspace '.repeat(25), clientType: 'oya', provider: 'oya-cloud', persona: 'profile-qa', personaName: 'Operations '.repeat(25), health: 'ok', currentUrl: 'https://example.com/' + 'long-path/'.repeat(100), connectedAt: new Date().toISOString(), lastSeen: new Date().toISOString(), commands: 12345, errors: 0, pending: 0, streaming: false }] }));
+  await expect(page.getByRole('table', { name: 'Browsers' }).getByRole('button', { name: /^Long workspace/ })).toBeVisible();
+  const table = page.getByRole('table', { name: 'Browsers' });
+  expect(await table.evaluate(el => el.getBoundingClientRect().width)).toBeLessThanOrEqual(1440);
+  const row = table.locator('tbody tr').first();
+  expect((await row.boundingBox())!.height).toBeLessThanOrEqual(70);
+  await page.screenshot({ path: testInfo.outputPath('browsers-desktop.png') });
+  await page.getByLabel('Filter browsers').fill('nothing matches this');
+  await expect(page.getByText('No browsers match these filters.')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const scroll = page.locator('.data-scroll');
+  await scroll.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+  await expect(row.getByRole('button', { name: /^Stop / })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('browsers-mobile.png') });
+});
+
+test('profiles and control have bounded layouts and explain CDP sessions', async ({ page }, testInfo) => {
+  await dashboard(page, true);
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  const profiles = page.getByRole('table', { name: 'Profiles' });
+  await expect(profiles).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('profiles-desktop.png') });
+  await page.getByRole('button', { name: 'Control', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(page.getByText('Your browsers', { exact: true })).toBeVisible();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: testInfo.outputPath('control-desktop.png') });
+  await page.getByRole('tab', { name: 'CDP sessions', exact: true }).click();
+  await expect(page.getByText(/Individual REST or curl commands do not create a session/)).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('control-mobile.png') });
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await expect(profiles).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('profiles-mobile.png') });
 });

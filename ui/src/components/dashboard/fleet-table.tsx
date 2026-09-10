@@ -34,10 +34,10 @@ const PAGE = 500;
 
 const COLS: { key: SortKey; label: string; className: string }[] = [
   { key: 'health', label: '', className: 'w-6' },
-  { key: 'name', label: 'Browser', className: 'min-w-[160px]' },
-  { key: 'persona', label: 'Persona', className: 'min-w-[120px]' },
+  { key: 'name', label: 'Browser', className: 'w-[22%]' },
+  { key: 'persona', label: 'Persona', className: 'w-[140px]' },
   { key: 'provider', label: 'Provider', className: 'w-[120px]' },
-  { key: 'currentUrl', label: 'Current page', className: 'min-w-[200px]' },
+  { key: 'currentUrl', label: 'Current page', className: '' },
   { key: 'commands', label: 'Cmds · Err', className: 'w-[100px] text-right' },
   { key: 'lastSeen', label: 'Seen', className: 'w-[64px] text-right' },
   { key: 'connectedAt', label: 'Up', className: 'w-[72px] text-right' },
@@ -119,7 +119,7 @@ export default function FleetTable({
   const th = (c: typeof COLS[number]) => {
     const active = sort.key === c.key;
     return (
-      <th key={c.key} className={`${c.className} px-2 py-1.5 text-left text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted select-none`}>
+      <th key={c.key} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'} className={`${c.className} px-2 py-3 ${c.className.includes('text-right') ? 'text-right' : 'text-left'} text-[11px] font-medium uppercase tracking-[0.1em] text-text-muted select-none`}>
         {c.label ? (
           <button className="inline-flex items-center gap-1 hover:text-text" onClick={() => setSort({ key: c.key, dir: active ? (sort.dir === 1 ? -1 : 1) : 1 })}>
             {c.label}
@@ -133,10 +133,10 @@ export default function FleetTable({
   const anyFilter = filter.health || filter.provider || filter.persona || filter.text;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="workspace-list flex h-full min-h-0 min-w-0 flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2 lg:px-6">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 py-4 lg:px-6">
+        <div className="relative min-w-[180px] flex-1 max-w-md">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-dim" />
           <input
             ref={filterRef}
@@ -150,35 +150,35 @@ export default function FleetTable({
           <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"><Kbd>/</Kbd></span>
         </div>
         {anyFilter && (
-          <button className="btn-ghost h-7 px-2 text-[12px]" onClick={() => onFilter({ health: null, provider: null, persona: null, text: '' })}>
+          <button className="btn-ghost h-9 px-2 text-[12px]" onClick={() => onFilter({ health: null, provider: null, persona: null, text: '' })}>
             <X className="h-3 w-3" /> Clear
           </button>
         )}
         <span className="ml-1 text-[12px] num text-text-muted">{visible.length}{visible.length !== rows.length ? ` of ${rows.length}` : ''}</span>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
           {checked.size > 0 && (
-            <button className="btn-danger h-7" onClick={() => onStop([...checked])}>
+            <button className="btn-danger h-9" onClick={() => onStop([...checked])}>
               <Square className="h-3 w-3" /> Stop {checked.size}
             </button>
           )}
           {rows.length > 0 && checked.size === 0 && (
-            <button className="btn-ghost h-7 text-[12px]" onClick={() => onStop(rows.map((r) => r.id))}>Stop all</button>
+            <button className="btn-ghost h-9 text-[12px]" onClick={() => onStop(rows.map((r) => r.id))}>Stop all</button>
           )}
-          <button className="btn-ghost h-7" onClick={onCode} title="Code that starts browsers here"><Code2 className="h-3.5 w-3.5" /> Code</button>
-          <button className="btn-primary h-7" onClick={onStart}>Start browser <Kbd>N</Kbd></button>
+          <button className="btn-ghost h-9" onClick={onCode} title="Code that starts browsers here"><Code2 className="h-3.5 w-3.5" /> Code</button>
+          <button className="btn-primary h-9" onClick={onStart}>Start browser <Kbd>N</Kbd></button>
         </div>
       </div>
       <ContextMenu at={menu?.at ?? null} items={menu ? menuItems(menu.row) : []} onClose={() => setMenu(null)} label={menu ? `Actions for ${menu.row.name}` : 'Actions'} />
 
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="data-scroll mx-4 mb-4 min-h-0 flex-initial overflow-auto rounded-xl border border-border bg-bg-card/25 lg:mx-6 lg:mb-6">
         {rows.length === 0 ? (
           <Empty onStart={onStart} />
         ) : (
-          <table className="w-full border-collapse text-[13px]">
-            <thead className="sticky top-0 z-10 bg-bg">
+          <table className="data-table fleet-data w-full table-fixed border-collapse text-[13px]" aria-label="Browsers">
+            <thead className="sticky top-0 z-10 bg-bg-elevated">
               <tr className="border-b border-border">
-                <th className="w-8 px-2 py-1.5">
+                <th className="w-8 px-2 py-3">
                   <input type="checkbox" checked={allChecked} onChange={toggleAll} aria-label="Select all shown" className="accent-accent" />
                 </th>
                 {COLS.map(th)}
@@ -186,6 +186,7 @@ export default function FleetTable({
               </tr>
             </thead>
             <tbody ref={bodyRef}>
+              {!shown.length && <tr><td colSpan={10} className="py-16 text-center text-text-muted">No browsers match these filters.<button className="btn-ghost mx-auto mt-3" onClick={() => onFilter({ health: null, provider: null, persona: null, text: '' })}>Clear filters</button></td></tr>}
               {shown.map((r) => {
                 const selected = r.id === selectedId;
                 return (
@@ -194,39 +195,39 @@ export default function FleetTable({
                     data-id={r.id}
                     onClick={() => onSelect(selected ? null : r.id)}
                     onContextMenu={(e) => { e.preventDefault(); setMenu({ at: { x: e.clientX, y: e.clientY }, row: r }); }}
-                    className={`row-lazy group cursor-pointer border-b border-border/60 transition-colors ${
+                    className={`group cursor-pointer border-b border-border/60 transition-colors ${
                       selected ? 'bg-accent/[0.08]' : 'hover:bg-text/[0.035]'}`}
                     aria-selected={selected}
                   >
-                    <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" checked={checked.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Select ${r.name}`} className="accent-accent" />
                     </td>
-                    <td className="px-2 py-1.5"><span className={`dot dot-${r.health}`} title={r.health} /></td>
-                    <td className="px-2 py-1.5">
-                      <div className="truncate font-medium text-text">{r.name}</div>
+                    <td className="px-2 py-3"><span className={`dot dot-${r.health}`} title={r.health} /></td>
+                    <td className="px-2 py-3">
+                      <button className="block w-full truncate text-left font-medium text-text outline-offset-4 hover:text-accent" onClick={e => { e.stopPropagation(); onSelect(selected ? null : r.id); }} title={r.name}>{r.name}</button>
                       <div className="truncate font-mono text-[11px] text-text-dim">{shortId(r.id)}</div>
                     </td>
-                    <td className="truncate px-2 py-1.5 text-text-secondary" title={r.persona || ''}>{r.personaName || (r.persona ? shortId(r.persona) : '—')}</td>
-                    <td className="px-2 py-1.5 text-text-secondary">{providerLabel(r.provider)}</td>
-                    <td className="max-w-0 truncate px-2 py-1.5 font-mono text-[12px] text-text-secondary" title={r.currentUrl}>
+                    <td className="truncate px-2 py-3 text-text-secondary" title={r.persona || ''}>{r.personaName || (r.persona ? shortId(r.persona) : '—')}</td>
+                    <td className="px-2 py-3 text-text-secondary">{providerLabel(r.provider)}</td>
+                    <td className="truncate px-2 py-3 font-mono text-[12px] text-text-secondary" title={r.currentUrl}>
                       {r.currentUrl ? r.currentUrl.replace(/^https?:\/\//, '') : <span className="text-text-dim">—</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-right num text-text-secondary">
+                    <td className="px-2 py-3 text-right num text-text-secondary">
                       {r.commands} · <span className={r.errors ? 'text-red' : ''}>{r.errors}</span>
                       {r.pending > 0 && <span className="ml-1 text-yellow">+{r.pending}</span>}
                     </td>
-                    <td className="px-2 py-1.5 text-right num text-text-muted">{ago(r.lastSeen, now)}</td>
-                    <td className="px-2 py-1.5 text-right num text-text-muted">{ago(r.connectedAt, now)}</td>
-                    <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                    <td className="px-2 py-3 text-right num text-text-muted">{ago(r.lastSeen, now)}</td>
+                    <td className="px-2 py-3 text-right num text-text-muted">{ago(r.connectedAt, now)}</td>
+                    <td className="px-2 py-3 text-right whitespace-nowrap">
                       <button
-                        className="btn-icon h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="btn-icon h-6 w-6 text-text-dim hover:text-text"
                         title="Connect (code, Playwright, MCP)" aria-label={`Connect to ${r.name}`}
                         onClick={(e) => { e.stopPropagation(); onConnect(r.id); }}
                       >
                         <Plug className="h-3 w-3" />
                       </button>
                       <button
-                        className="btn-icon h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                        className="btn-icon h-6 w-6 text-text-dim hover:text-text"
                         title="Stop" aria-label={`Stop ${r.name}`}
                         onClick={(e) => { e.stopPropagation(); onStop([r.id]); }}
                       >
@@ -242,8 +243,8 @@ export default function FleetTable({
         {visible.length > limit && (
           <div className="flex items-center justify-center gap-3 py-3 text-[12.5px] text-text-muted">
             Showing {limit} of {visible.length}
-            <button className="btn-ghost h-7" onClick={() => setLimit(limit + PAGE)}>Show {Math.min(PAGE, visible.length - limit)} more</button>
-            <button className="btn-ghost h-7" onClick={() => setLimit(visible.length)}>Show all</button>
+            <button className="btn-ghost h-9" onClick={() => setLimit(limit + PAGE)}>Show {Math.min(PAGE, visible.length - limit)} more</button>
+            <button className="btn-ghost h-9" onClick={() => setLimit(visible.length)}>Show all</button>
           </div>
         )}
       </div>

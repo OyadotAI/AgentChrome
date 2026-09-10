@@ -29,7 +29,7 @@ type MainTab = 'browsers' | 'personas' | 'control';
 const TABS: { key: MainTab; label: string; icon: typeof Monitor }[] = [
   { key: 'browsers', label: 'Browsers', icon: Monitor },
   { key: 'personas', label: 'Profiles', icon: Users },
-  { key: 'control', label: 'Usage & activity', icon: Activity },
+  { key: 'control', label: 'Control', icon: Activity },
 ];
 
 const NO_FILTER: FleetFilter = { health: null, provider: null, persona: null, text: '' };
@@ -241,7 +241,7 @@ export default function DashboardPage() {
 
           {tab === 'browsers' && <FleetStrip fleet={fleet} rate={rate} filter={filter} onFilter={(n) => setFilter((f) => ({ ...f, ...n }))} />}
 
-          <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1">
             <div className="min-w-0 flex-1">
               {tab === 'browsers' && (
                 <FleetTable rows={browsers} selectedId={selected} onSelect={setSelected} checked={checked} onChecked={setChecked}
@@ -253,7 +253,7 @@ export default function DashboardPage() {
                 <PersonasTab apiKey={apiKey} browsers={browsers} personas={personas} refresh={fetchPersonas}
                   openId={openPersona} onOpen={setOpenPersona} onShowBrowsers={showBrowsersFor} now={now} />
               )}
-              {tab === 'control' && <div className="h-full overflow-y-auto"><ControlTab apiKey={apiKey} /></div>}
+              {tab === 'control' && <div className="h-full min-w-0 overflow-hidden"><ControlTab apiKey={apiKey} /></div>}
             </div>
 
             {tab === 'browsers' && selected && (

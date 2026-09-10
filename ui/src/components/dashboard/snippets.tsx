@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Copy, Check, Eye, EyeOff } from 'lucide-react';
 import Dialog from '@/components/ui/dialog';
+import SyntaxCode from '@/components/ui/syntax-code';
 import type { BrowserRow } from './types';
 import { apiOrigin } from '@/lib/api';
 
@@ -186,10 +187,10 @@ export default function SnippetsDialog({ open, onClose, apiKey, title, descripti
   return (
     <Dialog open={open} onClose={onClose} title={title} description={description} size="lg">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-border bg-bg p-1" role="tablist">
+        <div className="inline-flex max-w-full overflow-x-auto rounded-lg border border-border bg-bg p-1" role="tablist" aria-label="Snippet language">
           {snippets.map((x) => (
-            <button key={x.id} role="tab" aria-selected={active === x.id} onClick={() => setActive(x.id)}
-              className={`rounded-md px-3 py-1 text-[12.5px] font-medium transition-colors ${active === x.id ? 'bg-accent/15 text-text' : 'text-text-muted hover:text-text'}`}>
+            <button key={x.id} role="tab" aria-selected={s.id === x.id} onClick={() => { setActive(x.id); setCopied(false); }}
+              className={`shrink-0 rounded-md px-3 py-1 text-[12.5px] font-medium transition-colors ${s.id === x.id ? 'bg-accent/15 text-text' : 'text-text-muted hover:text-text'}`}>
               {x.label}
             </button>
           ))}
@@ -207,7 +208,7 @@ export default function SnippetsDialog({ open, onClose, apiKey, title, descripti
         <div className="flex items-center justify-between border-b border-border bg-bg-elevated/40 px-3 py-1.5">
           <span className="font-mono text-[11px] text-text-dim">{s.file}</span>
         </div>
-        <pre className="overflow-x-auto px-4 py-3 font-mono text-[12.5px] leading-[1.75] text-text-secondary">{shown}</pre>
+        <pre className="overflow-x-auto px-5 py-5 font-mono text-[12.5px] leading-[1.9] text-text-secondary"><SyntaxCode code={shown} language={s.id === 'mcp' ? 'json' : ['cli', 'curl'].includes(s.id) ? 'bash' : 'typescript'} /></pre>
       </div>
       {s.note && <p className="mt-3 text-[12.5px] text-text-muted">{s.note}</p>}
     </Dialog>

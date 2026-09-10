@@ -18,8 +18,8 @@ const archivo = Archivo_Black({
 });
 
 export const metadata: Metadata = {
-  title: 'Oya Browser',
-  description: 'Sign in once. Save a profile. Control your browsers from code.',
+  title: { default: 'Oya Browser — Browser infrastructure for agents', template: '%s · Oya Browser' },
+  description: 'Real browsers, persistent identities, and one workspace for your agents. Build with the TypeScript SDK, CLI, or MCP.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

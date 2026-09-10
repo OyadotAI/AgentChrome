@@ -158,6 +158,71 @@ try {
   const src = (await import('fs')).readFileSync('./src/chat-service.js', 'utf8');
   assert(/redirect:\s*'error'/.test(src), "the chat fetch refuses redirects (no 30x bypass)");
 
+  console.log('\nCloud sandbox lifecycle survives socket disconnects...');
+  process.env.DAYTONA_API_KEY = 'isolated-daytona-key';
+  process.env.DAYTONA_SNAPSHOT = 'test-snapshot';
+  process.env.OYA_PUBLIC_WS_URL = 'wss://example.test/ws';
+  const { Daytona } = await import('@daytona/sdk');
+  const { createHash } = await import('node:crypto');
+  const owner = createHash('sha256').update('tenant-key').digest('hex').slice(0, 32);
+  let removed = false;
+  const cloud = { id: 'sandbox-id', state: 'started', createdAt: new Date().toISOString(), labels: {
+    'oya-browser': 'true', 'oya-browser-id': 'cloud-browser', 'oya-owner': owner,
+  }, delete: async () => { removed = true; } };
+  Daytona.prototype.list = async function* () { if (!removed) yield cloud; };
+  Daytona.prototype.get = async function () { return cloud; };
+  const disconnected = await call('/browsers', 'GET', undefined, 'tenant-key');
+  assert(disconnected.body.some(b => b.id === 'cloud-browser' && b.health === 'dead'), 'running sandbox remains listed without a WebSocket');
+  const foreign = await call('/browsers', 'GET', undefined, 'admin-key');
+  assert(!foreign.body.some(b => b.id === 'cloud-browser'), 'sandbox inventory never crosses API-key ownership');
+  const detail = await call('/browsers/cloud-browser', 'GET', undefined, 'tenant-key');
+  assert(detail.status === 200 && detail.body.lastError?.includes('disconnected'), 'disconnected sandbox explains its state in the detail panel');
+  const fleet = await call('/fleet', 'GET', undefined, 'tenant-key');
+  assert(fleet.body.browsers.total === 1 && fleet.body.browsers.byHealth.dead === 1, 'fleet counters include disconnected sandboxes');
+  const { listSandboxBrowsers } = await import('./src/sandbox.js');
+  const reconnected = await listSandboxBrowsers('tenant-key', [{ id: 'cloud-browser', health: 'ok', name: 'Connected again' }]);
+  assert(reconnected.length === 1 && reconnected[0].health === 'ok', 'reconnection replaces the disconnected row without duplication');
+  const denied = await call('/browsers/cloud-browser/stop', 'POST', {}, 'admin-key');
+  assert(!denied.body.ok && !removed, 'another owner cannot stop the disconnected sandbox');
+  const stopped = await call('/browsers/cloud-browser/stop', 'POST', {}, 'tenant-key');
+  assert(stopped.body.ok && removed, 'Stop deletes an owned sandbox even without a WebSocket');
+  const afterStop = await call('/browsers', 'GET', undefined, 'tenant-key');
+  assert(!afterStop.body.some(b => b.id === 'cloud-browser'), 'stopped sandbox disappears immediately from inventory');
+
+  let launches = 0;
+  let autoEntrypoint = true;
+  Daytona.prototype.create = async function () { return { id: 'new-sandbox', setTtl: async () => {}, process: {
+    executeCommand: async () => ({ result: 'ok' }),
+    getEntrypointSession: async () => ({ commands: [{ command: autoEntrypoint ? "'/docker-entrypoint.sh'" : 'sleep infinity' }] }),
+    createSession: async () => {}, executeSessionCommand: async () => { launches++; },
+  } }; };
+  const { createSandbox } = await import('./src/sandbox.js');
+  await createSandbox({ apiKey: 'tenant-key' });
+  assert(launches === 0, 'snapshot entrypoint is not launched twice');
+  autoEntrypoint = false;
+  await createSandbox({ apiKey: 'tenant-key' });
+  assert(launches === 1, 'legacy sleeping snapshot still launches the browser');
+
+  const { writeFileSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const preload = joinPath(process.env.OYA_DATA_DIR, 'delayed-database.mjs');
+  writeFileSync(preload, `
+    import { Server } from 'node:http';
+    let keysLoaded = false;
+    globalThis.fetch = async (url) => {
+      const keys = String(url).includes('/api_keys');
+      await new Promise(resolve => setTimeout(resolve, keys ? 150 : 10));
+      if (keys) keysLoaded = true;
+      return Response.json(keys ? [{ key: 'registered-browser-key' }] : []);
+    };
+    Server.prototype.listen = function () { process.exit(keysLoaded ? 0 : 1); };
+  `);
+  const startup = spawnSync(process.execPath, ['--import', preload, 'src/index.js'], {
+    env: { ...process.env, SUPABASE_URL: 'https://database.invalid', SUPABASE_SERVICE_KEY: 'isolated-db-key', OYA_UI_MODE: '', API_KEYS: '' },
+    timeout: 10000, encoding: 'utf8',
+  });
+  assert(startup.status === 0, 'server waits for database API keys before accepting reconnects');
+
 } finally {
   await new Promise((r) => server.close(r));
 }

@@ -16,7 +16,7 @@ import { runChat } from './chat-service.js';
 import { runtimeConfig } from './runtime-config.js';
 import { nextBrowser, poolStats } from './pool.js';
 import { getAll as getAllCookies, clear as clearCookies, getStorage, mergeStorage, mergeDump, drain as drainLogins } from './cookie-store.js';
-import { isConfigured as sandboxConfigured, missingSettings, createSandbox, removeSandbox } from './sandbox.js';
+import { isConfigured as sandboxConfigured, missingSettings, createSandbox, removeSandbox, listSandboxBrowsers } from './sandbox.js';
 import { metrics, render as renderMetrics, snapshot as metricsSnapshot } from './metrics.js';
 import { audit, history as auditHistory, fingerprint } from './audit.js';
 import * as usage from './usage.js';
@@ -243,18 +243,17 @@ router.get('/metrics', operatorOnly, (req, res) => {
  * usage and allowance. This is the dashboard's fleet view. There is no admin
  * variant, because the key is the whole identity.
  */
-router.get('/fleet', authMiddleware, (req, res) => {
+router.get('/fleet', authMiddleware, async (req, res) => {
   const key = getKey(req);
   const owner = fingerprint(key);
-  const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key);
+  const mine = await listSandboxBrowsers(key, registry.list(key));
   const byClient = {};
   const byProvider = {};
   const byHealth = { ok: 0, stale: 0, errors: 0, dead: 0 };
   const byPersona = {};
   let commands = 0, errors = 0, pending = 0;
-  for (const [id, b] of registry.browsers) {
-    if (b.apiKey !== key) continue;
-    const row = registry.row(id, b);
+  for (const row of mine) {
+    const b = row;
     byClient[b.clientType || 'oya'] = (byClient[b.clientType || 'oya'] || 0) + 1;
     if (b.provider) byProvider[b.provider] = (byProvider[b.provider] || 0) + 1;
     byHealth[row.health] = (byHealth[row.health] || 0) + 1;
@@ -319,7 +318,19 @@ router.get('/audit', authMiddleware, async (req, res) => {
 async function stopBrowser(req, browserId, { sandbox } = {}) {
   const key = getKey(req);
   const browser = registry.get(browserId);
-  if (!browser || !canAccess(req, browserId)) return { id: browserId, ok: false, error: 'Browser not connected' };
+  if (!browser) {
+    if (sandboxConfigured()) {
+      try {
+        const removed = await removeSandbox(browserId, key);
+        if (removed) {
+          audit({ action: 'browser.stop', actorKey: key, targetType: 'browser', targetId: browserId, meta: { provider: 'oya-cloud', sandboxRemoved: true }, req });
+          return { id: browserId, ok: true, sandboxRemoved: true, provider: 'oya-cloud' };
+        }
+      } catch (err) { return { id: browserId, ok: false, error: err.message }; }
+    }
+    return { id: browserId, ok: false, error: 'Browser not connected' };
+  }
+  if (!canAccess(req, browserId)) return { id: browserId, ok: false, error: 'Browser not connected' };
   if (browser.driver && browser.persona) {
     try {
       const { cookies } = await browser.driver.conn.send('Network.getAllCookies', {}, browser.driver.sessionId);
@@ -367,7 +378,7 @@ router.post('/browsers/:browserId/stop', authMiddleware, async (req, res) => {
 router.post('/browsers/stop', authMiddleware, async (req, res) => {
   const key = getKey(req);
   const ids = req.body?.all === true
-    ? [...registry.browsers.entries()].filter(([, b]) => b.apiKey === key).map(([id]) => id)
+    ? (await listSandboxBrowsers(key, registry.list(key))).map(b => b.id)
     : (Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 5000) : []);
   if (!ids.length) return req.body?.all === true
     ? res.json({ ok: true, stopped: 0, results: [] })
@@ -382,9 +393,11 @@ router.post('/browsers/stop', authMiddleware, async (req, res) => {
 });
 
 /** One browser with its recent activity — what the detail panel polls. */
-router.get('/browsers/:browserId', authMiddleware, (req, res) => {
+router.get('/browsers/:browserId', authMiddleware, async (req, res) => {
   const { browserId } = req.params;
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    const cloud = (await listSandboxBrowsers(getKey(req))).find(row => row.id === browserId);
+    if (cloud) return res.json({ ...cloud, activity: [] });
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
   const detail = registry.describe(browserId);
@@ -1072,9 +1085,9 @@ router.post('/config/host', operatorOnly, (req, res) => {
 });
 
 // List connected browsers — scoped to caller's API key (admin sees all)
-router.get('/browsers', authMiddleware, (req, res) => {
+router.get('/browsers', authMiddleware, async (req, res) => {
   const key = getKey(req);
-  res.json(registry.list(key));
+  res.json(await listSandboxBrowsers(key, registry.list(key)));
 });
 
 // Live view — SSE stream of JPEG frames

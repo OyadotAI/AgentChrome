@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import SyntaxCode from '@/components/ui/syntax-code';
 import { ArrowRight, Check, Copy, Download, Loader2, Monitor, Terminal } from 'lucide-react';
 import { saveConfig, desktopSignInUrl, type KeyConfig } from './config';
 import { apiOrigin } from '@/lib/api';
@@ -88,7 +89,7 @@ export default function Onboarding({ apiKey, config, personas, browsers, onDone 
           <aside className="min-w-0 self-start overflow-hidden rounded-lg border border-border bg-bg-sunken lg:sticky lg:top-6">
             <div className="flex items-center gap-2 border-b border-border px-5 py-4 text-sm"><Terminal className="h-4 w-4 text-accent" /><span className="font-medium">Your first browser, in six lines</span></div>
             <div className="border-b border-border px-5 py-3 font-mono text-xs text-text-muted">npm install @oya/browser</div>
-            <pre className="overflow-x-auto p-5 font-mono text-xs leading-7 text-text-secondary">{code('<your-api-key>')}</pre>
+            <pre className="overflow-x-auto p-5 font-mono text-xs leading-7 text-text-secondary"><SyntaxCode code={code('<your-api-key>')} language="typescript" /></pre>
             <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-4">
               <button className="btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(code(apiKey)); setCopied(true); } catch { toast('Could not copy. Select the code and copy it manually.', 'error'); } }}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? 'Copied with your key' : 'Copy with your key'}</button>
               <a className="ml-auto text-xs text-text-muted hover:text-text" href="/docs/">Read the API guide ↗</a>

@@ -283,7 +283,12 @@ async function flush() {
   try {
     if (db) {
       const { error } = await db.from('personas').upsert(
-        rows.map((p) => ({ ...serialise(p), updated_at: new Date().toISOString() })), { onConflict: 'id' });
+        rows.map((p) => ({
+          id: p.id, owner: p.owner, name: p.name, seed: p.seed, prefs: p.prefs, proxy: p.proxy,
+          max_concurrent: Number.isFinite(p.maxConcurrent) ? p.maxConcurrent : null,
+          is_default: p.isDefault, created_at: p.createdAt, last_used_at: p.lastUsedAt,
+          updated_at: new Date().toISOString(),
+        })), { onConflict: 'id' });
       if (error) throw new Error(error.message);
     } else {
       await mkdir(dirname(STORE), { recursive: true });
@@ -313,7 +318,10 @@ export async function restore() {
     if (!db) return await fromFile().then(report);
     const { data, error } = await db.from('personas').select('*');
     if (error) throw new Error(error.message);
-    for (const row of data || []) personas.set(row.id, shape(row));
+    for (const row of data || []) personas.set(row.id, shape({
+      ...row, maxConcurrent: row.max_concurrent, isDefault: row.is_default,
+      createdAt: row.created_at, lastUsedAt: row.last_used_at,
+    }));
     report();
   } catch (e) {
     // A missing table or an unreachable database must not lose personas —

@@ -1,9 +1,13 @@
 'use client';
+import SyntaxCode from '@/components/ui/syntax-code';
+import { OyaWordmark } from '@/components/oya-logo';
+import ThemeToggle from '@/components/theme-toggle';
+import Dialog from '@/components/ui/dialog';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 import Link from 'next/link';
 import {
-  Search,
+  Search, Copy, Check, ArrowUpRight,
   X,
   ArrowLeft,
   ExternalLink,
@@ -38,7 +42,23 @@ interface SearchHit {
 /*  Docs Page                                                          */
 /* ------------------------------------------------------------------ */
 
+const DocsNav = createContext({ active: 'quickstart', navigate: (() => {}) as (id: string) => void });
+
 export default function DocsPage() {
+  const [activeSection, setActiveSection] = useState('quickstart');
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const headings = [...document.querySelectorAll<HTMLElement>('main h2[id], main h3[id]')];
+        const current = headings.filter(el => el.getBoundingClientRect().top <= 140).at(-1);
+        if (current) setActiveSection(current.id);
+      });
+    };
+    window.addEventListener('scroll', update, { passive: true });
+    return () => { window.removeEventListener('scroll', update); cancelAnimationFrame(frame); };
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -52,12 +72,12 @@ export default function DocsPage() {
       ['Documentation', '', 'H1'],
       ['Everything you need to connect your browser to AI agents via Oya Browser.', '', 'P'],
       ['Quickstart', 'quickstart', 'H2'],
-      ['Go to the dashboard and click Generate to create an API key', 'quickstart', 'LI'],
+      ['Open the API key menu in the dashboard to create an API key', 'quickstart', 'LI'],
       ['Download Oya Browser for your OS', 'quickstart', 'LI'],
       ['Open the app, enter wss://browser.getoya.ai/ws as server URL and paste your API key', 'quickstart', 'LI'],
       ['Your browser appears in the dashboard — you can now send commands or connect AI tools', 'quickstart', 'LI'],
       ['Create API Key', 'create-key', 'H2'],
-      ['Go to the dashboard. Click the green Generate button next to the API key field.', 'create-key', 'P'],
+      ['Open the API key menu in the dashboard to create or choose your key.', 'create-key', 'P'],
       ['Your key is scoped — you only see browsers connected with your key.', 'create-key', 'P'],
       ['Save your key somewhere safe. If you lose it, you\'ll need to generate a new one.', 'create-key', 'P'],
       ['Download Browser', 'download', 'H2'],
@@ -200,28 +220,18 @@ export default function DocsPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === '/' && (document.activeElement as HTMLElement)?.tagName !== 'INPUT') {
         e.preventDefault();
-        searchInputRef.current?.focus();
+        [...document.querySelectorAll<HTMLInputElement>('[aria-label="Search documentation"]')].find(el => el.getClientRects().length)?.focus();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  /* ---- Lock body scroll when mobile menu open ---- */
-  useEffect(() => {
-    if (mobileMenuOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [mobileMenuOpen]);
-
   /* ---- Sidebar nav click (close mobile menu + scroll) ---- */
   const navClick = useCallback((id: string) => {
     setMobileMenuOpen(false);
+    setActiveSection(id);
+    window.history.replaceState(null, '', '#' + id);
     setTimeout(() => {
       const el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -233,13 +243,7 @@ export default function DocsPage() {
   /* ---------------------------------------------------------------- */
   const sidebarContent = (
     <>
-      {/* Logo */}
-      <Link href="/" className="flex items-center gap-2 text-text font-bold text-base mb-6 hover:opacity-80 transition-opacity">
-        <div className="w-6 h-6 rounded-md bg-accent flex items-center justify-center">
-          <Globe className="w-3.5 h-3.5 text-white" />
-        </div>
-        Oya Browser
-      </Link>
+      <div className="mb-6 flex items-center justify-between"><span className="eyebrow text-text-dim">Documentation</span><span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-dim">v1</span></div>
 
       {/* Search */}
       <div className="relative mb-5">
@@ -247,15 +251,16 @@ export default function DocsPage() {
         <input
           ref={searchInputRef}
           type="text"
-          placeholder="Search docs..."
-          className="w-full bg-bg-elevated border border-border rounded-lg py-2 pl-8 pr-8 text-text text-sm outline-none placeholder:text-text-dim focus:border-indigo transition-colors"
+          placeholder="Search docs…"
+          aria-label="Search documentation"
+          className="w-full bg-bg-sunken border border-border rounded-lg py-2.5 pl-8 pr-8 text-text text-sm outline-none placeholder:text-text-dim focus:border-indigo transition-colors"
           value={searchQuery}
           onChange={(e) => handleSearchInput(e.target.value)}
           onKeyDown={handleSearchKeyDown}
         />
         {searchQuery && (
           <button
-            onClick={() => { setSearchQuery(''); doSearch(''); }}
+            aria-label="Clear search" onClick={() => { setSearchQuery(''); doSearch(''); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-text transition-colors"
           >
             <X className="w-3.5 h-3.5" />
@@ -284,67 +289,67 @@ export default function DocsPage() {
 
       {/* Nav sections */}
       <NavSection icon={<Zap className="w-3 h-3" />} label="Getting Started">
-        <NavLink onClick={() => navClick('quickstart')}>Quickstart</NavLink>
-        <NavLink onClick={() => navClick('sdk')}>SDK</NavLink>
-        <NavLink onClick={() => navClick('cli')}>CLI</NavLink>
-        <NavLink onClick={() => navClick('create-key')}>Create API Key</NavLink>
-        <NavLink onClick={() => navClick('download')}>Desktop Sign-in</NavLink>
-        <NavLink onClick={() => navClick('connect')}>Connect</NavLink>
+        <NavLink id="quickstart">Quickstart</NavLink>
+        <NavLink id="sdk">SDK</NavLink>
+        <NavLink id="cli">CLI</NavLink>
+        <NavLink id="create-key">Create API Key</NavLink>
+        <NavLink id="download">Desktop Sign-in</NavLink>
+        <NavLink id="connect">Connect</NavLink>
       </NavSection>
 
       <NavSection icon={<Users className="w-3 h-3" />} label="Identity">
-        <NavLink onClick={() => navClick('personas')}>Personas</NavLink>
-        <NavLink onClick={() => navClick('rotation')}>Rotation</NavLink>
-        <NavLink onClick={() => navClick('captcha')}>CAPTCHA</NavLink>
-        <NavLink onClick={() => navClick('mfa')}>MFA</NavLink>
+        <NavLink id="personas">Personas</NavLink>
+        <NavLink id="rotation">Rotation</NavLink>
+        <NavLink id="captcha">CAPTCHA</NavLink>
+        <NavLink id="mfa">MFA</NavLink>
       </NavSection>
 
       <NavSection icon={<BookOpen className="w-3 h-3" />} label="AI Integration">
-        <NavLink onClick={() => navClick('mcp-setup')}>MCP Setup</NavLink>
-        <NavLink onClick={() => navClick('cursor')}>Cursor</NavLink>
-        <NavLink onClick={() => navClick('claude-desktop')}>Claude Desktop</NavLink>
-        <NavLink onClick={() => navClick('claude-code')}>Claude Code</NavLink>
+        <NavLink id="mcp-setup">MCP Setup</NavLink>
+        <NavLink id="cursor">Cursor</NavLink>
+        <NavLink id="claude-desktop">Claude Desktop</NavLink>
+        <NavLink id="claude-code">Claude Code</NavLink>
       </NavSection>
 
       <NavSection icon={<Terminal className="w-3 h-3" />} label="MCP Tools">
-        <NavLink onClick={() => navClick('analyze_page')}>analyze_page</NavLink>
-        <NavLink onClick={() => navClick('navigate')}>navigate</NavLink>
-        <NavLink onClick={() => navClick('click')}>click</NavLink>
-        <NavLink onClick={() => navClick('type')}>type</NavLink>
-        <NavLink onClick={() => navClick('press_key')}>press_key</NavLink>
-        <NavLink onClick={() => navClick('screenshot')}>screenshot</NavLink>
-        <NavLink onClick={() => navClick('scroll')}>scroll</NavLink>
-        <NavLink onClick={() => navClick('tabs')}>Tab management</NavLink>
-        <NavLink onClick={() => navClick('wait')}>wait</NavLink>
+        <NavLink id="analyze_page">analyze_page</NavLink>
+        <NavLink id="navigate">navigate</NavLink>
+        <NavLink id="click">click</NavLink>
+        <NavLink id="type">type</NavLink>
+        <NavLink id="press_key">press_key</NavLink>
+        <NavLink id="screenshot">screenshot</NavLink>
+        <NavLink id="scroll">scroll</NavLink>
+        <NavLink id="tabs">Tab management</NavLink>
+        <NavLink id="wait">wait</NavLink>
       </NavSection>
 
       <NavSection icon={<Shield className="w-3 h-3" />} label="Anonymity">
-        <NavLink onClick={() => navClick('anonymity')}>Overview</NavLink>
-        <NavLink onClick={() => navClick('fingerprint')}>Fingerprint Spoofing</NavLink>
-        <NavLink onClick={() => navClick('proxy-support')}>Proxy Support</NavLink>
-        <NavLink onClick={() => navClick('stealth')}>Anti-Detection</NavLink>
-        <NavLink onClick={() => navClick('list_profiles')}>list_profiles</NavLink>
-        <NavLink onClick={() => navClick('create_profile')}>create_profile</NavLink>
-        <NavLink onClick={() => navClick('set_profile')}>set_profile</NavLink>
+        <NavLink id="anonymity">Overview</NavLink>
+        <NavLink id="fingerprint">Fingerprint Spoofing</NavLink>
+        <NavLink id="proxy-support">Proxy Support</NavLink>
+        <NavLink id="stealth">Anti-Detection</NavLink>
+        <NavLink id="list_profiles">list_profiles</NavLink>
+        <NavLink id="create_profile">create_profile</NavLink>
+        <NavLink id="set_profile">set_profile</NavLink>
       </NavSection>
 
       <NavSection icon={<Globe className="w-3 h-3" />} label="Dashboard">
-        <NavLink onClick={() => navClick('dashboard-overview')}>Overview</NavLink>
-        <NavLink onClick={() => navClick('onboarding')}>Onboarding</NavLink>
-        <NavLink onClick={() => navClick('live-view')}>Live View</NavLink>
-        <NavLink onClick={() => navClick('settings')}>Settings</NavLink>
+        <NavLink id="dashboard-overview">Overview</NavLink>
+        <NavLink id="onboarding">Onboarding</NavLink>
+        <NavLink id="live-view">Live View</NavLink>
+        <NavLink id="settings">Settings</NavLink>
       </NavSection>
 
       <NavSection icon={<Code className="w-3 h-3" />} label="API">
-        <NavLink onClick={() => navClick('rest-api')}>REST API</NavLink>
-        <NavLink onClick={() => navClick('command-api')}>Command Reference</NavLink>
+        <NavLink id="rest-api">REST API</NavLink>
+        <NavLink id="command-api">Command Reference</NavLink>
         <a
           href="/swagger"
           className="flex items-center gap-1 text-[13px] text-text-muted hover:text-text py-1 transition-colors"
         >
           Swagger UI <ExternalLink className="w-3 h-3" />
         </a>
-        <NavLink onClick={() => navClick('websocket')}>WebSocket Protocol</NavLink>
+        <NavLink id="websocket">WebSocket Protocol</NavLink>
       </NavSection>
 
       {/* Bottom links */}
@@ -382,59 +387,23 @@ export default function DocsPage() {
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
   return (
-    <div className="flex min-h-screen bg-bg">
-      {/* ---- Mobile hamburger button ---- */}
-      <button
-        onClick={() => setMobileMenuOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 bg-bg-card border border-border rounded-lg p-2 text-text-muted hover:text-text hover:border-border-focus transition-colors"
-        aria-label="Open menu"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
-
-      {/* ---- Mobile overlay ---- */}
-      {mobileMenuOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* ---- Mobile sidebar (slide-in) ---- */}
-      <aside
-        className={`
-          lg:hidden fixed inset-y-0 left-0 z-50 w-[280px] bg-bg border-r border-border
-          flex flex-col p-5 overflow-y-auto
-          transition-transform duration-300 ease-in-out
-          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
-      >
-        <button
-          onClick={() => setMobileMenuOpen(false)}
-          className="absolute top-4 right-4 text-text-dim hover:text-text transition-colors"
-          aria-label="Close menu"
-        >
-          <X className="w-5 h-5" />
-        </button>
-        {sidebarContent}
-      </aside>
-
-      {/* ---- Desktop sidebar (fixed) ---- */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-[260px] bg-bg border-r border-border flex-col p-5 overflow-y-auto">
-        {sidebarContent}
-      </aside>
+    <DocsNav.Provider value={{ active: activeSection, navigate: navClick }}>
+    <div className="docs-page min-h-screen bg-bg">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-[72px] items-center justify-between gap-4 border-b border-border bg-bg/95 px-4 backdrop-blur-md lg:px-8">
+        <div className="flex items-center gap-5"><OyaWordmark /><span className="hidden border-l border-border pl-5 text-[13px] text-text-muted sm:block">Documentation</span></div>
+        <div className="flex items-center gap-3"><ThemeToggle /><Link href="/dashboard" className="btn-ghost h-9 text-[12px]">Open console <ArrowUpRight size={14}/></Link><button className="btn-icon lg:hidden" onClick={() => setMobileMenuOpen(true)} aria-label="Open documentation menu"><Menu size={19}/></button></div>
+      </header>
+      {mobileMenuOpen && <Dialog open onClose={() => setMobileMenuOpen(false)} title="Documentation" size="sm"><nav aria-label="Documentation sections">{sidebarContent}</nav></Dialog>}
+      <aside aria-label="Documentation sections" className="hidden lg:block fixed bottom-0 left-0 top-[72px] z-30 w-[260px] border-r border-border bg-bg-card/25 flex-col px-6 py-7 overflow-y-auto">{sidebarContent}</aside>
 
       {/* ---- Main content ---- */}
-      <main className="flex-1 lg:ml-[260px] px-6 pt-16 pb-20 lg:px-16 lg:pt-10">
-        <div className="max-w-[860px] mx-auto">
+      <main className="min-w-0 lg:ml-[260px] px-5 pt-28 pb-24 sm:px-10 lg:px-14 lg:pt-32">
+        <div className="max-w-[800px] mx-auto">
 
-          {/* Title */}
-          <h1 className="font-display text-3xl font-bold tracking-tight text-text mb-2">Documentation</h1>
-          <p className="text-text-muted mb-10 text-base leading-relaxed">
-            The OpenRouter for browsers: one API and one console in front of Oya Cloud, Browserbase,
-            Steel, Anchor, Browser Use and your own Chrome. Every browser runs as a persona — a stable
-            identity with its own logins and exit IP — with CAPTCHA and MFA handled.
-          </p>
+          <p className="eyebrow mb-5 text-accent">Build with Oya</p>
+          <h1 className="text-[40px] sm:text-[52px] leading-[1.1] font-medium tracking-[-.05em] text-text mb-5">Your browser,<br/>ready for your agent.</h1>
+          <p className="max-w-xl text-text-muted mb-8 text-[16px] leading-7">Start a browser, keep its identity, and control it from code. Everything you need to build with the SDK, CLI, or MCP.</p>
+          <div className="mb-12 grid gap-3 sm:grid-cols-3">{[['sdk','TypeScript SDK','Build from code'],['cli','Command line','Work from your terminal'],['mcp-setup','MCP integration','Connect your agent']].map(([id,title,description])=><a key={id} href={'#'+id} onClick={e=>{e.preventDefault();navClick(id);}} className="group rounded-xl border border-border bg-bg-card/40 p-4 hover:border-accent/40"><span className="flex items-center justify-between text-[13px] font-medium">{title}<ArrowUpRight size={13} className="text-text-dim group-hover:text-accent"/></span><span className="mt-2 block text-[12px] text-text-dim">{description}</span></a>)}</div>
 
           {/* ============ QUICKSTART ============ */}
           <SectionHeading id="quickstart" first>Quickstart</SectionHeading>
@@ -515,7 +484,7 @@ oya stealth-test [--live]       Score this deployment against bot detectors`}</C
           {/* ============ CREATE KEY ============ */}
           <SectionHeading id="create-key">Create API Key</SectionHeading>
           <p className="mb-3 text-[15px] leading-relaxed">
-            Go to the <InlineLink href="/dashboard">dashboard</InlineLink>. Click the <strong>Generate</strong> button next to the API key field. This creates a random key and registers it with the server.
+            Go to the <InlineLink href="/dashboard">dashboard</InlineLink>. Open the API key menu to create or select a key for your workspace.
           </p>
           <p className="mb-3 text-[15px] leading-relaxed">
             Your key is scoped — you only see browsers connected with your key. Other users&apos; browsers are invisible to you.
@@ -918,6 +887,7 @@ if (!r.completed) open(r.liveViewUrl);   // finish it by hand`}</CodeBlock>
 
           {/* ============ DASHBOARD ============ */}
           <SectionHeading id="dashboard-overview">Dashboard</SectionHeading>
+          <NoteBox><strong>Browsers, commands, and CDP sessions</strong><br/>A browser is a running desktop or cloud instance. REST commands, including curl requests to <InlineCode>/api/browsers/:id/command</InlineCode>, appear in that browser’s Activity history and count toward Usage. A CDP session is a persistent client connection through <InlineCode>/connect</InlineCode>, typically from Playwright or Puppeteer. Find these under Control → CDP sessions.</NoteBox>
           <p className="mb-3 text-[15px] leading-relaxed">
             The <InlineLink href="/dashboard">dashboard</InlineLink> at <InlineCode>/dashboard</InlineCode> is the control panel. It shows your connected browsers and lets you interact with them.
           </p>
@@ -1183,6 +1153,7 @@ const browser = await chromium.connectOverCDP(
         </div>
       </main>
     </div>
+    </DocsNav.Provider>
   );
 }
 
@@ -1197,28 +1168,22 @@ function NavSection({ icon, label, children }: { icon: React.ReactNode; label: s
         {icon}
         {label}
       </div>
-      <div className="flex flex-col gap-0.5 pl-[18px]">{children}</div>
+      <div className="flex flex-col gap-0.5">{children}</div>
     </div>
   );
 }
 
-function NavLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="text-left text-[13px] text-text-muted hover:text-text py-0.5 transition-colors cursor-pointer"
-    >
-      {children}
-    </button>
-  );
+function NavLink({ id, children }: { id: string; children: React.ReactNode }) {
+  const { active, navigate } = useContext(DocsNav);
+  return <a href={'#'+id} aria-current={active === id ? 'location' : undefined} onClick={e => { e.preventDefault(); navigate(id); }} className={`rounded-md px-2.5 py-1.5 text-[12.5px] transition-colors ${active === id ? 'bg-accent/8 text-accent font-medium' : 'text-text-muted hover:bg-text/5 hover:text-text'}`}>{children}</a>;
 }
 
 function SectionHeading({ id, children, first }: { id: string; children: React.ReactNode; first?: boolean }) {
   return (
     <h2
       id={id}
-      className={`text-xl font-bold tracking-tight text-text mb-3 scroll-mt-20 ${
-        first ? 'mt-0' : 'mt-12 pt-6 border-t border-border'
+      className={`text-[26px] font-medium tracking-tight text-text mb-5 scroll-mt-28 ${
+        first ? 'mt-0' : 'mt-16 pt-10 border-t border-border'
       }`}
     >
       {children}
@@ -1235,11 +1200,13 @@ function InlineCode({ children }: { children: React.ReactNode }) {
 }
 
 function CodeBlock({ children }: { children: string }) {
-  return (
-    <pre className="bg-bg-card border border-border rounded-xl p-4 text-sm font-mono overflow-x-auto mb-4 leading-relaxed text-text-muted">
-      <code>{children}</code>
-    </pre>
-  );
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState(false);
+  async function copy() { try { await navigator.clipboard.writeText(children); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { setError(true); } }
+  return <div className="my-5 min-w-0 overflow-hidden rounded-xl border border-border bg-bg-card">
+    <div className="flex items-center justify-between border-b border-border px-4 py-2"><span className="font-mono text-[10px] text-text-dim">Example</span><button onClick={copy} className="btn-ghost h-7 text-[11px]" aria-label="Copy code">{copied ? <Check size={12}/> : <Copy size={12}/>} {copied ? 'Copied' : 'Copy'}</button></div>
+    <pre className="overflow-x-auto p-5 text-[12px] font-mono leading-[1.9]"><SyntaxCode code={children}/></pre>{error&&<p role="status" className="px-5 pb-3 text-xs text-text-muted">Select the code to copy it.</p>}
+  </div>;
 }
 
 function NoteBox({ children }: { children: React.ReactNode }) {

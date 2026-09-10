@@ -46,7 +46,7 @@ export default function FleetStrip({ fleet, rate, filter, onFilter }: Props) {
         </div>
 
         {/* Health */}
-        <div className="flex items-center gap-1.5" role="group" aria-label="Filter by health">
+        <div className="flex max-w-full flex-wrap items-center gap-1.5" role="group" aria-label="Filter by health">
           {HEALTH_ORDER.map((h) => {
             const n = b?.byHealth?.[h] ?? 0;
             const active = filter.health === h;
@@ -74,7 +74,7 @@ export default function FleetStrip({ fleet, rate, filter, onFilter }: Props) {
 
         {/* Providers */}
         {providers.length > 0 && (
-          <div className="flex items-center gap-1.5" role="group" aria-label="Filter by provider">
+          <div className="flex max-w-full flex-wrap items-center gap-1.5" role="group" aria-label="Filter by provider">
             {providers.map(([p, n]) => {
               const active = filter.provider === p;
               return (
@@ -88,7 +88,7 @@ export default function FleetStrip({ fleet, rate, filter, onFilter }: Props) {
 
         {/* Personas */}
         {topPersonas.length > 0 && (
-          <div className="flex items-center gap-1.5" role="group" aria-label="Filter by persona">
+          <div className="flex max-w-full flex-wrap items-center gap-1.5" role="group" aria-label="Filter by persona">
             {topPersonas.map(([p, n]) => {
               const active = filter.persona === p;
               return (

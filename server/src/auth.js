@@ -41,7 +41,8 @@ async function loadKeys() {
   }
 }
 
-loadKeys();
+// Readiness is shared with server startup; an empty cache is not an invalid key.
+export const authReady = loadKeys().then(() => !supabase || loaded);
 
 // ── Signup / Login ──
 

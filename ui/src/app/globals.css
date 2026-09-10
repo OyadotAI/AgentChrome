@@ -89,7 +89,7 @@ body {
   min-height: 100dvh;
 }
 
-a { color: inherit; text-decoration: none; }
+@layer base { a { color: inherit; text-decoration: none; } }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -191,4 +191,106 @@ button, a, input, select, textarea {
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+/* Settings: one control height, one label column, calm section rhythm. */
+@utility settings-input {
+  @apply h-11 w-full min-w-0 rounded-lg border border-border bg-bg-sunken px-3.5 text-[13px] text-text placeholder:text-text-dim focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/10 disabled:opacity-50;
+}
+.settings-row { display: grid; gap: 8px; }
+@media (min-width: 640px) {
+  .settings-row { grid-template-columns: 140px minmax(0, 1fr); gap: 20px; align-items: start; }
+}
+
+/* Shared code palette. Keep syntax visible without competing with controls. */
+.syntax-code { color: var(--foreground); white-space: pre; tab-size: 2; }
+.syntax-code .token.comment,
+.syntax-code .token.prolog { color: #8d9689; }
+.syntax-code .token.keyword,
+.syntax-code .token.atrule { color: #c5aff4; }
+.syntax-code .token.string,
+.syntax-code .token.char,
+.syntax-code .token.attr-value { color: #afd79b; }
+.syntax-code .token.function,
+.syntax-code .token.function-name { color: #8fc7ee; }
+.syntax-code .token.number,
+.syntax-code .token.boolean,
+.syntax-code .token.constant { color: #edbd86; }
+.syntax-code .token.property,
+.syntax-code .token.class-name { color: #d6c49e; }
+.syntax-code .token.operator,
+.syntax-code .token.punctuation { color: #b1b2a8; }
+.syntax-code .token.variable,
+.syntax-code .token.builtin { color: #90d3cb; }
+:root[data-theme="light"] .syntax-code .token.comment,
+:root[data-theme="light"] .syntax-code .token.prolog { color: #687364; }
+:root[data-theme="light"] .syntax-code .token.keyword,
+:root[data-theme="light"] .syntax-code .token.atrule { color: #7849a1; }
+:root[data-theme="light"] .syntax-code .token.string,
+:root[data-theme="light"] .syntax-code .token.char,
+:root[data-theme="light"] .syntax-code .token.attr-value { color: #3d6a2a; }
+:root[data-theme="light"] .syntax-code .token.function,
+:root[data-theme="light"] .syntax-code .token.function-name { color: #226797; }
+:root[data-theme="light"] .syntax-code .token.number,
+:root[data-theme="light"] .syntax-code .token.boolean,
+:root[data-theme="light"] .syntax-code .token.constant { color: #99541f; }
+:root[data-theme="light"] .syntax-code .token.property,
+:root[data-theme="light"] .syntax-code .token.class-name { color: #80601b; }
+:root[data-theme="light"] .syntax-code .token.operator,
+:root[data-theme="light"] .syntax-code .token.punctuation { color: #65695f; }
+:root[data-theme="light"] .syntax-code .token.variable,
+:root[data-theme="light"] .syntax-code .token.builtin { color: #21746b; }
+
+/* Public surfaces: deliberate scale, quiet borders, generous reading space. */
+.site-width { width: min(100% - 48px, 1120px); margin-inline: auto; }
+.eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
+.marketing-title { font-size: clamp(44px, 5.7vw, 76px); font-weight: 500; line-height: 1.06; letter-spacing: -.065em; }
+.marketing-heading { font-size: clamp(28px, 3.2vw, 40px); font-weight: 500; line-height: 1.15; letter-spacing: -.045em; }
+.section-space { padding-block: 80px; }
+.product-preview { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--card); box-shadow: 0 20px 70px -45px #000; }
+.preview-columns { display: grid; grid-template-columns: minmax(0, 1fr) 90px 50px; gap: 16px; align-items: center; padding-inline: 20px; }
+@media (max-width: 639px) {
+  .site-width { width: calc(100% - 32px); }
+  .section-space { padding-block: 48px; }
+  .preview-columns { grid-template-columns: minmax(0, 1fr) 72px 42px; gap: 10px; padding-inline: 16px; }
+}
+
+/* Data workspaces retain readable column geometry regardless of cell content. */
+.workspace-list { max-width: 1680px; margin-inline: auto; }
+.data-scroll { overscroll-behavior: contain; scrollbar-gutter: stable; }
+.fleet-data { min-width: 1040px; }
+.profile-data { min-width: 1160px; }
+.data-table tbody tr { height: 60px; }
+.data-table td { overflow: hidden; text-overflow: ellipsis; }
+.data-table th { font-size: 10px; letter-spacing: .09em; font-weight: 500; white-space: nowrap; }
+.data-table input[type="checkbox"] { width: 14px; height: 14px; vertical-align: middle; cursor: pointer; }
+.control-workspace { max-width: 1440px; margin-inline: auto; }
+.control-content { width: 100%; }
+.control-table table { min-width: 640px; table-layout: fixed; }
+.control-table th { padding: 14px 16px; font-weight: 500; }
+.control-table td { padding: 14px 16px; overflow: hidden; text-overflow: ellipsis; }
+.docs-page main { color: var(--secondary); }
+.docs-page main p { line-height: 1.85; }
+.docs-page main table { min-width: 560px; }
+.docs-page main h3 { color: var(--foreground); scroll-margin-top: 110px; }
+@media (max-width: 767px) {
+  .fleet-data, .profile-data { min-width: 0; }
+  .fleet-data th:nth-child(1) { width: 28px; }
+  .fleet-data th:nth-child(2) { width: 18px; }
+  .fleet-data th:nth-child(3) { width: auto; }
+  .fleet-data th:nth-child(5) { width: 78px; }
+  .fleet-data th:nth-child(10) { width: 64px; }
+  .fleet-data :is(th, td):nth-child(4),
+  .fleet-data :is(th, td):nth-child(6),
+  .fleet-data :is(th, td):nth-child(7),
+  .fleet-data :is(th, td):nth-child(8),
+  .fleet-data :is(th, td):nth-child(9) { display: none; }
+  .fleet-data :is(th, td) { padding-inline: 5px; }
+  .profile-data th:first-child { width: 55%; }
+  .profile-data th:nth-child(2) { width: 45%; }
+  .profile-data :is(th, td):nth-child(n+3) { display: none; }
+}
+@media (max-width: 767px) {
+  .fleet-data th:nth-child(10) { width: 92px; }
+  .fleet-data td:last-child .btn-icon { width: 40px; height: 40px; }
 }
