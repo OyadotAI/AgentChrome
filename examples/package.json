@@ -1,0 +1,17 @@
+{
+  "name": "oya-browser-examples",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oya/browser": "file:../packages/sdk",
+    "playwright-core": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.4.0"
+  }
+}

@@ -99,9 +99,11 @@ assert.ok(!/await tabs\.find\(.*?\)\?\.ready/.test(src),
 assert.ok(/Promise\.race\(\[tab\.ready\.catch/.test(src),
   'waitForTabReady must bound the wait');
 
-// setupTabCDP hanging must not stop the tab's first page from loading.
-assert.ok(/Promise\.race\(\[\s*\n\s*setupTabCDP\(view\)/.test(src),
-  'setupTabCDP must be bounded — an unanswered CDP command otherwise stops the tab ever loading');
+// setupTabCDP hanging must not stop the tab's first page from loading, and it
+// must run after the view has a renderer: before one, CDP's Page domain never
+// answers, so the first page loaded after the timeout with no fingerprint.
+assert.ok(/Promise\.race\(\[\s*\n\s*view\.webContents\.loadURL\('about:blank'\)[^\n]*\.then\(\(\) => setupTabCDP\(view\)\)/.test(src),
+  'setupTabCDP must be bounded and run after about:blank starts the renderer — otherwise every first page is unprotected');
 
 // Cloud browsers stream frames through viz CopyOutputResult, which needs more
 // shared memory than a container's 64MB /dev/shm. Without this flag the GPU

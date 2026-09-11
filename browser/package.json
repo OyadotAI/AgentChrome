@@ -33,6 +33,7 @@
       "preload.js",
       "login-state.js",
       "governance.js",
+      "cdp-front-door.js",
       "renderer/**/*",
       "scripts/**/*",
       "anonymity/**/*"

@@ -16,7 +16,7 @@ import { Http } from './client.js';
 import { Browser } from './browser.js';
 import {
   OyaError,
-  type ControlOverview, type ControlSession, type ControlRole, type ControlCredential, type ProjectSettings, type ControlEvent,
+  type ControlOverview, type ControlSession, type ControlRole, type ControlCredential, type HumanInputAction, type ProjectSettings, type ControlEvent,
   type BrowserInfo, type Fingerprint, type MfaConfig, type OyaOptions,
   type PersonaInfo, type PersonaPrefs, type StartOptions, type StartResult, type StopResult,
 } from './types.js';
@@ -91,7 +91,7 @@ export class Oya {
     cancel: (id: string): Promise<ControlSession> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/cancel`, {}),
     stop: (id: string, force = false): Promise<StopResult> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/stop`, { force }),
     takeover: (id: string, action: 'acquire' | 'release' | 'resume'): Promise<ControlSession['control']> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/control`, { action }),
-    input: (id: string, action: 'click' | 'type' | 'press_key' | 'scroll', params: Record<string, unknown>): Promise<unknown> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/input`, { action, params }),
+    input: (id: string, action: HumanInputAction, params: Record<string, unknown>): Promise<unknown> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/input`, { action, params }),
     recover: (id: string, replace = false): Promise<unknown> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/recover`, { replace }),
     ticket: (id: string): Promise<{ ticket: string; expiresIn: number }> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/ticket`, {}),
     events: (after = 0): Promise<{ events: ControlEvent[]; cursor: number }> => this.http.request('GET', `/api/control/events?after=${after}`),

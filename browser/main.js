@@ -22,6 +22,13 @@ const { ProfileStore } = require('./anonymity/profile-store');
 // Default to light mode
 nativeTheme.themeSource = 'light';
 if (process.env.OYA_USER_DATA_DIR) app.setPath('userData', path.resolve(process.env.OYA_USER_DATA_DIR));
+// CDP for automation harnesses. Off unless asked for: whoever reaches this port
+// owns the browser. Chromium listens one port up on loopback; cdp-front-door.js
+// owns the public port and shows harnesses only real, protected tabs. No
+// remote-allow-origins — CDP clients send no Origin, and allowing one would
+// let any web page on the machine drive it.
+const CDP_PORT = Number(process.env.OYA_REMOTE_DEBUGGING_PORT) || 0;
+if (CDP_PORT) app.commandLine.appendSwitch('remote-debugging-port', String(CDP_PORT + 1));
 
 // Prevent crashes from unhandled errors
 process.on('uncaughtException', (err) => {
@@ -900,6 +907,19 @@ app.whenReady().then(async () => {
 
   await setupBrowserSession();
   createWindow();
+  if (CDP_PORT) require('./cdp-front-door').start({
+    port: CDP_PORT, upstream: CDP_PORT + 1,
+    host: process.env.OYA_DOCKER === 'true' ? '0.0.0.0' : '127.0.0.1',
+    tabs: () => tabs,
+    // Outside browsing mode a tab is never laid out, and a page with a 0x0
+    // viewport is both broken and an obvious bot.
+    createTab: (url) => {
+      if (browsingMode) return createTab(url, true);
+      enterBrowsingMode(url);
+      return activeTabId;
+    },
+    closeTab,
+  });
   startCookieChangeListener();
   if (config.apiKey || process.env.OYA_AUTO_CONNECT === 'true') connect();
 
@@ -943,11 +963,18 @@ function createTab(url, activate = true) {
   const tab = { id, view, title: 'New Tab', url: url || '' };
   tabs.push(tab);
 
-  // Attach CDP debugger and auto-inject scripts into every new document
+  // Attach CDP debugger and auto-inject scripts into every new document.
+  // A view has no renderer until its first navigation, and CDP's Page domain
+  // does not answer before there is one — so awaiting setup before loadURL was
+  // a deadlock that only the timeout broke, and every tab's first page loaded
+  // unprotected. about:blank starts the renderer without a network request.
+  // The race does not cancel the losing sleep, so it checks whether setup
+  // finished — otherwise every healthy tab reported itself unprotected.
+  let setupDone = false;
   const tabReady = Promise.race([
-    setupTabCDP(view),
+    view.webContents.loadURL('about:blank').catch(() => {}).then(() => setupTabCDP(view)).finally(() => { setupDone = true; }),
     sleep(CDP_SETUP_TIMEOUT).then(() => {
-      console.error(`[anonymity] CDP setup unfinished after ${CDP_SETUP_TIMEOUT}ms — loading anyway, this tab may be UNPROTECTED`);
+      if (!setupDone) console.error(`[anonymity] CDP setup unfinished after ${CDP_SETUP_TIMEOUT}ms — loading anyway, this tab may be UNPROTECTED`);
     }),
   ]);
 

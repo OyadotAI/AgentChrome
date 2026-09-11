@@ -565,8 +565,10 @@ export class CDPDriver {
         const until = Date.now() + Math.min(params.timeout || 10000, remaining());
         await this.ensureAnalyzer();
         while (Date.now() < until) {
-          const found = await this.evaluate(
-            `!!(window.__acFindElement || ((s)=>document.querySelector(s)))(${JSON.stringify(params.selector || '')})`).catch(() => false);
+          // Element ids go through the analyzer; anything else is CSS. __acFindElement
+          // reads the first number in any string, so CSS must never reach it.
+          const found = await this.evaluate(`((s) => !!(/^\\d+$|^\\[data-[\\w-]+="\\d+"\\]$/.test(s) && window.__acFindElement
+            ? window.__acFindElement(s) : document.querySelector(s)))(${JSON.stringify(String(params.selector || ''))})`).catch(() => false);
           if (found) return { ok: true, data: { found: true } };
           await new Promise((r) => setTimeout(r, 250));
         }

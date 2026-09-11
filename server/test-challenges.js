@@ -47,6 +47,10 @@ const PAGES = {
     <input name="otp" autocomplete="one-time-code" maxlength="6"></body>`,
   '/otp-boxes': `<!doctype html><title>b</title><body><p>Enter the 6-digit code to verify</p>
     ${Array.from({ length: 6 }, () => '<input maxlength="1" type="tel">').join('')}</body>`,
+  // authenticationtest.com's TOTP form: the token is glued into the name, no maxlength, no autocomplete.
+  '/otp-compact': `<!doctype html><title>t</title><body><input type="email" name="email">
+    <input type="password" name="password"><input type="text" name="totpmfa" id="totpmfa" placeholder="123456"></body>`,
+  '/otp-lookalike': `<!doctype html><title>f</title><body><input type="text" name="footprint" placeholder="Shoe size"></body>`,
 };
 
 const site = createServer((req, res) => {
@@ -130,6 +134,11 @@ try {
   await goto('/otp-boxes');
   const boxes = await evaluate(mfa.DETECT_JS);
   assert(boxes.present === true && boxes.segmented === true, 'six single-character boxes are detected as segmented');
+
+  await goto('/otp-compact');
+  assert((await evaluate(mfa.DETECT_JS)).present === true, 'a compact field name like "totpmfa" is detected');
+  await goto('/otp-lookalike');
+  assert((await evaluate(mfa.DETECT_JS)).present === false, 'a word merely containing "otp" ("footprint") is not');
 
   await goto('/clean');
   assert((await evaluate(mfa.DETECT_JS)).present === false, 'a clean page reports no MFA prompt');

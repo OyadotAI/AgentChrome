@@ -42,7 +42,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 # Copy browser source
-COPY main.js preload.js login-state.js governance.js ./
+COPY main.js preload.js login-state.js governance.js cdp-front-door.js ./
 COPY renderer/ ./renderer/
 COPY scripts/ ./scripts/
 COPY anonymity/ ./anonymity/

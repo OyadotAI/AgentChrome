@@ -114,6 +114,9 @@ export const DETECT_JS = `(() => {
     const hay = [el.name, el.id, el.autocomplete, el.placeholder, el.getAttribute('aria-label')]
       .filter(Boolean).join(' ').toLowerCase();
     if (/\\b(otp|one[- ]?time|2fa|two[- ]?factor|mfa|verification|auth(entication)?[- ]?code|security[- ]?code|passcode)\\b/.test(hay)) return true;
+    // Compact names glue the token to a word: totp, otpCode, mfaCode, totpmfa. It must still
+    // open or close a word, so "footprint" and "hotpink" stay out.
+    if (/(?:^|[^a-z])(?:t?otp|mfa|2fa)|(?:t?otp|mfa|2fa)(?:$|[^a-z])/.test(hay)) return true;
     if (el.autocomplete === 'one-time-code') return true;
     // A short numeric field on a page that talks about codes.
     const maxLen = Number(el.maxLength);

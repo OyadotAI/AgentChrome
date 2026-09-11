@@ -47,7 +47,7 @@ export class Browser {
     await this.command('navigate', { url }, NAVIGATE_TIMEOUT_MS);
     if (this.autoCaptcha) {
       const result = await this.solveCaptcha();
-      if (result.present && !result.solved) throw new OyaError(result.error || 'CAPTCHA needs attention. Call solveCaptcha() again or open the live view.', 409, result);
+      if (result.present && !result.solved && !result.invisible) throw new OyaError(result.error || 'CAPTCHA needs attention. Call solveCaptcha() again or open the live view.', 409, result);
     }
   }
 
@@ -83,15 +83,17 @@ export class Browser {
     await this.command('press_key', { key });
   }
 
-  async scroll(direction: 'up' | 'down' | 'top' | 'bottom', amount?: number): Promise<void> {
-    await this.command('scroll', { direction, amount });
+  /** `at` aims the wheel at an inner scroller (a results panel, a chat pane) instead of the page. */
+  async scroll(direction: 'up' | 'down' | 'top' | 'bottom', amount?: number, at?: { x: number; y: number }): Promise<void> {
+    // An aimed scroll is one wheel event at that point; drivers only honour x/y in that mode.
+    await this.command('scroll', at ? { direction, amount: amount ?? 500, ...at, smooth: false } : { direction, amount });
   }
 
   async waitFor(selector: string, timeout = 30_000): Promise<void> {
     await this.command('wait', { selector, timeout }, timeout + 5_000);
   }
 
-  /** Base64 PNG. */
+  /** A `data:image/…;base64,` URL. PNG or JPEG depending on the driver. */
   async screenshot(): Promise<string> {
     const data = await this.command<{ screenshot: string }>('screenshot');
     return data.screenshot;
@@ -161,6 +163,9 @@ export class Browser {
   stop(): Promise<StopResult> {
     return this.http.request<StopResult>('POST', `/api/browsers/${this.id}/stop`, {}, 60_000);
   }
+
+  /** `await using browser = await oya.browser.start()` stops it however the block exits, errors included. */
+  async [Symbol.asyncDispose](): Promise<void> { await this.stop(); }
 
   /** @deprecated use stop() — close() only dropped the socket, and a cloud browser redialled. */
   async close(): Promise<void> { await this.stop(); }

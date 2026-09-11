@@ -109,6 +109,9 @@ app.use('/api', express.json(), apiRouter);
 app.get(['/health', '/metrics'], apiRouter);
 
 // ── Downloads (binary files) ──
+// The folder itself has no page: static would add a slash and Next.js strip it again, forever.
+// Send it to the landing page's per-platform download buttons instead.
+app.get(['/downloads', '/downloads/'], (req, res) => res.redirect(302, '/#download'));
 app.use('/downloads', express.static(join(__dirname, '..', 'downloads')));
 
 // ── MCP endpoints (root level — clients connect directly) ──

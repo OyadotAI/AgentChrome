@@ -53,12 +53,23 @@ export interface StartResult {
 export interface Element {
   id: number;
   type: string;
+  /** Visible label, capped at 80 characters by the analyzer. */
   text?: string;
   href?: string;
   value?: string;
   checked?: boolean;
   disabled?: boolean;
   visible: boolean;
+  tag?: string;
+  /** The element's DOM `id`. Usually the most stable handle a site offers. */
+  domId?: string;
+  ariaLabel?: string;
+  /** `data-testid`, when the site ships one. */
+  testId?: string;
+  name?: string;
+  placeholder?: string;
+  /** Action of the enclosing form. */
+  formName?: string;
 }
 
 export interface Analysis {
@@ -76,6 +87,9 @@ export interface CaptchaResult {
   /** 'provider' when the vendor solved it, 'solver' when we did, 'none' otherwise. */
   method: 'provider' | 'solver' | 'none';
   type?: string;
+  /** Invisible reCAPTCHA v3 scores the visit passively; there is nothing on screen to clear. */
+  invisible?: boolean;
+  sitekey?: string | null;
   error?: string;
 }
 
@@ -167,6 +181,11 @@ export class OyaError extends Error {
 }
 
 export type ControlRole = 'viewer' | 'operator' | 'administrator';
+/** What a human holding the control lease may send. Mirrors the server's allowlist. */
+export type HumanInputAction =
+  | 'click' | 'type' | 'press_key' | 'scroll' | 'click_coordinates' | 'double_click' | 'drag'
+  | 'mouse_move' | 'scroll_at' | 'type_text' | 'keyboard_type' | 'navigate' | 'back' | 'forward'
+  | 'reload' | 'screenshot' | 'analyze' | 'read_page';
 export interface ControlSession {
   id: string; project: string; provider: string; persona: string | null;
   state: 'queued' | 'provisioning' | 'ready' | 'disconnected' | 'stopping' | 'cleanup_pending' | 'stopped' | 'failed' | 'unknown_outcome';
