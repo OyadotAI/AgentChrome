@@ -10,7 +10,7 @@ Every browser runs as a **persona** — a stable, mathematically seeded device i
 import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();                                    // OYA_API_KEY
-const browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
+await using browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
 await browser.goto("https://example.com");
 ```
 
@@ -97,9 +97,12 @@ API key = a group of personas                    # your fleet
 A persona's fingerprint is derived from a stored cryptographic seed, making it **byte-identical across restarts** — a returning session looks like a returning device. Concurrency is capped per persona (e.g. 2 concurrent sessions for a laptop and a phone), preventing device-farm detection, while `activeBrowsers` is tracked in real-time in the dashboard and exported as a Prometheus metric.
 
 ```ts
+import { Oya } from "@oya-ai/browser";
+
+const oya = new Oya();
 const p = await oya.personas.create({ name: "acme-ops" });
 await oya.personas.setMfa(p.id, { type: "totp", secret: "JBSWY3DPEHPK3PXP" });
-const browser = await oya.browser.start({ persona: p.id });
+await using browser = await oya.browser.start({ persona: p.id });
 ```
 
 ---
@@ -120,8 +123,13 @@ The dashboard pairs the desktop app over an `oya://` link carrying a **single-us
 ## Challenges: Automated Solving + Human Takeover
 
 ```ts
-await browser.solveCaptcha();   // { solved, method: 'provider' | 'solver' | 'none' }
-await browser.completeMfa();    // TOTP, email OTP, SMS OTP, or a human handoff
+import { Oya } from "@oya-ai/browser";
+
+const oya = new Oya();
+await using browser = await oya.browser.start();
+await browser.goto("https://www.google.com/recaptcha/api2/demo");
+console.log(await browser.solveCaptcha());   // { present, solved, method: 'provider' | 'solver' | 'none' }
+console.log(await browser.completeMfa());    // TOTP, email OTP, SMS OTP, or a human handoff
 ```
 
 - **CAPTCHA Solving:** Automatically delegates to the underlying provider when it solves natively (Anchor, Browserbase, Steel, Browser Use) to avoid double billing and race conditions. For others, it dispatches to your configured solver (CapSolver or 2Captcha).
@@ -170,14 +178,17 @@ oya stealth-test [--live]       Benchmark evasion against CreepJS and Sannysoft
 `browser.cdpUrl` is an Oya Gateway URL, not a vendor lock-in. Point standard tools directly at Oya:
 
 ```ts
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
 import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();
-const browser = await oya.browser.start();
+await using browser = await oya.browser.start({ provider: "browserbase" }); // or steel, anchor, browseruse
 
 // Connect standard Playwright directly through Oya's gateway:
-const pw = await chromium.connectOverCDP(browser.cdpUrl);
+const context = (await chromium.connectOverCDP(browser.cdpUrl!)).contexts()[0];
+const page = context.pages()[0] ?? await context.newPage();
+await page.goto("https://example.com");
+console.log(await page.title());
 ```
 
 The gateway exposes standard `/json/version`, `/json/list`, and `/connect` endpoints, giving you unified routing, persona injection, and session recording across Playwright, Puppeteer, Stagehand, browser-use, Claude Code, and Cursor.

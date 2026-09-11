@@ -148,7 +148,7 @@ done
 # ── Commit, tag, push ──
 
 log_info "Committing version bump and link updates"
-git add browser/package.json packages/sdk/package.json packages/cli/package.json package-lock.json
+git add browser/package.json browser/package-lock.json packages/sdk/package.json packages/cli/package.json package-lock.json
 for UI_PAGE in $UI_PAGES; do [ -f "$UI_PAGE" ] && git add "$UI_PAGE"; done
 git commit -m "release: $TAG — update versions and download links"
 

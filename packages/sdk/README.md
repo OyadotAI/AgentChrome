@@ -6,7 +6,7 @@ Thousands of browsers behind one API: personas, proxies, stealth, CAPTCHA and MF
 npm i @oya-ai/browser
 ```
 
-Get an API key at [browser.getoya.ai](https://browser.getoya.ai) and export it as `OYA_API_KEY`.
+Get an API key at [browser.getoya.ai](https://browser.getoya.ai) and export it as `OYA_API_KEY`. Every snippet below runs as-is.
 
 ## Quickstart
 
@@ -19,40 +19,73 @@ await browser.goto('https://news.ycombinator.com');
 console.log(await browser.ask('What are the top 3 stories?'));
 ```
 
-`await using` needs Node 24+ or TypeScript 5.2+. Otherwise call `await browser.stop()` in a `finally` block.
+`await using` needs Node 24+ or TypeScript 5.2+. Otherwise call `await browser.stop()` in a `finally` block. `ask()` uses the AI model set on your key in the dashboard.
 
 ## Personas
 
 A persona is one device: fingerprint, cookie jar and exit IP, the same on every run.
 
 ```ts
+import { Oya } from '@oya-ai/browser';
+
+const oya = new Oya();
 const persona = await oya.personas.create({
   name: 'us-shopper',
   prefs: { platform: 'MacIntel', timezone: 'America/New_York', locale: 'en-US' }, // fixed for life
   proxy: { geo: 'US' },
 });
-await using browser = await oya.browser.start({ persona: persona.id }); // or 'auto' to rotate
+await using browser = await oya.browser.start({ persona: persona.id }); // or persona: 'auto' to rotate
+await browser.goto('https://example.com');
+console.log(persona.fingerprint.platform, persona.fingerprint.timezone); // the same on every run
 ```
 
-## CAPTCHA and MFA
+## CAPTCHA
+
+The vendor's own solver when it has one, otherwise your CapSolver or 2Captcha key.
 
 ```ts
-await using browser = await oya.browser.start({ captcha: 'auto' }); // solve on every goto()
-await browser.solveCaptcha();                                        // or on demand
+import { Oya } from '@oya-ai/browser';
 
-await oya.personas.setMfa(persona.id, { type: 'totp', secret: process.env.TOTP_SECRET! });
-const mfa = await browser.completeMfa(); // totp, email, sms, or a human handoff
-if (!mfa.completed) console.log('Finish it here:', mfa.liveViewUrl);
+const oya = new Oya();
+await using browser = await oya.browser.start(); // or start({ captcha: 'auto' }) to clear them on every goto()
+await browser.goto('https://www.google.com/recaptcha/api2/demo');
+console.log(await browser.solveCaptcha()); // { present, solved, method: 'provider' | 'solver' | 'none' }
 ```
 
-## Any vendor, any tool
+## MFA
+
+The TOTP seed is sealed on the persona, and `completeMfa()` enters the code.
+
+```ts
+import { Oya } from '@oya-ai/browser';
+
+const oya = new Oya();
+const persona = await oya.personas.create({ name: 'billing-admin' });
+await oya.personas.setMfa(persona.id, { type: 'totp', secret: process.env.TOTP_SECRET! }); // sealed, never read back
+
+await using browser = await oya.browser.start({ persona: persona.id });
+await browser.goto(process.env.MFA_URL!); // after your login step: the page asking for the code
+const mfa = await browser.completeMfa();   // method: 'totp' | 'email' | 'sms' | 'handoff'
+if (!mfa.completed) console.log('A person can finish it here:', mfa.liveViewUrl);
+```
+
+## Playwright, Puppeteer, Stagehand
+
+`browser.cdpUrl` is a standard CDP endpoint on any CDP vendor.
 
 ```ts
 import { chromium } from 'playwright-core';
+import { Oya } from '@oya-ai/browser';
 
-await using browser = await oya.browser.start({ provider: 'browserbase' }); // one string per vendor
-const pw = await chromium.connectOverCDP(browser.cdpUrl!);                  // Playwright, Puppeteer, Stagehand…
+const oya = new Oya();
+await using browser = await oya.browser.start({ provider: 'browserbase' }); // or steel, anchor, browseruse
+const context = (await chromium.connectOverCDP(browser.cdpUrl!)).contexts()[0];
+const page = context.pages()[0] ?? await context.newPage();
+await page.goto('https://example.com');
+console.log(await page.title());
 ```
+
+Vendor keys are set once on your Oya key in the dashboard. They never appear in code.
 
 ## API
 
