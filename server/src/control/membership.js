@@ -1,19 +1,25 @@
 import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
-import { userAuthMiddleware } from '../auth.js';
+import { userAuthMiddleware, listApiKeys } from '../auth.js';
 import { control, hash, fault, projectId } from './service.js';
 import { openText } from '../secrets.js';
 export const projectAccountRouter = Router();
 projectAccountRouter.use(userAuthMiddleware);
 const wrap = fn => async (req, res, next) => { try { await fn(req, res); } catch (e) { next(e); } };
+/** The name a project gets before anyone names it. */
+export const AUTO_NAME = /^Project [0-9a-f]{6}$/;
 projectAccountRouter.get('/', wrap(async (req, res) => {
   // Projects index their owner and memberships index their user, so this never scans other tenants.
   const [owned, joined] = await control().store.load([{ kind: 'project', states: [req.user.id] }, { kind: 'membership', states: [req.user.id] }]);
   const ownedIds = new Set(owned.map(r => r.id)), memberships = joined.map(r => r.body).filter(m => !ownedIds.has(m.project));
+  // A project you own is named after its API key's label, so the switcher and the project overview agree.
+  const labels = new Map((await listApiKeys(req.user.id)).filter(k => k.label).map(k => [projectId(k.key), k.label]));
+  const unnamed = owned.filter(r => labels.has(r.id) && AUTO_NAME.test(r.body.name)).map(r => r.id);
+  if (unnamed.length) await control().store.transact(async tx => { for (const p of await tx.getMany('project', unnamed)) if (AUTO_NAME.test(p.name)) p.name = labels.get(p.id); });
   const names = new Map((await control().store.load(memberships.map(m => ({ kind: 'project', id: m.project })))).flat().map(r => [r.id, r.body.name]));
   res.json([
-    ...owned.map(r => ({ id: r.id, name: r.body.name, role: 'administrator' })),
-    ...memberships.filter(m => names.has(m.project)).map(m => ({ id: m.project, name: names.get(m.project), role: m.role })),
+    ...owned.map(r => ({ id: r.id, name: labels.get(r.id) || r.body.name, role: 'administrator', owner: true })),
+    ...memberships.filter(m => names.has(m.project)).map(m => ({ id: m.project, name: names.get(m.project), role: m.role, owner: false })),
   ]);
 }));
 projectAccountRouter.post('/join', wrap(async (req, res) => {

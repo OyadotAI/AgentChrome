@@ -135,7 +135,12 @@ export async function registerApiKey(key, userId, label) {
   keyCache.add(key);
   if (userId) ownerCache.set(key, userId);
   const project = await control().project(key);
-  if (userId) await control().store.transact(async tx => { (await tx.get('project', project.id)).ownerUser = userId; });
+  if (userId) await control().store.transact(async tx => {
+    const p = await tx.get('project', project.id);
+    p.ownerUser = userId;
+    // A new project takes its key's label as its name, so every view calls it the same thing.
+    if (label && /^Project [0-9a-f]{6}$/.test(p.name)) p.name = String(label).slice(0, 100);
+  });
 }
 
 export async function listApiKeys(userId) {

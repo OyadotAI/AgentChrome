@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 test.use({ reducedMotion: 'reduce' });
 
-async function dashboard(page: Page, cloudReady = false) {
+async function dashboard(page: Page, cloudReady = false, signedIn = false) {
   let mode = 'agent';
   const commands: Array<{ action: string; params: Record<string, unknown> }> = [];
   const browser = {
@@ -11,8 +11,10 @@ async function dashboard(page: Page, cloudReady = false) {
     connectedAt: new Date().toISOString(), lastSeen: new Date().toISOString(),
     commands: 0, errors: 0, pending: 0, streaming: true, activity: [],
   };
-  await page.context().addInitScript(() => {
+  await page.context().addInitScript((account: boolean) => {
     localStorage.setItem('oya_api_key', 'isolated-ui-test');
+    // An unsigned token with a far-future expiry; the mocked API below answers for it.
+    if (account) localStorage.setItem('oya_token', `e30.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`);
     // A deterministic frame; no real browser session or credentials are used.
     const frame = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600"><rect width="1000" height="600" fill="#eee"/><text x="40" y="60">Test browser</text></svg>');
     class Frames {
@@ -21,10 +23,14 @@ async function dashboard(page: Page, cloudReady = false) {
       close() { clearInterval(this.timer); }
     }
     Object.defineProperty(window, 'EventSource', { value: Frames });
-  });
+  }, signedIn);
   await page.context().route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, '');
     let body: unknown = {};
+    if (path.startsWith('/auth/')) body = { id: 'user-test', email: 'qa@example.com' };
+    if (path === '/auth/keys') body = [{ key: 'isolated-ui-test', label: 'Checkout agents' }, { key: 'second-project-key', label: 'Research' }];
+    if (path === '/auth/projects') body = [{ id: 'prj-own', name: 'Checkout agents', role: 'administrator', owner: true }, { id: 'prj-shared', name: 'Partner workspace', role: 'operator', owner: false }];
+    if (path === '/auth/projects/prj-shared/access') body = { token: 'oya_shared-credential' };
     if (path === '/control') body = { project: { id: 'prj-test', name: 'Test project', settings: { maxConcurrent: 3, budgetUsd: null, recordingDays: 7, auditDays: 90, rates: {}, policy: {} } }, sessions: [{ ...browser, state: 'ready', managed: false, costUsd: 0, control: { mode } }], events: [], credentials: [], webhooks: [], deliveries: [] };
     if (path === '/control/members') body = { owner: null, members: [{ userId: 'member-test', role: 'operator' }] };
     if (path === '/control/sessions/qa-browser') body = { ...browser, state: 'ready', control: { mode } };
@@ -54,6 +60,25 @@ async function dashboard(page: Page, cloudReady = false) {
   await expect(page.getByRole('button', { name: /^Start browser/ }).first()).toBeVisible();
   return commands;
 }
+
+test('one project switcher covers your projects and projects shared with you', async ({ page }) => {
+  await dashboard(page, false, true);
+  const switcher = page.getByRole('button', { name: 'Switch project' });
+  await expect(switcher).toContainText('Checkout agents');
+  await switcher.click();
+  await expect(page.getByText('Your projects')).toBeVisible();
+  await expect(page.getByText('Shared with you')).toBeVisible();
+  await page.getByRole('button', { name: /^Partner workspace/ }).click();
+  await expect(switcher).toContainText('Partner workspace');
+  expect(await page.evaluate(() => sessionStorage.getItem('oya_project_credential'))).toBe('oya_shared-credential');
+  await switcher.click();
+  await page.getByRole('button', { name: /^Research/ }).click();
+  await expect(switcher).toContainText('Research');
+  expect(await page.evaluate(() => [sessionStorage.getItem('oya_project_credential'), localStorage.getItem('oya_api_key')])).toEqual([null, 'second-project-key']);
+  await switcher.click();
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByLabel('Project name')).toBeFocused();
+});
 
 test('dialog preserves text focus through fleet refreshes and restores its opener', async ({ page }) => {
   await dashboard(page, true);
