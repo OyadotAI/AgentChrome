@@ -11,6 +11,14 @@ export type Provider =
   | 'cdp';
 
 export interface StartOptions {
+  /** Reuse this value when retrying the same logical creation. */
+  idempotencyKey?: string;
+  /** Wait for capacity for up to five minutes; zero rejects immediately. */
+  queueMs?: number;
+  budgetUsd?: number;
+  governed?: boolean;
+  policy?: { allowedHosts?: string[]; humanHosts?: string[]; region?: string; redactRecording?: boolean };
+  priority?: 'low' | 'normal' | 'high';
   /** Saved login profile. Defaults to the desktop's default profile. */
   profile?: string;
   /**
@@ -156,4 +164,25 @@ export class OyaError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+export type ControlRole = 'viewer' | 'operator' | 'administrator';
+export interface ControlSession {
+  id: string; project: string; provider: string; persona: string | null;
+  state: 'queued' | 'provisioning' | 'ready' | 'disconnected' | 'stopping' | 'cleanup_pending' | 'stopped' | 'failed' | 'unknown_outcome';
+  managed: boolean; createdAt: number; updatedAt: number; costUsd: number;
+  control: { mode: 'agent' | 'human' | 'paused'; expiresAt?: number };
+  cleanupError?: string;
+}
+export interface ProjectSettings {
+  recordingDays: number; auditDays: number; budgetUsd: number | null;
+  maxConcurrent: number | null; rates: Record<string, number>; policy: Record<string, unknown>;
+}
+export interface ControlEvent { id: number; project: string; type: string; sessionId: string | null; at: number; detail: Record<string, unknown> }
+export interface ControlCredential { id: string; label: string; role: ControlRole; expiresAt: number | null; revokedAt: number | null }
+export interface ControlOverview {
+  /** costUsd: estimated lifetime spend, metered from rate cards. */
+  project: { id: string; name: string; settings: ProjectSettings; costUsd?: number };
+  sessions: ControlSession[]; events: ControlEvent[]; draining: boolean;
+  credentials?: ControlCredential[];
 }

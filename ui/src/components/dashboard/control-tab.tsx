@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import DurableControl from './durable-control';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -10,7 +11,7 @@ import {
 import { apiUrl, apiKeyHeaders } from '@/lib/api';
 import Dialog from '@/components/ui/dialog';
 
-type View = 'health' | 'sessions' | 'providers' | 'usage' | 'audit' | 'recordings';
+type View = 'operations' | 'health' | 'sessions' | 'providers' | 'usage' | 'audit' | 'recordings';
 
 type Fleet = {
   at: string; uptimeSeconds: number;
@@ -151,6 +152,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
   const throttled = (u?.rate_limited ?? 0) + (u?.quota_denied ?? 0);
 
   const views: { key: View; label: string; icon: typeof Activity }[] = [
+    { key: 'operations', label: 'Project operations', icon: ShieldCheck },
     { key: 'health', label: 'Overview', icon: Activity },
     { key: 'sessions', label: 'CDP sessions', icon: Users },
     { key: 'providers', label: 'Providers', icon: Server },
@@ -193,8 +195,9 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
       <div className="control-content min-w-0 flex-1 overflow-y-auto p-4 lg:p-8">
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div><p className="eyebrow mb-3 text-text-dim">Workspace control</p><h2 className="text-[28px] font-medium tracking-tight">{views.find(item => item.key === view)?.label}</h2>
-          <p className="mt-2 max-w-2xl text-[13px] leading-6 text-text-muted">{{ health: 'A clear view of browser health, capacity, and usage.', sessions: 'Persistent CDP connections from clients such as Playwright and Puppeteer. Individual REST or curl commands do not create a session; find them in the browser’s Activity history.', providers: 'Route new Playwright and Puppeteer connections through your providers. The Start browser default is managed separately in Settings.', usage: 'Commands, browser time, and model usage for the current hour.', audit: 'A timeline of workspace changes and administrative actions.', recordings: 'Review recordings captured from your CDP sessions.' }[view]}</p></div>
+          <p className="mt-2 max-w-2xl text-[13px] leading-6 text-text-muted">{{ operations: 'Durable sessions, access controls, budgets, and event delivery.', health: 'A clear view of browser health, capacity, and usage.', sessions: 'Persistent CDP connections from clients such as Playwright and Puppeteer. Individual REST or curl commands do not create a session; find them in the browser’s Activity history.', providers: 'Route new Playwright and Puppeteer connections through your providers. The Start browser default is managed separately in Settings.', usage: 'Commands, browser time, and model usage for the current hour.', audit: 'A timeline of workspace changes and administrative actions.', recordings: 'Review recordings captured from your CDP sessions.' }[view]}</p></div>
         </div>
+        {view === 'operations' && <DurableControl key={apiKey} apiKey={apiKey} />}
         {view === 'health' && (
           !fleet ? (
             <p className="text-text-dim text-sm">Loading…</p>

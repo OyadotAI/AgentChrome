@@ -1,3 +1,5 @@
+import { control } from './control/service.js';
+import { QUOTAS } from './limits.js';
 /**
  * Daytona sandbox provisioning — launch cloud browsers on demand.
  *
@@ -97,13 +99,17 @@ function isNotFound(err) {
  * Create one cloud browser. Resolves once the sandbox is starting — the browser
  * enrolls on its own and shows up in the registry within ~90s.
  */
-export async function createSandbox({ apiKey, name, persona } = {}) {
+export async function createSandbox({ apiKey, name, persona, browserId } = {}) {
   const config = settings();
   if (!config) throw unconfigured();
   if (!apiKey) throw Object.assign(new Error('An API key is required'), { status: 400 });
 
   const daytona = await client();
-  const browserId = randomUUID();
+  if (!browserId) {
+    browserId = randomUUID();
+    await control().reserve(apiKey, { id: browserId, provider: 'oya-cloud', persona, maxConcurrent: QUOTAS.browsers, hourlyLimit: QUOTAS.sandboxesPerHour, managed: true });
+  }
+  await control().update(apiKey, browserId, { cleanup: { kind: 'sandbox', browserId } });
 
   const sandbox = await daytona.create({
     name: PREFIX + browserId,
@@ -152,6 +158,7 @@ export async function createSandbox({ apiKey, name, persona } = {}) {
 
   inventory.delete(ownerTag(apiKey));
   provisioned.add(browserId);
+  await control().update(apiKey, browserId, { provisioningActive: false });
   return { browserId, sandboxId: sandbox.id, sandboxName: PREFIX + browserId };
 }
 

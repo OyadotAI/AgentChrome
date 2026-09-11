@@ -7,7 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import { registry } from './connection-registry.js';
 import { sendCommand } from './ws-handler.js';
-import { isFleetToken, validateApiKey } from './auth.js';
+import { isFleetToken, validateApiKey, authenticateToken } from './auth.js';
 import { nextBrowser, poolStats } from './pool.js';
 
 /** Pool pinned browser state: apiKey → browserId */
@@ -434,12 +434,12 @@ Use element IDs with click/type tools. The output includes:
 export async function handleMcpRequest(req, res) {
   const { browserId } = req.params;
   const header = req.headers.authorization;
-  const apiKey = header?.startsWith('Bearer ') ? header.slice(7) : '';
-
-  if (!apiKey || !validateApiKey(apiKey)) {
-    res.status(401).json({ error: 'Missing or invalid API key' });
-    return;
-  }
+  let apiKey;
+  try {
+    const principal = await authenticateToken(header?.startsWith('Bearer ') ? header.slice(7) : '');
+    if (principal.role === 'viewer') return res.status(403).json({ error: 'Operator permission required' });
+    apiKey = principal.key;
+  } catch (e) { return res.status(e.status === 503 ? 503 : 401).json({ error: 'Missing or invalid API key' }); }
 
   if (!registry.isConnected(browserId)) {
     res.status(404).json({ error: `Browser ${browserId} not connected` });
@@ -718,12 +718,12 @@ function createPoolMcpServer(apiKey) {
  */
 export async function handlePoolMcpRequest(req, res) {
   const header = req.headers.authorization;
-  const apiKey = header?.startsWith('Bearer ') ? header.slice(7) : '';
-
-  if (!apiKey || !validateApiKey(apiKey)) {
-    res.status(401).json({ error: 'Missing or invalid API key' });
-    return;
-  }
+  let apiKey;
+  try {
+    const principal = await authenticateToken(header?.startsWith('Bearer ') ? header.slice(7) : '');
+    if (principal.role === 'viewer') return res.status(403).json({ error: 'Operator permission required' });
+    apiKey = principal.key;
+  } catch (e) { return res.status(e.status === 503 ? 503 : 401).json({ error: 'Missing or invalid API key' }); }
 
   try {
     const server = createPoolMcpServer(apiKey);

@@ -1,3 +1,8 @@
+import { migrateLegacy } from './control/migrate.js';
+import { createEgressServer } from './control/egress.js';
+import { control } from './control/service.js';
+import { forwardHttp } from './control/cluster.js';
+import { startWorkers, stopWorkers, workerHealth } from './control/worker.js';
 /**
  * Oya Browser server — HTTP + WebSocket + MCP API.
  * API routes are served under /api; Next.js handles the frontend at /.
@@ -47,7 +52,20 @@ if (!authLoaded) throw new Error('API keys could not be loaded; refusing to acce
 
 keyConfig.restoreRouting(pool);
 
+await control().store.get('meta', 'draining'); // fail fast when control storage is unreachable
+await migrateLegacy();
 const app = express();
+app.get('/livez', (req, res) => res.json({ status: 'ok' }));
+app.get('/readyz', async (req, res) => {
+  try {
+    const draining = (await control().store.get('meta', 'draining'))?.value;
+    const ready = !draining && !registry.draining && !workerHealth.lastError;
+    res.status(ready ? 200 : 503).json({ ready });
+  } catch { res.status(503).json({ ready: false }); }
+});
+startWorkers();
+const egressServer = process.env.OYA_EGRESS_PORT ? createEgressServer() : null;
+egressServer?.listen(Number(process.env.OYA_EGRESS_PORT), process.env.OYA_EGRESS_HOST || '127.0.0.1');
 
 app.use(cors());
 
@@ -94,7 +112,8 @@ app.get(['/health', '/metrics'], apiRouter);
 app.use('/downloads', express.static(join(__dirname, '..', 'downloads')));
 
 // ── MCP endpoints (root level — clients connect directly) ──
-app.use('/mcp', express.json());
+// A per-browser MCP request is served by the replica holding that browser.
+app.use('/mcp', express.json(), forwardHttp);
 app.post('/mcp/pool', handlePoolMcpRequest);
 app.get('/mcp/pool', handlePoolMcpRequest);
 app.delete('/mcp/pool', handlePoolMcpRequest);
@@ -161,6 +180,8 @@ registry.on('browser:disconnected', ({ id, name }) => {
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.once(signal, async () => {
     registry.draining = true;
+    egressServer?.close();
+    await stopWorkers();
     frontend?.stop();
     // End gateway sessions cleanly so profiles are captured and recordings
     // get their manifest, rather than being cut off mid-write.

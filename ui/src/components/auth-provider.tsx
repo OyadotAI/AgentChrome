@@ -47,6 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('oya_token');
     localStorage.removeItem('oya_refresh_token');
     localStorage.removeItem('oya_api_key');
+    sessionStorage.removeItem('oya_project_credential');
+    sessionStorage.removeItem('oya_project_id');
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
   }, []);
 

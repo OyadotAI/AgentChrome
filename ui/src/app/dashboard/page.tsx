@@ -113,7 +113,7 @@ export default function DashboardPage() {
   }, [apiKey]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('oya_api_key') || '';
+    const saved = sessionStorage.getItem('oya_project_credential') || localStorage.getItem('oya_api_key') || '';
     if (saved) setApiKey(saved);
     setSelected(new URLSearchParams(window.location.search).get('browser'));
   }, []);

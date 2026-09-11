@@ -16,6 +16,7 @@ import { Http } from './client.js';
 import { Browser } from './browser.js';
 import {
   OyaError,
+  type ControlOverview, type ControlSession, type ControlRole, type ControlCredential, type ProjectSettings, type ControlEvent,
   type BrowserInfo, type Fingerprint, type MfaConfig, type OyaOptions,
   type PersonaInfo, type PersonaPrefs, type StartOptions, type StartResult, type StopResult,
 } from './types.js';
@@ -51,11 +52,15 @@ export class Oya {
         provider: options.provider,
         wsUrl: options.wsUrl,
         name: options.name,
-      }, 120_000);
+        queueMs: options.queueMs, priority: options.priority,
+        budgetUsd: options.budgetUsd, governed: options.governed, policy: options.policy,
+      }, 120_000, { 'Idempotency-Key': options.idempotencyKey || globalThis.crypto.randomUUID() });
 
       // Cloud browsers dial in themselves, so 'starting' means "not yet".
       if (started.status === 'starting') {
-        await this.waitUntilConnected(started.id, options.readyTimeoutMs ?? 120_000);
+        await this.waitUntilConnected(started.id, options.readyTimeoutMs ?? (120_000 + (options.queueMs || 0)));
+        const connected = await this.http.request<BrowserInfo & { cdpUrl?: string }>('GET', `/api/browsers/${encodeURIComponent(started.id)}`);
+        started.cdpUrl = connected.cdpUrl;
       }
       return new Browser(this.http, started, options.captcha === 'auto');
     },
@@ -75,6 +80,29 @@ export class Oya {
       this.http.request('POST', '/api/browsers/stop', ids === 'all' ? { all: true } : { ids }, 120_000),
 
     stopAll: async (): Promise<number> => (await this.browser.stop('all')).stopped,
+  };
+
+  /** Durable operational controls, including disconnected and cleanup-pending sessions. */
+  readonly control = {
+    overview: (): Promise<ControlOverview> => this.http.request('GET', '/api/control'),
+    sessions: (): Promise<ControlSession[]> => this.http.request('GET', '/api/control/sessions'),
+    session: (id: string): Promise<ControlSession> => this.http.request('GET', `/api/control/sessions/${encodeURIComponent(id)}`),
+    settings: (changes: Partial<ProjectSettings>): Promise<ControlOverview['project']> => this.http.request('PATCH', '/api/control/project', changes),
+    cancel: (id: string): Promise<ControlSession> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/cancel`, {}),
+    stop: (id: string, force = false): Promise<StopResult> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/stop`, { force }),
+    takeover: (id: string, action: 'acquire' | 'release' | 'resume'): Promise<ControlSession['control']> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/control`, { action }),
+    input: (id: string, action: 'click' | 'type' | 'press_key' | 'scroll', params: Record<string, unknown>): Promise<unknown> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/input`, { action, params }),
+    recover: (id: string, replace = false): Promise<unknown> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/recover`, { replace }),
+    ticket: (id: string): Promise<{ ticket: string; expiresIn: number }> => this.http.request('POST', `/api/control/sessions/${encodeURIComponent(id)}/ticket`, {}),
+    events: (after = 0): Promise<{ events: ControlEvent[]; cursor: number }> => this.http.request('GET', `/api/control/events?after=${after}`),
+    createCredential: (options: { role: ControlRole; label?: string; expiresAt?: number }): Promise<ControlCredential & { token: string }> => this.http.request('POST', '/api/control/credentials', options),
+    revokeCredential: (id: string): Promise<{ ok: boolean }> => this.http.request('DELETE', `/api/control/credentials/${encodeURIComponent(id)}`),
+    members: (): Promise<{ owner: string | null; members: { userId: string; role: ControlRole }[] }> => this.http.request('GET', '/api/control/members'),
+    inviteMember: (role: ControlRole = 'operator'): Promise<{ code: string; expiresIn: number }> => this.http.request('POST', '/api/control/members/invite', { role }),
+    removeMember: (userId: string): Promise<{ ok: boolean }> => this.http.request('DELETE', `/api/control/members/${encodeURIComponent(userId)}`),
+    createWebhook: (url: string, types: string[] = []): Promise<{ id: string; secret: string }> => this.http.request('POST', '/api/control/webhooks', { url, types }),
+    removeWebhook: (id: string): Promise<{ ok: boolean }> => this.http.request('DELETE', `/api/control/webhooks/${encodeURIComponent(id)}`),
+    replayDelivery: (id: string): Promise<{ ok: boolean }> => this.http.request('POST', `/api/control/deliveries/${encodeURIComponent(id)}/replay`, {}),
   };
 
   readonly personas = {
@@ -134,7 +162,11 @@ export class Oya {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const all = await this.browser.list();
-      if (all.some((b) => b.id === id)) return;
+      if (all.some((b) => b.id === id && b.health !== 'dead')) return;
+      try {
+        const session = await this.control.session(id);
+        if (['failed', 'stopped', 'unknown_outcome'].includes(session.state)) throw new OyaError(`Browser creation ended in ${session.state}`, 409, session);
+      } catch (e) { if (!(e instanceof OyaError) || e.status !== 404) throw e; }
       await new Promise((r) => setTimeout(r, READY_POLL_MS));
     }
     throw new OyaError(`Browser ${id} did not come up within ${Math.round(timeoutMs / 1000)}s`, 504, null);

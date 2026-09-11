@@ -73,7 +73,10 @@ try {
   await browser.goto(`${base}/fixture`);
   assert.equal((await browser.tabs())[0].title, 'Signed in as Alice');
   assert.equal(new URL(browser.cdpUrl).searchParams.get('browser'), browser.id);
-  assert.equal((await oya.browser.get(browser.id)).cdpUrl, browser.cdpUrl);
+  const refreshedUrl = new URL((await oya.browser.get(browser.id)).cdpUrl);
+  assert.equal(refreshedUrl.searchParams.get('browser'), browser.id);
+  assert.ok(refreshedUrl.searchParams.get('ticket'));
+  assert.equal(refreshedUrl.searchParams.has('token'), false);
   passed('six-line SDK path restores cookies and localStorage before the first page script');
 
   const page = await browser.analyze();

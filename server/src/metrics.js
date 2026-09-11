@@ -121,6 +121,10 @@ const loopDelay = monitorEventLoopDelay({ resolution: 10 });
 loopDelay.enable();
 
 export const metrics = {
+  controlCleanup: gauge('oya_control_cleanup_pending', 'Resources awaiting confirmed deletion'),
+  controlCleanupAge: gauge('oya_control_cleanup_oldest_seconds', 'Age of oldest pending deletion'),
+  controlWebhooks: gauge('oya_control_webhook_pending', 'Event deliveries awaiting acknowledgement'),
+  controlQueue: gauge('oya_control_queue_depth', 'Durable queued browser requests'),
   // Connections
   wsConnections: counter('oya_ws_connections_total', 'WebSocket connection attempts by outcome'),
   wsDisconnections: counter('oya_ws_disconnections_total', 'WebSocket disconnections by reason'),

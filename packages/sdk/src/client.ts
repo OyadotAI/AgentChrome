@@ -9,11 +9,12 @@ export class Http {
     private readonly fetchImpl: typeof globalThis.fetch,
   ) {}
 
-  async request<T>(method: string, path: string, body?: unknown, timeoutMs = this.timeoutMs): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown, timeoutMs = this.timeoutMs, headers: Record<string, string> = {}): Promise<T> {
     const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
+        ...headers,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),

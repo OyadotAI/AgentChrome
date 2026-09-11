@@ -1,3 +1,4 @@
+const governance = require('./governance');
 /**
  * Oya Browser — Desktop browser with agent scripts built in.
  * Users run this on their machines. Connects to a deployed Oya server.
@@ -678,7 +679,8 @@ async function setupBrowserSession() {
   });
 
   // ── Proxy: apply from active profile ──
-  await configureProxy(ses, activeProfile?.proxy);
+  await configureProxy(ses, governance.configuration?.proxy || activeProfile?.proxy);
+  governance.install(ses);
 }
 
 // ─── One-click sign-in (oya:// deep links) ───
@@ -1526,6 +1528,7 @@ function connect() {
         browser_id: browserId, browser_name: config.browserName,
         persona: config.persona,
         provider: config.provider || (process.env.OYA_DOCKER ? 'oya-selfhosted' : 'oya-desktop'),
+        enrollment_token: process.env.OYA_ENROLLMENT_TOKEN,
       }));
     });
 
@@ -1593,6 +1596,9 @@ ipcMain.handle('save-profile', async () => {
 
 async function handleServerMessage(msg) {
   switch (msg.type) {
+    case 'control_mode':
+      governance.setMode(msg.mode);
+      break;
     case 'auth_ok':
       reconnectAttempts = 0;
       if (msg.browser_id) browserId = msg.browser_id;
@@ -1608,7 +1614,7 @@ async function handleServerMessage(msg) {
       config.profileName = msg.persona?.name || 'Default';
       saveConfig();
       startPingLoop(); sendStatus();
-      if (!browsingMode) enterBrowsingMode('https://google.com');
+      if (!browsingMode) enterBrowsingMode(governance.configuration ? 'about:blank' : 'https://google.com');
       // Send our cookies to the server for pool sync
       await dumpCookies();
       wsSend({ type: 'profile_flush' });

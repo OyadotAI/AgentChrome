@@ -12,6 +12,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+# Managed runtime operators may mount a Docker socket explicitly.
+RUN apk add --no-cache docker-cli
+
 # Install server deps (production only)
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev

@@ -8,6 +8,7 @@ import {
 import { OyaWordmark } from '@/components/oya-logo';
 import ThemeToggle from '@/components/theme-toggle';
 import { useAuth } from '@/components/auth-provider';
+import ProjectSwitcher from './project-switcher';
 import ProfileDialog from '@/components/dashboard/profile-dialog';
 import { apiUrl, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
 import { useToast } from './toast';
@@ -76,11 +77,15 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
   useEffect(() => {
     loadKeys().then((keyList) => {
       if (!keyList || keyList.length === 0) return;
+      const projectKey = sessionStorage.getItem('oya_project_credential');
+      if (projectKey) { setApiKey(projectKey); return; }
       const currentKey = localStorage.getItem('oya_api_key');
       if (currentKey && keyList.find(k => k.key === currentKey)) {
         setApiKey(currentKey);
       } else {
         setApiKey(keyList[0].key);
+        sessionStorage.removeItem('oya_project_credential');
+        sessionStorage.removeItem('oya_project_id');
         localStorage.setItem('oya_api_key', keyList[0].key);
       }
     });
@@ -120,6 +125,8 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
       await loadKeys();
       if (data.key) {
         setApiKey(data.key);
+        sessionStorage.removeItem('oya_project_credential');
+        sessionStorage.removeItem('oya_project_id');
         localStorage.setItem('oya_api_key', data.key);
         navigator.clipboard.writeText(data.key).catch(() => {});
         toast('Key created & copied to clipboard', 'success');
@@ -150,6 +157,8 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
       await importApiKey(token, key, importKeyLabel.trim() || undefined);
       await loadKeys();
       setApiKey(key);
+      sessionStorage.removeItem('oya_project_credential');
+      sessionStorage.removeItem('oya_project_id');
       localStorage.setItem('oya_api_key', key);
       toast('Key added', 'success');
     } catch (err) {
@@ -179,6 +188,8 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
 
   const handleSelectKey = (key: string) => {
     setApiKey(key);
+    sessionStorage.removeItem('oya_project_credential');
+    sessionStorage.removeItem('oya_project_id');
     localStorage.setItem('oya_api_key', key);
     setShowKeyDropdown(false);
     toast('API key selected', 'info');
@@ -323,6 +334,7 @@ export default function Header({ apiKey, setApiKey, onOpenSettings }: HeaderProp
         )}
       </div>
 
+      <ProjectSwitcher onSelect={setApiKey} />
       <ThemeToggle />
 
       {/* Settings */}

@@ -33,6 +33,24 @@ const HELP = `oya — thousands of browsers, one API
   oya status [--id <id>]          Health, counters and what it has been doing
   oya open [--id <id>]            Open the live view in your browser
   oya config [key=value ...]      Show or change this key's settings
+  oya control                     Durable project overview
+  oya sessions [id]               All sessions, including pending cleanup
+  oya stop <id> --force           Stop despite a profile-save error, or reconcile
+  oya takeover <id>               Acquire human control
+  oya release <id>                Release human control, leaving the agent paused
+  oya resume <id>                 Acknowledge agent resume
+  oya events [--after <cursor>]   Read durable lifecycle events
+  oya project <settings-json>     Update limits, rate cards and retention
+  oya start --governed --provider oya-selfhosted [--queue-ms 30000]
+            [--budget-usd 5] [--policy JSON] [--idempotency-key ID]
+  oya cancel <id>               Cancel queued or provisioning work
+  oya recover <id> [--replace]   Explicitly recover or replace a session
+  oya members [invite|remove]   List members, invite, or remove a user
+  oya credential new [--role viewer|operator|administrator]
+  oya credential revoke <id>     Revoke a service credential
+  oya webhook new <https-url>    Register a signed event webhook
+  oya webhook remove <id>        Disable a webhook
+  oya webhook replay <id>        Replay a delivery
   oya usage                       What this key has spent
   oya stealth-test [--live]       Score this deployment against bot detectors
 
@@ -208,6 +226,12 @@ async function cmdStart(flags: Flags): Promise<void> {
     provider: flagStr(flags, 'provider') as never,
     wsUrl: flagStr(flags, 'ws-url'),
     name: flagStr(flags, 'name'),
+    idempotencyKey: flagStr(flags, 'idempotency-key'),
+    queueMs: flagStr(flags, 'queue-ms') === undefined ? undefined : Number(flagStr(flags, 'queue-ms')),
+    budgetUsd: flagStr(flags, 'budget-usd') === undefined ? undefined : Number(flagStr(flags, 'budget-usd')),
+    governed: flags.governed === true,
+    priority: flagStr(flags, 'priority') as 'low' | 'normal' | 'high' | undefined,
+    policy: flagStr(flags, 'policy') ? JSON.parse(flagStr(flags, 'policy')!) : undefined,
   });
   out(flags, { id: browser.id, provider: browser.provider, persona: browser.persona, cdpUrl: browser.cdpUrl }, () => {
     console.log(`✅ ${browser.id}`);
@@ -383,7 +407,46 @@ function cmdStealthTest(flags: Flags): Promise<void> {
 const { command, args, flags } = parse(process.argv.slice(2));
 
 try {
-  switch (command) {
+  // Plain `oya stop <id...>|--all` keeps its bulk meaning; only --force needs the durable endpoint.
+  if (['control', 'sessions', 'takeover', 'release', 'resume', 'events', 'project', 'credential', 'webhook', 'cancel', 'recover', 'members'].includes(command) || (command === 'stop' && flags.force === true)) {
+    const c = client(flags).control;
+    const required = (i = 0) => { if (!args[i]) throw new Error('Missing argument; run oya help'); return args[i]; };
+    let result: unknown;
+    switch (command) {
+      case 'control': result = await c.overview(); break;
+      case 'sessions': result = args[0] ? await c.session(args[0]) : await c.sessions(); break;
+      case 'cancel': result = await c.cancel(required()); break;
+      case 'recover': result = await c.recover(required(), flags.replace === true); break;
+      case 'members':
+        if (!args[0]) result = await c.members();
+        else if (args[0] === 'remove') result = await c.removeMember(required(1));
+        else if (args[0] === 'invite') {
+          const role = flagStr(flags, 'role') || 'operator';
+          if (!['viewer', 'operator', 'administrator'].includes(role)) throw new Error('Invalid role');
+          result = await c.inviteMember(role as 'viewer' | 'operator' | 'administrator');
+        } else throw new Error('Use members, members invite, or members remove');
+        break;
+      case 'stop': result = await c.stop(required(), flags.force === true); break;
+      case 'takeover': case 'release': case 'resume': result = await c.takeover(required(), command === 'takeover' ? 'acquire' : command); break;
+      case 'events': result = await c.events(Number(flagStr(flags, 'after') || 0)); break;
+      case 'project': result = await c.settings(JSON.parse(required())); break;
+      case 'credential':
+        if (required() === 'revoke') result = await c.revokeCredential(required(1));
+        else if (args[0] === 'new') {
+          const role = flagStr(flags, 'role') || 'operator';
+          if (!['viewer', 'operator', 'administrator'].includes(role)) throw new Error('Invalid role');
+          result = await c.createCredential({ role: role as 'viewer' | 'operator' | 'administrator', label: flagStr(flags, 'label') });
+        } else throw new Error('Use credential new or credential revoke');
+        break;
+      case 'webhook':
+        if (required() === 'new') result = await c.createWebhook(required(1));
+        else if (args[0] === 'remove') result = await c.removeWebhook(required(1));
+        else if (args[0] === 'replay') result = await c.replayDelivery(required(1));
+        else throw new Error('Use webhook new, remove, or replay');
+        break;
+    }
+    console.log(JSON.stringify(result, null, 2));
+  } else switch (command) {
     case 'login':        await cmdLogin(flags); break;
     case 'init':         await cmdInit(flags); break;
     case 'start':        await cmdStart(flags); break;

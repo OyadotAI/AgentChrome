@@ -42,7 +42,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 # Copy browser source
-COPY main.js preload.js login-state.js ./
+COPY main.js preload.js login-state.js governance.js ./
 COPY renderer/ ./renderer/
 COPY scripts/ ./scripts/
 COPY anonymity/ ./anonymity/
@@ -62,6 +62,7 @@ ENV SCREEN_DEPTH=24
 
 # Docker mode
 ENV OYA_DOCKER=true
+LABEL ai.getoya.governance="1"
 
 # VNC off by default
 ENV VNC_ENABLED=false

@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from 'crypto';
+import { control } from './control/service.js';
 import { db as supabase, dbAuth as supabaseAuth } from './db.js';
 
 // ── Env-configured admin keys ──
@@ -27,6 +28,7 @@ const fleetToken = (process.env.FLEET_TOKEN || '').trim() || null;
 
 const keyCache = new Set();
 let loaded = false;
+export const knownKeys = () => [...new Set([...envKeys, ...keyCache, ...(fleetToken ? [fleetToken] : [])])];
 
 async function loadKeys() {
   if (!supabase || loaded) return;
@@ -120,15 +122,20 @@ export async function getKeyOwner(key) {
 }
 
 export async function registerApiKey(key, userId, label) {
-  keyCache.add(key);
-  if (userId) ownerCache.set(key, userId);
   if (supabase && userId) {
-    const { error } = await supabase.from('api_keys').upsert(
-      { key, user_id: userId, label: label || 'Default', created_at: new Date().toISOString() },
-      { onConflict: 'key' }
+    const { data: existing, error: lookupError } = await supabase.from('api_keys').select('user_id').eq('key', key).maybeSingle();
+    if (lookupError) throw lookupError;
+    if (existing && existing.user_id !== userId) throw Object.assign(new Error('Key cannot be imported'), { status: 403 });
+    if (existing) { keyCache.add(key); ownerCache.set(key, userId); return; }
+    const { error } = await supabase.from('api_keys').insert(
+      { key, user_id: userId, label: label || 'Default', created_at: new Date().toISOString() }
     );
     if (error) throw error;
   }
+  keyCache.add(key);
+  if (userId) ownerCache.set(key, userId);
+  const project = await control().project(key);
+  if (userId) await control().store.transact(async tx => { (await tx.get('project', project.id)).ownerUser = userId; });
 }
 
 export async function listApiKeys(userId) {
@@ -143,16 +150,12 @@ export async function listApiKeys(userId) {
 }
 
 export async function deleteApiKey(key, userId) {
+  if (!supabase) throw Object.assign(new Error('Accounts need Supabase'), { status: 409 });
+  const { data, error } = await supabase.from('api_keys').delete().eq('key', key).eq('user_id', userId).select('key');
+  if (error) throw error;
+  if (!data?.length) throw Object.assign(new Error('Key not found'), { status: 404 });
   ownerCache.delete(key);
   keyCache.delete(key);
-  if (supabase) {
-    const { error } = await supabase
-      .from('api_keys')
-      .delete()
-      .eq('key', key)
-      .eq('user_id', userId);
-    if (error) throw error;
-  }
 }
 
 export async function touchApiKey(key) {
@@ -219,14 +222,14 @@ export async function provisionKeys(count) {
   const rows = [];
   for (let i = 0; i < count; i++) {
     const key = randomBytes(24).toString('base64url');
-    keyCache.add(key);
     keys.push(key);
     rows.push({ key, created_at: new Date().toISOString() });
   }
   if (supabase && rows.length > 0) {
     const { error } = await supabase.from('api_keys').upsert(rows, { onConflict: 'key' });
-    if (error) console.error('[auth] Failed to save provisioned keys:', error.message);
+    if (error) throw error;
   }
+  for (const key of keys) { keyCache.add(key); await control().project(key); }
   return keys;
 }
 
@@ -253,14 +256,35 @@ export async function userAuthMiddleware(req, res, next) {
 
 // ── API key middleware (for browser/MCP connections) ──
 
-export function authMiddleware(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing API key' });
+/** Resolve scoped credentials without changing legacy resource ownership. A managed browser's credential works only where allowBrowser is set. */
+export async function authenticateToken(token, { allowBrowser = false } = {}) {
+  if (!token) throw Object.assign(new Error('Missing API key'), { status: 401 });
+  if (token.startsWith('oya_')) {
+    const principal = await control().authenticate(token);
+    if (principal?.role === 'browser' && !allowBrowser) throw Object.assign(new Error('Managed browser credentials cannot call this API'), { status: 403 });
+    if (principal) return principal;
   }
-  const key = header.slice(7);
-  if (!validateApiKey(key)) {
-    return res.status(403).json({ error: 'Invalid API key' });
-  }
-  next();
+  if (envKeys.has(token) || isFleetToken(token)) return { key: token, role: 'administrator' };
+  if (supabase) {
+    const { data, error } = await supabase.from('api_keys').select('key').eq('key', token).maybeSingle();
+    if (error) throw Object.assign(new Error('Credential validation unavailable'), { status: 503 });
+    if (data) { keyCache.add(token); return { key: token, role: 'administrator' }; }
+    keyCache.delete(token);
+  } else if (keyCache.has(token)) return { key: token, role: 'administrator' };
+  throw Object.assign(new Error('Invalid API key'), { status: 403 });
+}
+
+export async function authMiddleware(req, res, next) {
+  try {
+    const token = req.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '');
+    const principal = await authenticateToken(token);
+    req.authToken = token;
+    req.principal = principal;
+    if (principal.role === 'viewer' && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Viewer credentials cannot change resources' });
+    if (principal.role !== 'administrator' && /^\/(config|personas|proxies|gateway\/(providers|strategy|profiles))/.test(req.path) && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Administrator permission required' });
+    // Secrets and recordings are not part of the sanitized viewer surface.
+    if (principal.role === 'viewer' && /^\/(config|pool\/cookies|live|gateway\/(profiles|recordings))/.test(req.path)) return res.status(403).json({ error: 'Operator permission required' });
+    req.headers.authorization = `Bearer ${principal.key}`;
+    next();
+  } catch (err) { res.status(err.status || 503).json({ error: err.message }); }
 }

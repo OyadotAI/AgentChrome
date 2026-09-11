@@ -1,3 +1,4 @@
+import { control } from './control/service.js';
 /**
  * Provider pool: which backend should this session go to.
  *
@@ -196,6 +197,7 @@ export class ProviderPool {
    */
   async acquire({ owner = null, strategy, connect, queueMs = 30_000, attempts = 3 } = {}) {
     const excluded = new Set();
+    const deadline = Date.now() + queueMs;
     for (let i = 0; i < attempts; i++) {
       let provider = this.pick(owner, strategy, excluded);
 
@@ -209,6 +211,13 @@ export class ProviderPool {
         }
       }
 
+      let holdId;
+      try { holdId = await control().holdProvider(provider.owner, provider.name, provider.maxConcurrent); }
+      catch (e) {
+        if (e.code !== 'provider_capacity') throw e;
+        if (Date.now() >= deadline) throw Object.assign(new Error('Provider capacity exhausted'), { status: 503 });
+        await new Promise(r => setTimeout(r, 100)); i--; continue;
+      }
       provider.active += 1;
       const started = Date.now();
       try {
@@ -218,10 +227,11 @@ export class ProviderPool {
         metrics.routingAcquired.inc({ provider: provider.name });
         return {
           provider,
-          session,
-          release: (() => { let released = false; return () => { if (!released) { released = true; this.release(provider); } }; })(),
+          session, holdId,
+          release: (() => { let released = false; return () => { if (!released) { released = true; this.release(provider); return control().releaseProvider(holdId); } }; })(),
         };
       } catch (err) {
+        await control().releaseProvider(holdId);
         provider.active -= 1;
         provider.fail();
         excluded.add(this.key(provider.owner, provider.name));

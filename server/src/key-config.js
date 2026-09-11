@@ -1,3 +1,4 @@
+import { managedConfigured } from './control/managed.js';
 /**
  * Settings, keyed by API key.
  *
@@ -62,6 +63,7 @@ export const FIELDS = {
 
 /** What onboarding offers, in the order it offers it. */
 export const PROVIDER_CHOICES = [
+  { id: 'oya-selfhosted', label: 'Managed Docker browsers', needs: [] },
   { id: 'oya-cloud',      label: 'Oya Browsers on Cloud',  needs: [] },
   { id: 'browseruse',     label: 'Browser Use Cloud',      needs: ['browseruse_api_key'] },
   { id: 'browserbase',    label: 'Browserbase',            needs: ['browserbase_api_key'] },
@@ -119,7 +121,7 @@ export function get(apiKey) {
     chat_model: own.chat_model || llm.model,
     providers: PROVIDER_CHOICES.map((p) => ({
       ...p,
-      configured: p.id === 'oya-cloud' ? cloudConfigured() : p.needs.every((f) => !!own[f] || !!process.env[FIELDS[f]?.envVar]),
+      configured: p.id === 'oya-selfhosted' ? managedConfigured() : p.id === 'oya-cloud' ? cloudConfigured() : p.needs.every((f) => !!own[f] || !!process.env[FIELDS[f]?.envVar]),
     })),
   };
 }

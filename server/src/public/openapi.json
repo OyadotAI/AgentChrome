@@ -21,6 +21,1299 @@
     }
   ],
   "paths": {
+    "/api/control": {
+      "get": {
+        "summary": "Project operational overview",
+        "operationId": "getApiControl",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        }
+      }
+    },
+    "/api/control/sessions": {
+      "get": {
+        "summary": "Durable inventory including unresolved cleanup",
+        "operationId": "getApiControlSessions",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ControlSession"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a durable browser session",
+        "operationId": "postApiControlSessions",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          },
+          "201": {
+            "description": "Provisioning accepted"
+          },
+          "202": {
+            "description": "Queued or existing operation; poll by returned ID"
+          },
+          "429": {
+            "description": "Capacity or budget exhausted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "persona": {
+                    "type": "string"
+                  },
+                  "governed": {
+                    "type": "boolean"
+                  },
+                  "queueMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 300000
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "normal",
+                      "high"
+                    ]
+                  },
+                  "budgetUsd": {
+                    "type": "number"
+                  },
+                  "policy": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable per logical creation, retained seven days; changing the body conflicts."
+          }
+        ]
+      }
+    },
+    "/api/control/sessions/{id}": {
+      "get": {
+        "summary": "Read a durable session",
+        "operationId": "getApiControlSessionsId",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ControlSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/control/sessions/{id}/cancel": {
+      "post": {
+        "summary": "Cancel work and retain cleanup obligation",
+        "operationId": "postApiControlSessionsIdCancel",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/sessions/{id}/stop": {
+      "post": {
+        "summary": "Stop browser; optionally proceed after profile-save failure",
+        "operationId": "postApiControlSessionsIdStop",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "force": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/sessions/{id}/recover": {
+      "post": {
+        "summary": "Recover original session or explicitly replace after cleanup",
+        "operationId": "postApiControlSessionsIdRecover",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "replace": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/sessions/{id}/control": {
+      "post": {
+        "summary": "Transfer human control; release leaves agent paused",
+        "operationId": "postApiControlSessionsIdControl",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "acquire",
+                      "release",
+                      "resume"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/sessions/{id}/input": {
+      "post": {
+        "summary": "Send input using the caller\u2019s human control lease",
+        "operationId": "postApiControlSessionsIdInput",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/sessions/{id}/ticket": {
+      "post": {
+        "summary": "Issue a one-use 60-second session-bound ticket",
+        "operationId": "postApiControlSessionsIdTicket",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/project": {
+      "patch": {
+        "summary": "Update limits, rates, retention and admission policy",
+        "operationId": "patchApiControlProject",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "maxConcurrent": {
+                    "type": "integer",
+                    "nullable": true
+                  },
+                  "budgetUsd": {
+                    "type": "number",
+                    "nullable": true
+                  },
+                  "rates": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "policy": {
+                    "type": "object"
+                  },
+                  "recordingDays": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "auditDays": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/credentials": {
+      "post": {
+        "summary": "Create a credential; secret shown once",
+        "operationId": "postApiControlCredentials",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "viewer",
+                      "operator",
+                      "administrator"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/credentials/{id}": {
+      "delete": {
+        "summary": "Revoke credential and invalidate its attachments",
+        "operationId": "deleteApiControlCredentialsId",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/control/members": {
+      "get": {
+        "summary": "List project members",
+        "operationId": "getApiControlMembers",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential."
+      }
+    },
+    "/api/control/members/invite": {
+      "post": {
+        "summary": "Create one-use seven-day invitation",
+        "operationId": "postApiControlMembersInvite",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "viewer",
+                      "operator",
+                      "administrator"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/members/{id}": {
+      "delete": {
+        "summary": "Remove member and revoke linked credentials",
+        "operationId": "deleteApiControlMembersId",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/control/events": {
+      "get": {
+        "summary": "Read durable events after a cursor",
+        "operationId": "getApiControlEvents",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ]
+      }
+    },
+    "/api/control/audit/export": {
+      "get": {
+        "summary": "Export retained audit events as NDJSON",
+        "operationId": "getApiControlAuditExport",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Retained audit events",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential."
+      }
+    },
+    "/api/control/webhooks": {
+      "post": {
+        "summary": "Create signed at-least-once event subscription",
+        "operationId": "postApiControlWebhooks",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "types": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/control/webhooks/{id}": {
+      "delete": {
+        "summary": "Disable event subscription",
+        "operationId": "deleteApiControlWebhooksId",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/control/deliveries/{id}/replay": {
+      "post": {
+        "summary": "Replay a delivery within its audit retention period",
+        "operationId": "postApiControlDeliveriesIdReplay",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "description": "Requires an administrator credential.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/projects": {
+      "get": {
+        "summary": "List projects for authenticated account",
+        "operationId": "getApiAuthProjects",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        }
+      }
+    },
+    "/api/auth/projects/join": {
+      "post": {
+        "summary": "Redeem a project invitation using account JWT",
+        "operationId": "postApiAuthProjectsJoin",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/projects/{id}/access": {
+      "post": {
+        "summary": "Issue one-hour member-linked console credential using account JWT",
+        "operationId": "postApiAuthProjectsIdAccess",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/livez": {
+      "get": {
+        "summary": "Process liveness",
+        "operationId": "getLivez",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "security": []
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Storage and admission readiness",
+        "operationId": "getReadyz",
+        "tags": [
+          "Durable control"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "description": "Insufficient role"
+          },
+          "409": {
+            "description": "Lifecycle, idempotency, or control lease conflict"
+          },
+          "503": {
+            "description": "Storage or session owner unavailable"
+          }
+        },
+        "security": []
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health check",
@@ -662,6 +1955,62 @@
       }
     },
     "schemas": {
+      "ControlSession": {
+        "type": "object",
+        "required": [
+          "id",
+          "project",
+          "state",
+          "control"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "provisioning",
+              "ready",
+              "disconnected",
+              "cleanup_pending",
+              "unknown_outcome",
+              "stopped",
+              "failed"
+            ]
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "costUsd": {
+            "type": "number"
+          },
+          "control": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "agent",
+                  "human",
+                  "paused"
+                ]
+              },
+              "expiresAt": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
       "Error": {
         "type": "object",
         "properties": {

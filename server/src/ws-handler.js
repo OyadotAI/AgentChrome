@@ -1,9 +1,10 @@
+import { control, hash } from './control/service.js';
 /**
  * WebSocket handler — manages browser connections, auth, ping/pong, and command dispatch.
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { validateApiKey } from './auth.js';
+import { validateApiKey, authenticateToken } from './auth.js';
 import { registry, summarise } from './connection-registry.js';
 import { destroyMcpServer } from './mcp-server.js';
 import { mergeDump, applyChange, getAll as getAllCookies, getForDomains, getStorage, mergeStorage, drain as drainLogins, summary as loginSummary } from './cookie-store.js';
@@ -50,7 +51,9 @@ export function handleConnection(ws, req) {
     }
   }, 10000);
 
-  ws.on('message', (raw) => {
+  let authenticating = false;
+  ws.on('message', async (raw) => {
+    try {
     let msg;
     try {
       msg = JSON.parse(raw.toString());
@@ -62,7 +65,8 @@ export function handleConnection(ws, req) {
 
     // ── Auth ──
     if (msg.type === 'auth') {
-      if (authenticated) { ws.close(4003, 'Already authenticated'); return; }
+      if (authenticated || authenticating) { ws.close(4003, 'Already authenticating'); return; }
+      authenticating = true;
       clearTimeout(authTimeout);
 
       // Draining: finish what is in flight, accept nothing new, so an
@@ -74,8 +78,13 @@ export function handleConnection(ws, req) {
         return;
       }
 
-      if (!validateApiKey(msg.api_key)) {
-        const shown = msg.api_key ? `…${String(msg.api_key).slice(-4)}` : '(none sent)';
+      // An outage is retryable (generic close below); a bad or viewer credential gets 4003, which stops client reconnects.
+      const presentedKey = msg.api_key;
+      const principal = await authenticateToken(presentedKey, { allowBrowser: true }).catch(e => { if (e.status === 503) throw e; return null; });
+      // A managed browser's credential registers only its own session.
+      msg.api_key = principal?.role === 'viewer' || (principal?.role === 'browser' && principal.sessionId !== msg.browser_id) ? null : principal?.key;
+      if (!msg.api_key) {
+        const shown = presentedKey ? `…${String(presentedKey).slice(-4)}` : '(none sent)';
         console.warn(`[ws] ✗ ${from} rejected: unknown API key ${shown}. `
           + 'It must be listed in API_KEYS or registered for an account.');
         metrics.wsConnections.inc({ outcome: 'invalid_key' });
@@ -139,9 +148,14 @@ export function handleConnection(ws, req) {
       // means destroying the sandbox, not just dropping the socket.
       const claimed = ['oya-cloud', 'oya-selfhosted', 'oya-desktop'].includes(msg.provider) ? msg.provider : 'oya-desktop';
       const provider = isProvisioned(browserId) ? 'oya-cloud' : claimed;
+      const durable = await control().store.get('session', browserId);
+      if (durable?.enrollmentHash && durable.enrollmentHash !== hash(String(msg.enrollment_token || ''))) throw new Error('Managed browser enrollment token required');
+      await control().adopt(apiKey, { id: browserId, provider, persona: persona.id, personaLimit: persona.maxConcurrent, maxConcurrent: Number(process.env.OYA_QUOTA_MAX_BROWSERS) || 5000 });
+      if (ws.readyState !== 1) { personas.release(persona, browserId); return; }
       registry.add(browserId, {
         ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona, provider,
       });
+      registry.get(browserId).authToken = presentedKey;
       if (provider === 'oya-desktop') keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
       metrics.wsConnections.inc({ outcome: 'ok' });
       metrics.browsersConnected.set({}, registry.browsers.size);
@@ -288,6 +302,11 @@ export function handleConnection(ws, req) {
       }
       return;
     }
+    } catch (err) {
+      if (persona) personas.release(persona, browserId);
+      console.error('[ws] registration/message rejected:', err.message);
+      ws.close(4010, 'Control plane rejected connection');
+    }
   });
 
   ws.on('close', () => {
@@ -366,7 +385,16 @@ registry.on('stream:stop', ({ id }) => {
  * Send a command to a browser and wait for the result.
  * @returns {Promise<{ok: boolean, data: any, error: string?}>}
  */
-export function sendCommand(browserId, action, params = {}, timeoutMs) {
+export async function sendCommand(browserId, action, params = {}, timeoutMs, holder = null) {
+  const finish = await control().beginCommand(browserId, holder);
+  try { return await dispatchCommand(browserId, action, params, timeoutMs); }
+  catch (e) {
+    if (/timed out|timeout|disconnect|reconnect/i.test(e.message)) { e.code = 'command_outcome_unknown'; e.status = 504; }
+    throw e;
+  } finally { await finish(); }
+}
+
+function dispatchCommand(browserId, action, params = {}, timeoutMs) {
   const browser = registry.get(browserId);
   if (!browser) {
     return Promise.reject(new Error(`Browser ${browserId} not connected`));

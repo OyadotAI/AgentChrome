@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 test.use({ reducedMotion: 'reduce' });
 
 async function dashboard(page: Page, cloudReady = false) {
+  let mode = 'agent';
   const commands: Array<{ action: string; params: Record<string, unknown> }> = [];
   const browser = {
     id: 'qa-browser', name: 'QA browser', clientType: 'oya', provider: 'oya-desktop',
@@ -24,6 +25,11 @@ async function dashboard(page: Page, cloudReady = false) {
   await page.context().route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, '');
     let body: unknown = {};
+    if (path === '/control') body = { project: { id: 'prj-test', name: 'Test project', settings: { maxConcurrent: 3, budgetUsd: null, recordingDays: 7, auditDays: 90, rates: {}, policy: {} } }, sessions: [{ ...browser, state: 'ready', managed: false, costUsd: 0, control: { mode } }], events: [], credentials: [], webhooks: [], deliveries: [] };
+    if (path === '/control/members') body = { owner: null, members: [{ userId: 'member-test', role: 'operator' }] };
+    if (path === '/control/sessions/qa-browser') body = { ...browser, state: 'ready', control: { mode } };
+    if (path.endsWith('/ticket')) body = { ticket: 'one-use-test', expiresIn: 60 };
+    if (path.endsWith('/control') && route.request().method() === 'POST') { mode = ({ acquire: 'human', release: 'paused', resume: 'agent' } as Record<string, string>)[route.request().postDataJSON().action]; body = { mode }; }
     if (path === '/config') body = {
       onboarded: 'true', desktop_seen_at: 'now', browser_provider: 'oya-cloud',
       llm_provider: 'openai', chat_model: 'gpt-4o-mini', openai_api_key: '••••saved',
@@ -37,7 +43,7 @@ async function dashboard(page: Page, cloudReady = false) {
     if (path === '/browsers/qa-browser') body = browser;
     if (path === '/personas') body = { personas: [{ id: 'profile-qa', name: 'Research workspace', isDefault: false, createdAt: '2026-09-01T12:00:00Z', lastUsedAt: null, activeBrowsers: 1, maxConcurrent: 3, proxy: null, exit: null, prefs: null, fingerprint: { platform: 'MacIntel', timezone: 'America/Indiana/Indianapolis', screen: '1920 × 1080' }, mfa: { configured: false }, login: { sites: ['example.com', 'shop.example'], cookies: 8, updatedAt: null } }] };
     if (path === '/fleet') body = { at: '2026-09-09T12:00:00Z', uptimeSeconds: 7200, sessions: { total: 0, attached: 0, recording: 0 }, routing: { strategy: 'priority', queueDepth: 0, capacity: 10, active: 1, healthy: 1, providers: [] }, usage: { hour: '2026-09-09T12:00:00Z', commands: 42, command_errors: 0, browser_seconds: 1800, browsers_started: 3 }, limits: { commandsPerMinute: { limit: 100, burst: 20, remaining: 20 } }, quotas: { chatTokensPerHour: 10000 }, browsers: { total: 1, commands: 0, errors: 0, pending: 0, byClient: {}, byProvider: {}, byHealth: { ok: 1 }, byPersona: {} } };
-    if (path.endsWith('/command')) {
+    if (path.endsWith('/command') || path.endsWith('/input')) {
       commands.push(route.request().postDataJSON());
       await new Promise(resolve => setTimeout(resolve, 250));
       body = { ok: true };
@@ -76,6 +82,7 @@ test('unavailable cloud default is explained before launching and a ready altern
 test('live view consumes wheel events and preserves small trackpad deltas', async ({ page }) => {
   const commands = await dashboard(page);
   await page.getByText('QA browser', { exact: true }).click();
+  await page.getByRole('button', { name: 'Take control', exact: true }).click();
   const live = page.getByLabel('Live view — click to control, Esc to release the keyboard');
   await expect(live.locator('img')).toBeVisible();
   await expect.poll(() => live.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1000);
@@ -93,6 +100,7 @@ test('live view consumes wheel events and preserves small trackpad deltas', asyn
 test('live input completes each command before sending the next', async ({ page }) => {
   const commands = await dashboard(page);
   await page.getByText('QA browser', { exact: true }).click();
+  await page.getByRole('button', { name: 'Take control', exact: true }).click();
   const live = page.getByLabel('Live view — click to control, Esc to release the keyboard');
   await expect.poll(() => live.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1000);
   await live.click({ position: { x: 40, y: 40 } });
@@ -302,6 +310,7 @@ test('opening a stream in a tab renders live frames and accepts browser input', 
   await stream.click();
   const viewer = await popupPromise;
   await expect(viewer.getByRole('heading', { name: 'QA browser' })).toBeVisible();
+  await viewer.getByRole('button', { name: 'Take control', exact: true }).click();
   const live = viewer.getByLabel('Live view — click to control, Esc to release the keyboard');
   await expect.poll(() => live.locator('img').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1000);
   await viewer.screenshot({ path: testInfo.outputPath('live-tab.png') });
@@ -310,4 +319,21 @@ test('opening a stream in a tab renders live frames and accepts browser input', 
   await expect.poll(() => commands.some(c => c.action === 'keyboard_type')).toBe(true);
   expect(viewer.url()).not.toContain('key=');
   await viewer.close();
+});
+
+
+test('durable operations renders members, filters sessions, and fits a mobile viewport', async ({ page }, testInfo) => {
+  await dashboard(page);
+  await page.getByRole('button', { name: 'Control', exact: true }).click();
+  await page.getByRole('tab', { name: 'Project operations', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Test project' })).toBeVisible();
+  await expect(page.getByText('member-test · operator')).toBeVisible();
+  await page.getByLabel('Filter sessions by state').selectOption('queued');
+  await expect(page.getByText('No sessions match this view.')).toBeVisible();
+  await page.getByLabel('Filter sessions by state').selectOption('ready');
+  await expect(page.getByRole('button', { name: 'Take control', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('operations-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('operations-mobile.png'), fullPage: true });
 });

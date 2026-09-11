@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Square, RotateCw, ArrowLeft, ArrowRight, Camera, ScanSearch, ExternalLink, Copy, Check, Plug } from 'lucide-react';
 import { api, ago, errorMessage, shortId } from '@/lib/api-client';
-import { apiUrl } from '@/lib/api';
+import { subscribeFrames } from '@/lib/live-stream';
 import { useToast } from './toast';
 import type { BrowserDetail } from './types';
 import { providerLabel, HEALTH_LABEL } from './types';
@@ -38,6 +38,7 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
   const [shot, setShot] = useState<string | null>(null);
   const [elements, setElements] = useState<Element[] | null>(null);
   const [copied, setCopied] = useState(false);
+  const [controlMode, setControlMode] = useState('agent');
 
   // Live frames
   const [frame, setFrame] = useState<string | null>(null);
@@ -46,17 +47,17 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
   const frames = useRef(0);
 
   useEffect(() => {
-    const es = new EventSource(apiUrl(`/live/${browserId}?key=${encodeURIComponent(apiKey)}`));
-    es.onmessage = (e) => { setFrame(e.data); frames.current++; setFrameAt(Date.now()); };
-    es.onerror = () => { setFrame(null); };
+    const stop = subscribeFrames(browserId, apiKey, frame => { setFrame(frame); frames.current++; setFrameAt(Date.now()); }, () => setFrame(null));
     const fpsTimer = setInterval(() => { setFps(frames.current); frames.current = 0; }, 1000);
-    return () => { es.close(); clearInterval(fpsTimer); };
+    return () => { stop(); clearInterval(fpsTimer); };
   }, [browserId, apiKey]);
 
   const refresh = useCallback(async () => {
     try {
       const d = await api<BrowserDetail>(`/browsers/${browserId}`, { key: apiKey });
       setDetail(d);
+      const session = await api<{ control: { mode: string } }>(`/control/sessions/${browserId}`, { key: apiKey }).catch(() => null);
+      if (session) setControlMode(session.control.mode);
       // The server has caught up with whatever we did; drop the placeholders.
       setOptimistic((o) => o.filter((x) => Date.now() - new Date(x.ts).getTime() < 3000));
     } catch (err) {
@@ -72,7 +73,7 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
 
   const send = useCallback(async (action: string, params: Record<string, unknown> = {}) => {
     try {
-      const r = await api<{ ok: boolean; data?: unknown; error?: string }>(`/browsers/${browserId}/command`, { key: apiKey, method: 'POST', body: { action, params } });
+      const r = await api<{ ok: boolean; data?: unknown; error?: string }>(`/control/sessions/${browserId}/input`, { key: apiKey, method: 'POST', body: { action, params } });
       if (r.ok === false) toast(r.error || `${action} failed`, 'error');
       return r;
     } catch (err) {
@@ -158,6 +159,15 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="text-text-dim">{controlMode === 'human' ? 'Human control · agent paused' : controlMode === 'paused' ? 'Paused · awaiting agent resume' : 'Agent control'}</span>
+          <button className="btn-secondary text-xs" onClick={async () => {
+            try {
+              const result = await api<{ mode: string }>(`/control/sessions/${browserId}/control`, { key: apiKey, method: 'POST', body: { action: controlMode === 'agent' ? 'acquire' : controlMode === 'human' ? 'release' : 'resume' } });
+              setControlMode(result.mode);
+            } catch (e) { toast(errorMessage(e), 'error'); }
+          }}>{controlMode === 'agent' ? 'Take control' : controlMode === 'human' ? 'Release control' : 'Resume agent'}</button>
+        </div>
         {/* URL bar */}
         <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); go(); }}>
           {d?.clientType === 'cdp' && (

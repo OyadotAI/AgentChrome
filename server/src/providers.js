@@ -1,3 +1,4 @@
+import { sealText, openText } from './secrets.js';
 /**
  * Where a CDP browser comes from.
  *
@@ -104,7 +105,7 @@ export function available(env = process.env) {
  * Acquire a CDP endpoint.
  * @returns {{ wsUrl: string, provider: string, sessionId: string|null, release: () => Promise<void> }}
  */
-export async function acquire({ provider = 'cdp', wsUrl, env = process.env } = {}) {
+export async function acquire({ provider = 'cdp', wsUrl, env = process.env, onCreated } = {}) {
   const fail = (msg, status = 400) => { throw Object.assign(new Error(msg), { status }); };
 
   if (provider === 'cdp') {
@@ -161,7 +162,13 @@ export async function acquire({ provider = 'cdp', wsUrl, env = process.env } = {
     }
     return releasePromise;
   };
+  const cleanup = sessionId && cfg.deleteUrl ? { kind: 'vendor', sealed: sealText('provider-cleanup', {
+      url: typeof cfg.deleteUrl === 'function' ? cfg.deleteUrl(encodeURIComponent(sessionId)) : cfg.deleteUrl.replace('{id}', encodeURIComponent(sessionId)),
+      method: cfg.deleteMethod || 'DELETE', headers: typeof cfg.headers === 'function' ? cfg.headers(key) : cfg.headers,
+      ...(cfg.deleteBody ? { body: JSON.stringify(cfg.deleteBody) } : {}),
+    }) } : null;
   try {
+    if (cleanup && onCreated) await onCreated(cleanup);
     const raw = firstPath(payload, cfg.wsPath || []);
     let url;
     try { url = new URL(raw); } catch { /* handled below */ }
@@ -169,10 +176,16 @@ export async function acquire({ provider = 'cdp', wsUrl, env = process.env } = {
       fail(`${provider} responded without a valid CDP URL. Check the provider configuration.`, 502);
     }
     if (cfg.wsQueryKey) url.searchParams.set(cfg.wsQueryKey, key);
-    return { wsUrl: url.href, provider, sessionId, release };
+    return { wsUrl: url.href, provider, sessionId, release, cleanup };
   } catch (err) {
     try { await release(); }
     catch (cleanup) { err.message += ` Cleanup also failed: ${cleanup.message}`; }
     throw err;
   }
+}
+
+export async function releasePersisted(cleanup) {
+  const { url, ...options } = openText('provider-cleanup', cleanup.sealed);
+  const response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15000) });
+  if (!response.ok && ![404, 410].includes(response.status)) throw new Error(`Provider release failed (${response.status})`);
 }

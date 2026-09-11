@@ -37,13 +37,13 @@ Raw browser vendors run isolated headless Chrome instances. Oya sits *above* the
 │                      OYA BROWSER CONTROL PLANE                         │
 │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
 │  │  Unified Gateway Router │  │  Deterministic Personas (Identities)│  │
-│  │  · Auto-failover        │  │  · Seeded hardware fingerprints     │  │
+│  │  · Admission failover   │  │  · Seeded hardware fingerprints     │  │
 │  │  · Dynamic session pool │  │  · Persistent cookie jars & proxies │  │
 │  │  · Zero-rewrite switch  │  │  · Per-persona concurrency caps     │  │
 │  └─────────────────────────┘  └─────────────────────────────────────┘  │
 │  ┌─────────────────────────┐  ┌─────────────────────────────────────┐  │
 │  │  Challenge Engine       │  │  Enterprise Fleet Observability     │  │
-│  │  · Native + 3rd-party   │  │  · 1,000+ browser live console      │  │
+│  │  · Native + 3rd-party   │  │  · Live browser console             │  │
 │  │  · Automated TOTP / SMS │  │  · Sub-second interactive live view │  │
 │  │  · Desktop Auth Pairing │  │  · Append-only audit & spend / key  │  │
 │  └─────────────────────────┘  └─────────────────────────────────────┘  │
@@ -66,11 +66,11 @@ Oya is **10x better** because it treats browsers as managed infrastructure:
 
 | Capability | Raw Browser Runners<br>*(Browserbase, Steel, Anchor, Browser Use)* | Oya Browser Control Plane | Why it's 10x Better |
 |---|---|---|---|
-| **Architecture & Vendor Freedom** | Single-vendor point solutions. Hardcoded to their proprietary API, cloud, and billing. | **Unified Control Plane.** Sits above Oya Cloud, Browserbase, Steel, Anchor, Browser Use, or private Chrome. | **Zero lock-in & instant failover.** If a provider has an outage or rate limit, Oya fails over automatically without breaking running agents. |
+| **Architecture & Vendor Freedom** | Single-vendor point solutions. Hardcoded to their proprietary API, cloud, and billing. | **Unified Control Plane.** Sits above Oya Cloud, Browserbase, Steel, Anchor, Browser Use, or private Chrome. | **Provider choice and admission failover.** New sessions can try another provider. Lost running sessions require explicit recovery; uncertain actions are not replayed. |
 | **Device Identity & Anti-Ban** | Ephemeral dumb sessions or randomized spoofing on each start. | **Deterministic Personas.** Seeded, byte-identical hardware profiles bound permanently to a cookie jar and proxy. | **Eliminates bot-farm and device-farm flags.** Returning weeks later looks like the exact same legitimate workstation. |
 | **Authentication** | Fragile scripted login automation that breaks on Google SSO, Okta, passkeys, and Cloudflare. | **Sign-In-Once Desktop Pairing.** Log in once via real desktop Chrome/Electron; cookies sync cryptographically to remote personas. | **Instant authenticated sessions.** Agents arrive already logged into enterprise sites with passkeys and WebAuthn without writing login scripts. |
-| **Challenge Resolution** | Fails or hangs on unexpected push notifications, 2FA, or novel CAPTCHAs. | **Two-Tier Engine + Live Takeover.** Native solver routing + TOTP/SMS relay + sub-second interactive Live View takeover. | **100% task completion.** If automation hits a wall, a human clicks or types directly in the stream, and the agent resumes. |
-| **Fleet Observability** | Opaque session IDs, black-box execution, static post-mortem logs. | **Dense 1,000+ browser console.** Live health strip, command activity streams, Prometheus metrics, and hourly spend tracking. | **Real-time operations.** Every counter is a filter; bulk emergency stops (`POST /browsers/stop { all: true }`) prevent runaway loops. |
+| **Challenge Resolution** | Fails or hangs on unexpected push notifications, 2FA, or novel CAPTCHAs. | **Two-Tier Engine + Live Takeover.** Native solver routing + TOTP/SMS relay + sub-second interactive Live View takeover. | **Explicit human assistance.** An operator acquires control, resolves the interruption, releases control, and explicitly resumes the agent. |
+| **Fleet Observability** | Opaque session IDs, black-box execution, static post-mortem logs. | **Live fleet console.** Live health strip, command activity streams, Prometheus metrics, and hourly spend tracking. | **Real-time operations.** Every counter is a filter; bulk emergency stops (`POST /browsers/stop { all: true }`) prevent runaway loops. |
 | **Protocol Freedom** | Proprietary SDK wrappers requiring bespoke code. | **Universal Gateway.** Native CDP (`/connect`), MCP streamable HTTP (`/mcp/:id`), TypeScript SDK, and CLI. | **Works with your entire stack.** Connect Playwright, Puppeteer, Stagehand, browser-use, Claude Code, or Cursor out of the box. |
 | **Stealth Verification** | Unverifiable marketing claims ("100% undetectable"). | **Open Benchmark Suite.** Live testing against CreepJS and Bot.Sannysoft (`oya stealth-test --live`). | **Honest, measured evasion.** Every fingerprint delta is measured and attributed rather than asserted. |
 
@@ -240,3 +240,7 @@ Runs full security verification, cookie tenant isolation, CDP gateway forwarding
 ## License
 
 MIT
+
+## Durable operations
+
+Session reservations, idempotency, cleanup retries, project roles, one-use connection tickets, human control leases, budgets, and webhook delivery are persisted. SQLite supports a single local process; Supabase/Postgres supports shared coordination and owner routing across replicas. Strict governance requires the managed Docker runtime. See [the control-plane deployment and API guide](docs/control-plane.md) for setup, migration, recovery semantics, limitations, and validation commands.

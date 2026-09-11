@@ -37,12 +37,26 @@ import * as keyConfig from './key-config.js';
 import { PREF_OPTIONS } from './fingerprint.js';
 import * as pairing from './pairing.js';
 
-export const router = Router();
+import { control, live } from './control/service.js';
+import { forwardHttp } from './control/cluster.js';
+import { createManaged, managedConfigured, removeManaged } from './control/managed.js';
+import { admission } from './control/admission.js';
+import { projectAccountRouter } from './control/membership.js';
+import { controlRouter } from './control/routes.js';
 
-function browserCdpUrl(req, id) {
+export const router = Router();
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const register = router[method].bind(router);
+  router[method] = (path, ...handlers) => register(path, ...handlers.map(handler => handler.constructor.name === 'AsyncFunction' ? (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next) : handler));
+}
+router.use(forwardHttp);
+router.use('/control', controlRouter);
+router.use('/auth/projects', projectAccountRouter);
+
+async function browserCdpUrl(req, id) {
   const host = req.headers.host || `localhost:${process.env.PORT || 3100}`;
   const scheme = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https') ? 'wss' : 'ws';
-  return `${scheme}://${host}/connect?token=${encodeURIComponent(getKey(req))}&browser=${encodeURIComponent(id)}`;
+  return `${scheme}://${host}/connect?ticket=${encodeURIComponent(await control().ticket(getKey(req), id, req.authToken || getKey(req)))}&browser=${encodeURIComponent(id)}`;
 }
 
 /**
@@ -326,10 +340,19 @@ router.get('/audit', authMiddleware, async (req, res) => {
  * Returns what actually happened, so a Stop that could not reach Daytona is
  * visible rather than reported as done.
  */
-async function stopBrowser(req, browserId, { sandbox } = {}) {
+export async function stopBrowser(req, browserId, { sandbox, force = false } = {}) {
   const key = getKey(req);
   const browser = registry.get(browserId);
   if (!browser) {
+    const gateway = gatewaySessions.get(browserId);
+    if (gateway?.apiKey === key) { await killSession(browserId); return { id: browserId, ok: true }; }
+    const durable = await control().findSession(key, browserId);
+    if (durable && ['stopped', 'failed'].includes(durable.state)) return { id: browserId, ok: true, status: durable.state };
+    // Queued work stops at once; force reconciles a resource the system has no way to delete.
+    if (durable && !['stopped', 'failed'].includes(durable.state)) {
+      const { state } = await control().cancel(key, browserId, { force });
+      return { id: browserId, ok: true, status: state };
+    }
     if (sandboxConfigured()) {
       try {
         const removed = await removeSandbox(browserId, key);
@@ -348,7 +371,8 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
       mergeDump(browser.persona.id, cookies);
       await drainLogins();
     } catch (err) {
-      return { id: browserId, ok: false, error: `Could not save profile before stopping: ${err.message}` };
+      if (!force) return { id: browserId, ok: false, error: `Could not save profile before stopping: ${err.message}` };
+      audit({ action: 'profile.capture.failed', actorKey: key, targetId: browserId, outcome: 'error' });
     }
   }
 
@@ -358,6 +382,11 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
   // looks the sandbox up by this browser's name and this key's owner label,
   // so for a desktop browser it simply finds nothing.
   let sandboxRemoved = null;
+  const managedSession = (await control().findSession(key, browserId))?.runtime;
+  if (managedSession) {
+    await control().cancel(key, browserId);
+    return { id: browserId, ok: true, status: 'cleanup_pending' };
+  }
   const mightHaveSandbox = browser.clientType === 'oya' && (sandboxConfigured() || sandbox === true);
   if (mightHaveSandbox) {
     try {
@@ -367,6 +396,8 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
       console.warn(`[stop] sandbox for ${browserId} not removed: ${err.message}`);
     }
   }
+  const durable = await control().findSession(key, browserId);
+  if (durable) await control().update(key, browserId, { state: 'cleanup_pending' });
   if (browser.release) {
     try { await browser.release(); }
     catch (err) { return { id: browserId, ok: false, status: 502, error: err.message }; }
@@ -374,6 +405,7 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
   }
   try { browser.ws?.close(4008, 'Stopped by operator'); } catch {}
   registry.remove(browserId);
+  if (durable && sandboxRemoved !== false) await control().update(key, browserId, { state: 'stopped' });
   usage.browserDisconnected(key, browserId);
   audit({ action: 'browser.stop', actorKey: key, targetType: 'browser', targetId: browserId,
     meta: { clientType: browser.clientType, provider: browser.provider, sandboxRemoved }, req });
@@ -386,7 +418,7 @@ async function stopBrowser(req, browserId, { sandbox } = {}) {
 }
 
 router.post('/browsers/:browserId/stop', authMiddleware, async (req, res) => {
-  const result = await stopBrowser(req, req.params.browserId, { sandbox: req.body?.sandbox });
+  const result = await stopBrowser(req, req.params.browserId, { sandbox: req.body?.sandbox, force: req.body?.force === true });
   res.status(result.ok ? 200 : (result.status || 404)).json(result);
 });
 
@@ -394,7 +426,7 @@ router.post('/browsers/:browserId/stop', authMiddleware, async (req, res) => {
 router.post('/browsers/stop', authMiddleware, async (req, res) => {
   const key = getKey(req);
   const ids = req.body?.all === true
-    ? (await listSandboxBrowsers(key, registry.list(key))).map(b => b.id)
+    ? [...new Set([...(await listSandboxBrowsers(key, registry.list(key))).map(b => b.id), ...[...gatewaySessions.values()].filter(s => s.apiKey === key && !s.attachedTo).map(s => s.id), ...(await control().sessions(key, live)).map(s => s.id)])]
     : (Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 5000) : []);
   if (!ids.length) return req.body?.all === true
     ? res.json({ ok: true, stopped: 0, results: [] })
@@ -417,7 +449,7 @@ router.get('/browsers/:browserId', authMiddleware, async (req, res) => {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
   const detail = registry.describe(browserId);
-  if (detail.clientType === 'cdp') detail.cdpUrl = browserCdpUrl(req, browserId);
+  if (detail.clientType === 'cdp' && req.principal?.role !== 'viewer') detail.cdpUrl = await browserCdpUrl(req, browserId);
   res.json(detail);
 });
 
@@ -453,8 +485,9 @@ router.post('/browsers/disconnect-all', authMiddleware, (req, res) => {
  * Drain: stop accepting new browsers so this instance can be restarted without
  * dropping in-flight work. Read by the WebSocket handler.
  */
-router.post('/operator/drain', operatorOnly, (req, res) => {
+router.post('/operator/drain', operatorOnly, async (req, res) => {
   const draining = req.body?.draining !== false;
+  await control().drain(draining);
   registry.draining = draining;
   audit({ action: draining ? 'fleet.drain' : 'fleet.undrain', actorKey: getKey(req), targetType: 'fleet', req });
   res.json({ ok: true, draining, connected: registry.browsers.size });
@@ -470,7 +503,7 @@ router.get('/providers', authMiddleware, (req, res) => {
  * Attach a CDP browser: one we dial out to, rather than one that dials in.
  * Anchor, Browserbase, Steel, or any Chrome with --remote-debugging-port.
  */
-router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req, res) => {
+router.post('/browsers/connect', authMiddleware, enforce('connect'), admission('cdp'), async (req, res) => {
   const key = getKey(req);
   const mine = [...registry.browsers.values()].filter((b) => b.apiKey === key).length;
   const quota = checkQuota('browsers', key, mine);
@@ -484,15 +517,17 @@ router.post('/browsers/connect', authMiddleware, enforce('connect'), async (req,
   let session;
   try {
     if (provider === 'cdp' && req.body?.wsUrl) await assertSafeTarget(req.body.wsUrl, { label: 'wsUrl' });
-    session = await acquireBrowser({ provider, wsUrl: req.body?.wsUrl, env: keyConfig.envFor(key) });
+    session = await acquireBrowser({ provider, wsUrl: req.body?.wsUrl, env: keyConfig.envFor(key), onCreated: cleanup => control().update(key, req.controlSession.id, { cleanup }) });
   } catch (err) {
     audit({ action: 'browser.connect', actorKey: key, targetType: 'browser', outcome: 'error',
       meta: { provider, error: err.message }, req });
     return res.status(err.status || 502).json({ error: err.message });
   }
 
-  const browserId = uuidv4();
+  const browserId = req.controlSession?.id || uuidv4();
   try {
+    if (session.cleanup) await control().update(key, browserId, { cleanup: session.cleanup });
+    await control().assertProvisioning(key, browserId);
     const driver = await new CDPDriver({
       wsUrl: session.wsUrl,
       provider: session.provider,
@@ -669,7 +704,7 @@ router.post('/pairing/claim', (req, res) => {
  * configuration, not the caller's problem — /browsers/connect and
  * /browsers/provision remain as the explicit escape hatches.
  */
-router.post('/browsers/start', authMiddleware, enforce('provision'), async (req, res) => {
+export async function startBrowser(req, res) {
   const key = getKey(req);
   const wanted = String(req.body?.provider || keyConfig.providerFor(key));
 
@@ -691,6 +726,11 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
   };
 
   try {
+    await control().assertProvisioning(key, req.controlSession.id);
+    if (wanted === 'oya-selfhosted' && (managedConfigured() || req.controlSession?.runtimeRequired || req.controlSession?.policies?.length || req.body?.governed)) {
+      const created = await createManaged({ apiKey: key, browserId: req.controlSession.id, persona: persona.id, name: req.body?.name, policies: req.controlSession.policies });
+      return done({ id: created.browserId, provider: wanted, persona: persona.id, status: 'starting', effective: created.runtime });
+    }
     // Oya browsers dial in on their own once the sandbox is up.
     if (wanted === 'oya-cloud' || wanted === 'oya-selfhosted') {
       if (!sandboxConfigured()) {
@@ -706,7 +746,7 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
           missing,
         });
       }
-      const created = await createSandbox({ apiKey: key, name: req.body?.name, persona: persona.id });
+      const created = await createSandbox({ apiKey: key, name: req.body?.name, persona: persona.id, browserId: req.controlSession.id });
       return done({
         id: created.browserId, provider: wanted, persona: persona.id, status: 'starting',
         note: 'The browser connects on its own; it appears in GET /browsers within ~90s.',
@@ -718,8 +758,11 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
     if (wanted === 'cdp' && wsUrl) await assertSafeTarget(wsUrl, { label: 'wsUrl' });
     const session = await acquireBrowser({
       provider: wanted, wsUrl, env: keyConfig.envFor(key),
+      onCreated: cleanup => control().update(key, req.controlSession.id, { cleanup }),
     });
-    const browserId = uuidv4();
+    const browserId = req.controlSession?.id || uuidv4();
+    if (session.cleanup) await control().update(key, browserId, { cleanup: session.cleanup });
+    await control().assertProvisioning(key, browserId);
     // The concurrency slot is taken before the vendor session is driven, so a
     // capped persona does not leave a paid-for browser running with nothing
     // holding it.
@@ -759,13 +802,15 @@ router.post('/browsers/start', authMiddleware, enforce('provision'), async (req,
       id: browserId, provider: session.provider, persona: persona.id, status: 'ready',
       // Our gateway URL, not the vendor's: an agent handed this gets routing,
       // profiles and recording without knowing any of that exists.
-      cdpUrl: browserCdpUrl(req, browserId),
+      cdpUrl: await browserCdpUrl(req, browserId),
     });
   } catch (err) {
     audit({ action: 'browser.start', actorKey: key, outcome: 'error', meta: { provider: wanted, error: err.message }, req });
     res.status(err.status || 502).json({ error: err.message });
   }
-});
+}
+router.post('/browsers/start', authMiddleware, enforce('provision'), admission(), startBrowser);
+
 
 // ─── Challenges: CAPTCHA and MFA ─────────────────────────────────────────────
 
@@ -1008,6 +1053,7 @@ router.delete('/gateway/recordings/:id', authMiddleware, async (req, res) => {
 // caller's own key, so they join that caller's pool as ordinary browsers.
 
 router.post('/browsers/provision', authMiddleware, enforce('provision'), async (req, res) => {
+  if (registry.draining) return res.status(503).json({ error: 'Server is draining' });
   const hourly = checkHourly('sandboxesPerHour', getKey(req));
   if (!hourly.allowed) {
     audit({ action: 'browser.provision', actorKey: getKey(req), outcome: 'denied',
@@ -1149,6 +1195,7 @@ router.get('/live/:browserId', (req, res, next) => {
     try { res.write(`data: ${browser.lastFrame}\n\n`); } catch {}
   }
 
+  res.authToken = req.authToken;
   registry.addViewer(browserId, res);
 
   req.on('close', () => {
@@ -1194,7 +1241,7 @@ router.post('/browsers/:browserId/command', authMiddleware, enforce('command'), 
     res.json(result);
   } catch (err) {
     usage.record(getKey(req), 'command_errors');
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(err.status || 500).json({ ok: false, error: err.message, ...(err.code ? { code: err.code } : {}) });
   }
 });
 
@@ -1290,4 +1337,9 @@ router.delete('/pool/cookies', authMiddleware, (req, res) => {
   // Destroying sessions is exactly the action you want a record of afterwards.
   audit({ action: 'cookies.clear', actorKey: key, targetType: 'cookies', targetId: persona.id, req });
   res.json({ ok: true, persona: persona.id });
+});
+
+router.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  res.status(err.status || 503).json({ error: err.status ? err.message : 'Operation could not be completed', code: err.code || 'operation_failed' });
 });

@@ -1,3 +1,5 @@
+import { control, projectId, instanceId } from './control/service.js';
+import { forwardGateway } from './control/cluster.js';
 /**
  * CDP gateway.
  *
@@ -20,7 +22,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
-import { validateApiKey } from './auth.js';
+import { validateApiKey, authenticateToken } from './auth.js';
 import { pool } from './routing.js';
 import * as keyConfig from './key-config.js';
 import { acquire as acquireProvider } from './providers.js';
@@ -64,10 +66,13 @@ export function handleJsonVersion(req, res) {
 }
 
 /** Some clients probe /json/list before connecting. */
-export function handleJsonList(req, res) {
+export async function handleJsonList(req, res) {
+  let principal;
+  try { principal = await authenticateToken(req.headers.authorization?.slice(7)); }
+  catch (e) { return res.status(e.status || 503).json({ error: e.message }); }
   const host = req.headers.host || 'localhost';
   const scheme = (req.headers['x-forwarded-proto'] || '').includes('https') ? 'wss' : 'ws';
-  res.json([...sessions.values()].map((s) => ({
+  res.json([...sessions.values()].filter(s => s.apiKey === principal.key).map((s) => ({
     id: s.id,
     type: 'page',
     title: s.profile ? `Gateway session (${s.profile})` : 'Gateway session',
@@ -83,6 +88,9 @@ export const wss = new WebSocketServer({ noServer: true, perMessageDeflate: fals
  * disconnect for GRACE_MS so a dropped client can resume against the same
  * provider with its page state intact.
  */
+// Calibration: long enough for ordinary waits (Playwright defaults to 30s), short enough that takeover is never stuck.
+const STUCK_COMMAND_MS = Number(process.env.OYA_STUCK_COMMAND_MS) || 60000;
+
 class Session {
   constructor({ id, apiKey, provider, release, upstream, profile }) {
     Object.assign(this, { id, apiKey, provider, release, upstream, profile });
@@ -95,6 +103,8 @@ class Session {
     this.graceTimer = null;
     this.closed = false;
     this.pendingToClient = [];
+    this.commandTail = Promise.resolve();
+    this.commandReleases = new Map();
   }
 
   attach(client) {
@@ -109,10 +119,24 @@ class Session {
     }
 
     client.on('message', (data, isBinary) => {
-      this.bytesUp += data.length;
-      if (this.upstream.readyState === WebSocket.OPEN) {
+      this.commandTail = this.commandTail.then(async () => {
+        if (this.closed || this.client !== client) return;
+        // Revocation is enforced by the attachment validator every two seconds, not per CDP message.
+        const command = JSON.parse(data.toString());
+        if (command.id === undefined) throw new Error('CDP command ID is required');
+        const commandKey = `${command.sessionId || ''}:${command.id}`;
+        if (this.commandReleases.has(commandKey)) throw new Error('Duplicate CDP command ID');
+        const settle = await control().beginCommand(this.attachedTo || this.id);
+        // A command the browser never answers must not block human takeover forever.
+        const timer = setTimeout(() => this.settle(commandKey), STUCK_COMMAND_MS);
+        const finish = () => { clearTimeout(timer); return settle(); };
+        this.commandReleases.set(commandKey, finish);
+        this.bytesUp += data.length;
+        if (this.upstream.readyState !== WebSocket.OPEN) {
+          this.commandReleases.delete(commandKey); await finish(); throw new Error('Browser disconnected');
+        }
         this.upstream.send(data, { binary: isBinary });
-      }
+      }).catch(() => client.close(1008, 'Session access paused, revoked, or command invalid'));
     });
 
     client.on('close', () => {
@@ -127,8 +151,19 @@ class Session {
     client.on('error', () => {});
   }
 
+  /** Release a command's in-flight slot: on its reply, or once it has run for STUCK_COMMAND_MS. */
+  settle(key) {
+    const finish = this.commandReleases.get(key);
+    if (finish) { this.commandReleases.delete(key); void finish().catch(() => {}); }
+  }
+
   bindUpstream() {
     this.upstream.on('message', (data, isBinary) => {
+      // Only replies release command slots; skip parsing event traffic when nothing is outstanding.
+      if (this.commandReleases.size) try {
+        const reply = JSON.parse(data.toString());
+        this.settle(`${reply.sessionId || ''}:${reply.id}`);
+      } catch {}
       this.bytesDown += data.length;
       if (this.client?.readyState === WebSocket.OPEN) {
         this.client.send(data, { binary: isBinary });
@@ -143,8 +178,11 @@ class Session {
   async destroy(reason) {
     if (this.closed) return;
     this.closed = true;
+    await Promise.allSettled([...this.commandReleases.values()].map(finish => finish()));
+    this.commandReleases.clear();
     clearTimeout(this.graceTimer);
     sessions.delete(this.id);
+    if (this.attachedTo) await control().store.transact(async tx => { if (await tx.get('attachment', this.id)) await tx.delete('attachment', this.id); }).catch(() => {});
 
     await recorder.stop(this.id).catch(() => {});
     if (this.profile) {
@@ -156,10 +194,14 @@ class Session {
 
     try { this.client?.close(1001, reason); } catch {}
     try { this.upstream?.close(); } catch {}
-    try { this.release?.(); } catch {}
+    if (!this.attachedTo) await control().update(this.apiKey, this.id, { state: 'cleanup_pending' }).catch(() => {});
+    try {
+      await this.release?.();
+      if (!this.attachedTo) await control().update(this.apiKey, this.id, { state: 'stopped' });
+    } catch (err) { console.error('[gateway] cleanup pending:', err.message); }
 
     const seconds = Math.round((Date.now() - this.startedAt) / 1000);
-    usage.record(this.apiKey, 'browser_seconds', seconds);
+    if (!this.attachedTo) usage.record(this.apiKey, 'browser_seconds', seconds);
     usage.record(this.apiKey, 'bytes_out', this.bytesDown);
     metrics.gatewaySessions.set({}, sessions.size);
     metrics.gatewaySessionDuration.observe({ provider: this.provider }, seconds * 1000);
@@ -183,7 +225,7 @@ class Session {
 /** Route an HTTP upgrade on /connect into a gateway session. */
 export async function handleUpgrade(req, socket, head) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const token = url.searchParams.get('token')
+  let token = url.searchParams.get('token')
     || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '');
 
   const deny = (code, message) => {
@@ -191,11 +233,25 @@ export async function handleUpgrade(req, socket, head) {
     socket.destroy();
   };
 
-  if (!validateApiKey(token)) {
-    metrics.gatewayConnects.inc({ outcome: 'unauthorized' });
-    audit({ action: 'gateway.connect', outcome: 'denied', targetType: 'session', meta: { reason: 'bad token' }, req });
-    return deny(401, 'Unauthorized');
-  }
+  let principal;
+  const ticket = url.searchParams.get('ticket');
+  let authToken = token;
+  try {
+    if (ticket) {
+      token = await control().redeem(ticket, url.searchParams.get('browser') || url.searchParams.get('session'));
+      principal = await authenticateToken(token);
+      authToken = token;
+      token = principal.key;
+    } else {
+      if (url.searchParams.has('token') && process.env.OYA_ALLOW_LEGACY_QUERY_KEYS === 'false') return deny(401, 'Use a connection ticket');
+      principal = await authenticateToken(token);
+      token = principal.key;
+    }
+    if (principal.role === 'viewer') return deny(403, 'Operator permission required');
+  } catch (e) { return deny(e.status === 503 ? 503 : 401, 'Unauthorized'); }
+
+  const targetId = url.searchParams.get('browser') || url.searchParams.get('session');
+  if (targetId && await forwardGateway(req, socket, head, authToken || token, token, targetId)) return;
 
   if (!consume('connect', token).allowed) {
     metrics.gatewayConnects.inc({ outcome: 'rate_limited' });
@@ -213,6 +269,7 @@ export async function handleUpgrade(req, socket, head) {
     }
     if (existing.client) { metrics.gatewayConnects.inc({ outcome: 'session_busy' }); return deny(409, 'Session In Use'); }
     return wss.handleUpgrade(req, socket, head, (client) => {
+      existing.authToken = authToken || token;
       existing.attach(client);
       metrics.gatewayConnects.inc({ outcome: 'resumed' });
       audit({ action: 'gateway.session.resume', actorKey: token, targetType: 'session', targetId: existing.id, req });
@@ -257,6 +314,8 @@ export async function handleUpgrade(req, socket, head) {
     });
     session.upstreamUrl = target.driver.wsUrl;
     session.attachedTo = attachId;
+    await control().store.transact(async tx => { tx.put('attachment', session.id, { id: session.id, project: projectId(token), instance: instanceId, leaseUntil: Date.now() + 120000, browserId: attachId }); });
+    session.authToken = authToken || token;
     session.bindUpstream();
     sessions.set(id, session);
     return wss.handleUpgrade(req, socket, head, (client) => {
@@ -267,6 +326,8 @@ export async function handleUpgrade(req, socket, head) {
         meta: { session: id, provider: target.provider }, req });
     });
   }
+
+  if (registry.draining || (await control().store.get('meta', 'draining'))?.value) return deny(503, 'Server draining');
 
   // ── New session ──
   const profileName = url.searchParams.get('profile');
@@ -291,8 +352,9 @@ export async function handleUpgrade(req, socket, head) {
     return deny(429, `Browser quota reached (${quota.quota})`);
   }
 
-  let acquired;
+  let acquired, reservation;
   try {
+    reservation = await control().reserve(token, { provider: 'gateway', maxConcurrent: QUOTAS.browsers, request: { profile: profileName }, persona: profileName ? `profile:${profileName}` : null, personaLimit: 1 });
     acquired = await pool.acquire({
       // This key's own providers plus whatever the host shares.
       owner,
@@ -300,7 +362,7 @@ export async function handleUpgrade(req, socket, head) {
       connect: async (provider) => {
         const target = provider.type === 'cdp' && provider.wsUrl
           ? { wsUrl: provider.wsUrl, provider: provider.name, sessionId: null, release: async () => {} }
-          : await acquireProvider({ provider: provider.type, env: provider.owner === null ? process.env : keyConfig.envFor(token) });
+          : await acquireProvider({ provider: provider.type, env: provider.owner === null ? process.env : keyConfig.envFor(token), onCreated: cleanup => control().update(token, reservation.id, { cleanup }) });
         let upstream;
         try {
           upstream = new WebSocket(target.wsUrl, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: 20_000 });
@@ -318,22 +380,40 @@ export async function handleUpgrade(req, socket, head) {
     });
   } catch (err) {
     if (profileName) profiles.unlock(owner, profileName);
+    // Admission refusals (quota, drain, policy) are the caller's answer, not a provider failure.
+    if (!reservation) {
+      metrics.gatewayConnects.inc({ outcome: 'quota' });
+      return deny(err.status || 503, err.status && err.status < 500 ? err.message : 'Service Unavailable');
+    }
+    await control().complete(token, reservation.id, err.status || 502, { error: 'Provider acquisition failed' }).catch(() => {});
     metrics.gatewayConnects.inc({ outcome: 'no_provider' });
     audit({ action: 'gateway.connect', actorKey: token, outcome: 'error', meta: { error: err.message }, req });
     return deny(err.status === 503 ? 503 : 502, err.status === 503 ? 'Service Unavailable' : 'Bad Gateway');
   }
 
-  const { provider, session: { upstream, target }, release } = acquired;
-  const id = randomUUID();
+  const { provider, session: { upstream, target }, release, holdId } = acquired;
+  const id = reservation.id;
+  try {
+    await control().store.transact(async tx => { const hold = await tx.get('hold', holdId); if (hold) hold.sessionId = id; });
+    // provider stays 'gateway' so lifecycle rules still know it is attach-only; vendor records where it came from.
+    await control().update(token, id, { state: 'ready', provisioningActive: false, vendor: provider.name, cleanup: target.cleanup || null });
+  } catch (err) {
+    // Stopped while acquiring, or storage lost: hand the browser back rather than leak it.
+    upstream.terminate();
+    await Promise.allSettled([target.release?.(), release()]);
+    if (profileName) profiles.unlock(owner, profileName);
+    return deny(err.status === 409 ? 409 : 503, err.status === 409 ? 'Conflict' : 'Service Unavailable');
+  }
   const session = new Session({
     id, apiKey: token, provider: provider.name, profile: profileName || null,
     upstream,
-    release: () => {
-      release();
-      target.release?.().catch((err) => console.error('[gateway] release:', err.message));
+    release: async () => {
+      await target.release?.();
+      await release();
       if (profileName) profiles.unlock(owner, profileName);
     },
   });
+  session.authToken = authToken || token;
   session.upstreamUrl = target.wsUrl;
   session.bindUpstream();
   sessions.set(id, session);
@@ -341,7 +421,10 @@ export async function handleUpgrade(req, socket, head) {
   // Restore before the client can navigate, so the first page load already has
   // the profile's cookies.
   if (profileName) await profiles.restore(owner, profileName, session).catch((e) => console.error('[gateway] profile restore:', e.message));
-  if (url.searchParams.get('record') === '1') await recorder.start(session).catch((e) => console.error('[gateway] record:', e.message));
+  if (url.searchParams.get('record') === '1') {
+    try { await recorder.start(session); }
+    catch (e) { await session.destroy('Recording unavailable'); return deny(e.status || 503, 'Recording unavailable'); }
+  }
 
   wss.handleUpgrade(req, socket, head, (client) => {
     session.attach(client);

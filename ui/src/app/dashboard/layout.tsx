@@ -26,12 +26,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // true, so the redirect below never fired and log out appeared to do
   // nothing — the session was gone, the page just stayed.
   useEffect(() => {
-    const key = localStorage.getItem('oya_api_key') || '';
-    if (!key) { setKeyOk(false); return; }
+    const key = sessionStorage.getItem('oya_project_credential') || localStorage.getItem('oya_api_key') || '';
     let cancelled = false;
-    fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) })
-      .then((res) => { if (!cancelled) setKeyOk(res.ok); })
-      .catch(() => { if (!cancelled) setKeyOk(false); });
+    const check = key ? fetch(apiUrl('/control'), { headers: apiKeyHeaders(key) }).then(res => res.ok) : Promise.resolve(false);
+    check.then(ok => { if (!cancelled) setKeyOk(ok); }).catch(() => { if (!cancelled) setKeyOk(false); });
     return () => { cancelled = true; };
   }, [user]);
 
