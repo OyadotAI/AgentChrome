@@ -42,7 +42,7 @@ assert.strictEqual(rawSends, 1, 'ws.send() outside the wsSend helper — a dropp
 // needs — no error, clients just quietly stop updating. Guard the config.
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
 const build = pkg.build || {};
-// The github provider reads releases over the API and AgentChrome is private,
+// The github provider reads releases over the API and the repo was private,
 // so every client got a 404 on releases.atom. The feed is served from the
 // server's /downloads instead, which needs the channel files shipped there.
 assert.strictEqual(build.publish?.provider, 'generic', 'update feed must not depend on a private repo');

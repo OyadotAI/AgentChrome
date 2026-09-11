@@ -101,4 +101,4 @@ Vendor keys are set once on your Oya key in the dashboard. They never appear in 
 
 Errors are thrown as `OyaError` with `status` and `body`. ESM and CommonJS, fully typed, no runtime dependencies, Node 18+.
 
-More: [examples](https://github.com/OyadotAI/AgentChrome/tree/main/examples) · [docs](https://browser.getoya.ai/docs) · [CLI](https://www.npmjs.com/package/@oya-ai/cli)
+More: [examples](https://github.com/OyadotAI/oya-browser/tree/main/examples) · [docs](https://browser.getoya.ai/docs) · [CLI](https://www.npmjs.com/package/@oya-ai/cli)

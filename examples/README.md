@@ -12,8 +12,8 @@
 Needs Node 20.6+ and an API key from the dashboard at https://browser.getoya.ai.
 
 ```bash
-git clone https://github.com/OyadotAI/AgentChrome.git
-cd AgentChrome/examples
+git clone https://github.com/OyadotAI/oya-browser.git
+cd oya-browser/examples
 npm install                  # also builds the SDK from ../packages/sdk
 cp .env.example .env         # paste your API key after OYA_API_KEY=
 npx tsx --env-file=.env 01-quickstart.ts
