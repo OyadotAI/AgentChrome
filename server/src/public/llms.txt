@@ -59,11 +59,36 @@ skip steps 2-4 entirely.
 
 ## MCP Endpoint
 
-Each connected browser gets an MCP endpoint:
+Start here: one endpoint for everything on your key. It can start its own
+browsers (start_browser), so an agent needs nothing else running first.
+
+    https://browser.getoya.ai/mcp/pool
+
+Claude Code:
+
+    claude mcp add --transport http oya https://browser.getoya.ai/mcp/pool \
+      --header "Authorization: Bearer $OYA_API_KEY"
+
+Cursor / Windsurf / Claude Desktop:
+
+    {
+      "mcpServers": {
+        "oya": {
+          "url": "https://browser.getoya.ai/mcp/pool",
+          "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+        }
+      }
+    }
+
+Claude Code plugin (MCP server + skill): `claude plugin marketplace add
+OyadotAI/oya-browser`, then `claude plugin install oya-browser@oya`. The skill
+alone, for any agent that reads skills: `npx skills add OyadotAI/oya-browser`.
+
+Each connected browser also has its own endpoint:
 
     https://browser.getoya.ai/mcp/{BROWSER_ID}
 
-MCP config for Cursor / Claude Desktop:
+MCP config for one browser:
 
     {
       "mcpServers": {
@@ -78,6 +103,16 @@ MCP config for Cursor / Claude Desktop:
     }
 
 ## MCP Tools
+
+### start_browser (pool endpoint)
+Start a browser on your key and make it the one every other tool drives.
+Parameters: persona (string, optional: an id, "auto" or "default"), provider
+(optional: oya-cloud, oya-selfhosted, browserbase, steel, anchor, browseruse),
+name (optional), url (optional: navigate here once ready). Billed until stopped.
+
+### stop_browser (pool endpoint)
+Stop a browser and release its session.
+Parameters: browser_id (string, optional; defaults to the one being driven)
 
 ### analyze_page
 Analyzes the current page. Returns full page as structured markdown with every interactive element numbered as [#id type "label"]. Includes viewport size, scroll position, visibility flags.
@@ -198,7 +233,7 @@ different API keys are fully isolated from each other.
           "url": "https://browser.getoya.ai/mcp/pool",
           "transport": "streamable-http",
           "headers": {
-            "Authorization": "Bearer FLEET_TOKEN"
+            "Authorization": "Bearer YOUR_API_KEY"
           }
         }
       }

@@ -478,27 +478,41 @@ export function destroyMcpServer(browserId) {
   for (const [key, pinned] of poolPinned) {
     if (pinned === browserId) poolPinned.delete(key);
   }
+  for (const [key, sticky] of poolSticky) {
+    if (sticky === browserId) poolSticky.delete(key);
+  }
 }
 
 // ─── Pool MCP ───────────────────────────────────────────────────────────────
 
 /**
+ * apiKey -> the browser start_browser made. An agent that started a browser
+ * means to drive that one, so navigate stays on it instead of advancing the
+ * round-robin into someone else's. Cleared by stop_browser or disconnect.
+ */
+const poolSticky = new Map();
+
+/**
  * Create a pool MCP server that round-robins commands across all browsers
  * sharing the same API key. Commands that start a new page context (navigate,
  * analyze_page) advance the round-robin; subsequent commands (click, type, etc.)
- * stay pinned to the last-used browser so element IDs remain valid.
+ * stay pinned to the last-used browser so element IDs remain valid. A browser
+ * from start_browser is sticky: everything stays on it until stop_browser.
+ *
+ * `self` is the request's own origin and Authorization header, which the
+ * lifecycle tools replay against the public API.
  */
-function createPoolMcpServer(apiKey) {
+function createPoolMcpServer(apiKey, self = {}) {
   const server = new McpServer({
     name: 'Oya Browser Pool',
     version: '1.0.0',
   });
 
-  /** Pick browser: use pinned if set & alive, else round-robin. */
+  /** Pick browser: sticky if set, else pinned if alive, else round-robin. */
   function pick(advance) {
     const pinned = poolPinned.get(apiKey);
     if (pinned && registry.isConnected(pinned)) {
-      if (!advance) return pinned;
+      if (!advance || poolSticky.get(apiKey) === pinned) return pinned;
     }
     const id = nextBrowser(apiKey);
     if (!id) return null;
@@ -519,7 +533,7 @@ function createPoolMcpServer(apiKey) {
     {},
     async () => {
       const bid = pick(false); // stay on pinned browser — analyzing current page, not switching
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'analyze');
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       const { markdown, elements, truncated } = result.data;
@@ -546,7 +560,7 @@ function createPoolMcpServer(apiKey) {
     { url: z.string() },
     async ({ url }) => {
       const bid = pick(true);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'navigate', { url }, 90000);
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Navigated to ${url}` }] };
@@ -557,7 +571,7 @@ function createPoolMcpServer(apiKey) {
     { element_id: z.number() },
     async ({ element_id }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'click', { selector: `[data-ac-id="${element_id}"]` });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Clicked element ${element_id}` }] };
@@ -568,7 +582,7 @@ function createPoolMcpServer(apiKey) {
     { element_id: z.number(), text: z.string() },
     async ({ element_id, text }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'type', { selector: `[data-ac-id="${element_id}"]`, text });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Typed "${text}" into element ${element_id}` }] };
@@ -578,7 +592,7 @@ function createPoolMcpServer(apiKey) {
   server.tool('screenshot', 'Capture screenshot from pinned pool browser.', {},
     async () => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'screenshot');
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       if (result.data?.screenshot) {
@@ -593,7 +607,7 @@ function createPoolMcpServer(apiKey) {
     { key: z.enum(['Enter', 'Escape', 'Tab', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Space', 'Home', 'End', 'PageUp', 'PageDown']) },
     async ({ key }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'press_key', { key });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Pressed ${key}` }] };
@@ -604,7 +618,7 @@ function createPoolMcpServer(apiKey) {
     { direction: z.enum(['up', 'down']), amount: z.number().optional() },
     async ({ direction, amount }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'scroll', { direction, amount }, 15000);
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       if (result.data?.markdown && result.data?.elements) {
@@ -626,7 +640,7 @@ function createPoolMcpServer(apiKey) {
     { selector: z.string(), timeout: z.number().optional() },
     async ({ selector, timeout }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'wait', { selector, timeout });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Element found: ${selector}` }] };
@@ -637,7 +651,7 @@ function createPoolMcpServer(apiKey) {
     { x: z.number(), y: z.number() },
     async ({ x, y }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'click_coordinates', { x, y });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Clicked at (${x}, ${y})` }] };
@@ -648,7 +662,7 @@ function createPoolMcpServer(apiKey) {
     { x: z.number(), y: z.number() },
     async ({ x, y }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'mouse_move', { x, y });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Mouse moved to (${x}, ${y})` }] };
@@ -659,7 +673,7 @@ function createPoolMcpServer(apiKey) {
     { element_id: z.number().optional(), x: z.number().optional(), y: z.number().optional() },
     async ({ element_id, x, y }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const params = element_id !== undefined ? { selector: `[data-ac-id="${element_id}"]` } : { x, y };
       const result = await sendCommand(bid, 'double_click', params);
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
@@ -671,7 +685,7 @@ function createPoolMcpServer(apiKey) {
     { text: z.string() },
     async ({ text }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'keyboard_type', { text });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Typed "${text}"` }] };
@@ -682,10 +696,73 @@ function createPoolMcpServer(apiKey) {
     { from_x: z.number(), from_y: z.number(), to_x: z.number(), to_y: z.number() },
     async ({ from_x, from_y, to_x, to_y }) => {
       const bid = pick(false);
-      if (!bid) return { content: [{ type: 'text', text: 'Error: no browsers in pool' }], isError: true };
+      if (!bid) return { content: [{ type: 'text', text: 'Error: no browser is running. Call start_browser first.' }], isError: true };
       const result = await sendCommand(bid, 'drag', { from_x, from_y, to_x, to_y });
       if (!result.ok) return { content: [{ type: 'text', text: `Error: ${result.error}` }], isError: true };
       return { content: [{ type: 'text', text: `${browserTag(bid)} Dragged from (${from_x}, ${from_y}) to (${to_x}, ${to_y})` }] };
+    }
+  );
+
+  /**
+   * Browser lifecycle goes through the public API as the caller, so quotas,
+   * budgets, persona caps, audit and billing apply exactly as over REST, and
+   * a scoped credential cannot do more here than there.
+   */
+  async function selfApi(path, body) {
+    if (!self.origin || !self.authorization) throw new Error('browser lifecycle is unavailable on this endpoint');
+    const res = await fetch(`${self.origin}/api${path}`, {
+      method: 'POST',
+      headers: { Authorization: self.authorization, 'Content-Type': 'application/json', 'Idempotency-Key': globalThis.crypto.randomUUID() },
+      body: JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(150_000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+    return data;
+  }
+  const text = (t) => ({ content: [{ type: 'text', text: t }] });
+  const fail = (t) => ({ content: [{ type: 'text', text: `Error: ${t}` }], isError: true });
+
+  server.tool('start_browser',
+    'Start a new browser on this key and make it the one every other tool drives. Uses the key\'s configured provider unless one is given. It costs a session until stop_browser.',
+    {
+      persona: z.string().optional().describe("Persona id, 'auto' (least recently used under its concurrency cap) or 'default'"),
+      provider: z.enum(['oya-cloud', 'oya-selfhosted', 'browserbase', 'steel', 'anchor', 'browseruse']).optional(),
+      name: z.string().max(100).optional(),
+      url: z.string().optional().describe('Navigate here once the browser is ready'),
+    },
+    async ({ persona, provider, name, url }) => {
+      let started;
+      try { started = await selfApi('/browsers/start', { profile: persona, provider, name }); }
+      catch (e) { return fail(e.message); }
+      const id = started.id;
+      // Cloud browsers dial in after they boot; the tools need it connected.
+      const deadline = Date.now() + 120_000;
+      while (!registry.isConnected(id) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 1000));
+      if (!registry.isConnected(id)) return text(`Started ${id} on ${started.provider}; it is still booting. Check pool_status, then retry.`);
+      poolPinned.set(apiKey, id);
+      poolSticky.set(apiKey, id);
+      if (url) {
+        const nav = await sendCommand(id, 'navigate', { url }, 90000);
+        if (!nav.ok) return fail(`${browserTag(id)} started, but navigating failed: ${nav.error}`);
+      }
+      return text(`${browserTag(id)} ready on ${started.provider} as persona ${started.persona}${url ? `, at ${url}` : ''}. `
+        + 'Every tool now drives this browser. Call stop_browser when you are done.');
+    }
+  );
+
+  server.tool('stop_browser', 'Stop a browser and release its session. Defaults to the browser the tools are driving.',
+    { browser_id: z.string().optional() },
+    async ({ browser_id }) => {
+      const id = browser_id || poolPinned.get(apiKey);
+      if (!id) return fail('no browser to stop');
+      let result;
+      try { result = (await selfApi('/browsers/stop', { ids: [id] })).results?.[0]; }
+      catch (e) { return fail(e.message); }
+      if (result && result.ok === false) return fail(result.error || `could not stop ${id}`);
+      if (poolPinned.get(apiKey) === id) poolPinned.delete(apiKey);
+      if (poolSticky.get(apiKey) === id) poolSticky.delete(apiKey);
+      return text(`Stopped ${id}.`);
     }
   );
 
@@ -726,7 +803,10 @@ export async function handlePoolMcpRequest(req, res) {
   } catch (e) { return res.status(e.status === 503 ? 503 : 401).json({ error: 'Missing or invalid API key' }); }
 
   try {
-    const server = createPoolMcpServer(apiKey);
+    const server = createPoolMcpServer(apiKey, {
+      origin: `http://127.0.0.1:${req.socket.localPort}`,
+      authorization: header,
+    });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });

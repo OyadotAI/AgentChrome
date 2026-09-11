@@ -54,6 +54,31 @@ console.log(await browser.ask("What are the top 3 stories?"));
 
 Which vendor runs the browser is a setting on your API key. Your agent code stays the same when you switch.
 
+## Give it to your agent
+
+Get a key at [browser.getoya.ai](https://browser.getoya.ai), `export OYA_API_KEY=...`, then pick one:
+
+```bash
+# Claude Code: the MCP server and the skill, as one plugin
+claude plugin marketplace add OyadotAI/oya-browser
+claude plugin install oya-browser@oya
+
+# The skill, for any agent that reads skills (Claude Code, Cursor, Codex, Copilot and more)
+npx skills add OyadotAI/oya-browser
+
+# Just the MCP server, in Claude Code
+claude mcp add --transport http oya https://browser.getoya.ai/mcp/pool \
+  --header "Authorization: Bearer $OYA_API_KEY"
+```
+
+For Cursor, Windsurf, Claude Desktop or any other MCP client:
+
+```json
+{ "mcpServers": { "oya": { "url": "https://browser.getoya.ai/mcp/pool", "headers": { "Authorization": "Bearer YOUR_API_KEY" } } } }
+```
+
+Then ask your agent something like *"Start a browser, open Hacker News and summarize the top 3 stories."* It calls `start_browser`, `navigate`, `analyze_page` and `stop_browser` on its own. Agents that read the web find all of this at [browser.getoya.ai/llms.txt](https://browser.getoya.ai/llms.txt).
+
 ## Stealth: 0% headless, 0 lies
 
 Faking a fingerprint is easy. Faking one that CreepJS can't catch lying is the hard part.
