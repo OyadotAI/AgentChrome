@@ -1,0 +1,10 @@
+node_modules
+.git
+.env
+*.log
+.DS_Store
+extension
+.claude
+README.md
+browser/node_modules
+browser/dist

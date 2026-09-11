@@ -1,0 +1,205 @@
+import { migrateLegacy } from './control/migrate.js';
+import { createEgressServer } from './control/egress.js';
+import { control } from './control/service.js';
+import { forwardHttp } from './control/cluster.js';
+import { startWorkers, stopWorkers, workerHealth } from './control/worker.js';
+/**
+ * Oya Browser server — HTTP + WebSocket + MCP API.
+ * API routes are served under /api; Next.js handles the frontend at /.
+ */
+
+import 'dotenv/config';
+import { startFrontend } from './frontend.js';
+
+// Prevent crashes from unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('[oya] Uncaught exception:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[oya] Unhandled rejection:', reason?.message || reason);
+});
+
+import express from 'express';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import cors from 'cors';
+import { router as apiRouter } from './api.js';
+import { drain as drainAudit } from './audit.js';
+import {
+  handleJsonVersion, handleJsonList, handleUpgrade as handleGatewayUpgrade, sessions as gatewaySessions,
+} from './gateway.js';
+import * as usage from './usage.js';
+import * as personas from './personas.js';
+import * as keyConfig from './key-config.js';
+import { drain as drainLogins } from './cookie-store.js';
+import { handleConnection } from './ws-handler.js';
+import { handleMcpRequest, handlePoolMcpRequest } from './mcp-server.js';
+import { validateApiKey, authReady } from './auth.js';
+import { registry } from './connection-registry.js';
+import { pool } from './routing.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PORT = parseInt(process.env.PORT || '3100', 10);
+
+// Browsers treat an invalid key as fatal. Never accept a reconnect while the
+// persisted key cache or the profile bound to it is still being restored.
+const [authLoaded] = await Promise.all([
+  authReady, usage.restore(), personas.restore(), keyConfig.restore(),
+]);
+if (!authLoaded) throw new Error('API keys could not be loaded; refusing to accept browser connections');
+
+keyConfig.restoreRouting(pool);
+
+await control().store.get('meta', 'draining'); // fail fast when control storage is unreachable
+await migrateLegacy();
+const app = express();
+app.get('/livez', (req, res) => res.json({ status: 'ok' }));
+app.get('/readyz', async (req, res) => {
+  try {
+    const draining = (await control().store.get('meta', 'draining'))?.value;
+    const ready = !draining && !registry.draining && !workerHealth.lastError;
+    res.status(ready ? 200 : 503).json({ ready });
+  } catch { res.status(503).json({ ready: false }); }
+});
+startWorkers();
+const egressServer = process.env.OYA_EGRESS_PORT ? createEgressServer() : null;
+egressServer?.listen(Number(process.env.OYA_EGRESS_PORT), process.env.OYA_EGRESS_HOST || '127.0.0.1');
+
+app.use(cors());
+
+// ── Legacy domain redirect: *.oya.ai → *.getoya.ai ──
+// The old hosts still resolve and terminate TLS at the ingress; anything
+// human-facing gets pushed to the canonical domain. /ws, /mcp, /api and
+// /downloads pass through untouched so already-installed browsers and MCP
+// clients configured against the old host keep working.
+const LEGACY_HOST = /^([a-z0-9-]+)\.oya\.ai$/i;
+const REDIRECT_EXEMPT = ['/ws', '/mcp', '/api', '/downloads'];
+
+app.use((req, res, next) => {
+  const host = (req.headers.host || '').split(':')[0];
+  const legacy = LEGACY_HOST.exec(host);
+  if (!legacy) return next();
+  if (REDIRECT_EXEMPT.some((p) => req.path === p || req.path.startsWith(p + '/'))) return next();
+  // 308 rather than 301 — preserves method and body for non-GET requests
+  res.redirect(308, `https://${legacy[1]}.getoya.ai${req.originalUrl}`);
+});
+
+const publicDir = join(__dirname, 'public');
+
+// ── Discovery & docs (root level) ──
+app.use('/.well-known', express.static(join(publicDir, '.well-known')));
+// One file, several names. Crawlers look for different ones and a second copy
+// would only drift from this.
+for (const path of ['/llms.txt', '/llms-full.txt', '/docs.txt']) {
+  app.get(path, (req, res) => res.type('text/plain').sendFile(join(publicDir, 'llms.txt')));
+}
+app.get('/openapi.json', (req, res) => res.type('application/json').sendFile(join(publicDir, 'openapi.json')));
+
+// ── REST API under /api ──
+// CDP discovery. Playwright, Puppeteer, Stagehand and browser-use fetch these
+// before connecting, which is what lets them treat the gateway as a browser.
+app.get('/json/version', handleJsonVersion);
+app.get('/json/list', handleJsonList);
+
+app.use('/api', express.json(), apiRouter);
+// Prometheus convention is /metrics at the root; the same handler also serves
+// /api/metrics for callers that prefix everything.
+app.get(['/health', '/metrics'], apiRouter);
+
+// ── Downloads (binary files) ──
+// The folder itself has no page: static would add a slash and Next.js strip it again, forever.
+// Send it to the landing page's per-platform download buttons instead.
+app.get(['/downloads', '/downloads/'], (req, res) => res.redirect(302, '/#download'));
+app.use('/downloads', express.static(join(__dirname, '..', 'downloads')));
+
+// ── MCP endpoints (root level — clients connect directly) ──
+// A per-browser MCP request is served by the replica holding that browser.
+app.use('/mcp', express.json(), forwardHttp);
+app.post('/mcp/pool', handlePoolMcpRequest);
+app.get('/mcp/pool', handlePoolMcpRequest);
+app.delete('/mcp/pool', handlePoolMcpRequest);
+app.post('/mcp/:browserId', handleMcpRequest);
+app.get('/mcp/:browserId', handleMcpRequest);
+app.delete('/mcp/:browserId', handleMcpRequest);
+
+// ── Next.js runtime (optional for API-only hosts) ──
+const frontend = startFrontend();
+if (frontend) app.use((req, res) => frontend.handle(req, res));
+else app.use((req, res) => res.status(404).json({ error: 'Not found. Run npm run dev from the repository root to start the console.' }));
+
+const server = createServer(app);
+
+// Disable HTTP server timeout so long-running commands aren't killed
+server.timeout = 0;
+server.requestTimeout = 0;
+
+// ── WebSocket at /ws ──
+const wss = new WebSocketServer({
+  noServer: true,
+  perMessageDeflate: false,
+});
+
+// One upgrade router: /ws is the Oya client protocol, /connect is raw CDP.
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  if (pathname === '/ws') {
+    return wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  }
+  if (pathname === '/connect') {
+    return handleGatewayUpgrade(req, socket, head).catch((e) => {
+      console.error('[gateway] upgrade failed:', e.message);
+      try { socket.destroy(); } catch {}
+    });
+  }
+  if (frontend?.upgrade(req, socket, head)) return;
+  console.warn(`[ws] ✗ upgrade to unknown path ${pathname} — use /ws (Oya client) or /connect (CDP)`);
+  socket.destroy();
+});
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const apiKey = url.searchParams.get('key');
+
+  if (apiKey && !validateApiKey(apiKey)) {
+    ws.close(4003, 'Invalid API key');
+    return;
+  }
+
+  handleConnection(ws, req);
+});
+
+// Log browser events
+registry.on('browser:connected', ({ id, name }) => {
+  console.log(`[oya] Browser connected: ${name} (${id})`);
+});
+
+registry.on('browser:disconnected', ({ id, name }) => {
+  console.log(`[oya] Browser disconnected: ${name} (${id})`);
+});
+
+
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, async () => {
+    registry.draining = true;
+    egressServer?.close();
+    await stopWorkers();
+    frontend?.stop();
+    // End gateway sessions cleanly so profiles are captured and recordings
+    // get their manifest, rather than being cut off mid-write.
+    await Promise.allSettled([...gatewaySessions.values()].map((s) => s.destroy('server shutting down')));
+    await Promise.allSettled([drainAudit(), drainLogins(), usage.drain(), personas.drain(), keyConfig.drain()]);
+    process.exit(process.exitCode || 0);
+  });
+}
+
+server.listen(PORT, () => {
+  console.log(`[oya] Oya Browser server listening on port ${PORT}`);
+  console.log(`[oya] UI:           http://localhost:${PORT}/`);
+  console.log(`[oya] API:          http://localhost:${PORT}/api/`);
+  console.log(`[oya] WebSocket:    ws://localhost:${PORT}/ws`);
+  console.log(`[oya] MCP endpoint: http://localhost:${PORT}/mcp/:browserId`);
+  console.log(`[oya] MCP pool:     http://localhost:${PORT}/mcp/pool`);
+  console.log(`[oya] CDP gateway:  ws://localhost:${PORT}/connect  (discovery: /json/version)`);
+});

@@ -1,0 +1,41 @@
+services:
+  server:
+    build: .
+    ports:
+      - "${PORT:-3100}:3100"
+    environment:
+      - PORT=3100
+      - API_KEYS=${API_KEYS:-}
+      # The KEK for credentials at rest. Left unset, the server generates one
+      # into the data volume — which is why that volume must outlive the
+      # container, or every stored credential becomes unreadable.
+      - OYA_PROFILE_SECRET=${OYA_PROFILE_SECRET:-}
+      - OYA_OPERATOR_TOKEN=${OYA_OPERATOR_TOKEN:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:-}
+    volumes:
+      # Personas, key settings, cookies and the generated secret. Without
+      # Supabase this is the only durable state there is.
+      - oya-data:/app/data
+    restart: unless-stopped
+
+  browser:
+    build: browser
+    environment:
+      - OYA_SERVER_URL=ws://server:3100/ws
+      - OYA_API_KEY=${API_KEYS:-}
+      - OYA_AUTO_CONNECT=true
+      - OYA_BROWSER_NAME=${BROWSER_NAME:-Oya Browser Docker}
+      - SCREEN_WIDTH=${SCREEN_WIDTH:-1920}
+      - SCREEN_HEIGHT=${SCREEN_HEIGHT:-1080}
+      - VNC_ENABLED=${VNC_ENABLED:-false}
+      - VNC_PORT=5900
+    ports:
+      - "${VNC_PORT:-5900}:5900"
+    depends_on:
+      - server
+    shm_size: '2gb'
+    restart: unless-stopped
+
+volumes:
+  oya-data:

@@ -1,0 +1,292 @@
+name: Deploy Prod (browser.getoya.ai)
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_SERVER: ghcr.io/oyadotai/oya-browser-server
+  IMAGE_BROWSER: ghcr.io/oyadotai/oya-browser
+  NAMESPACE: oya-browser
+
+jobs:
+  build-linux:
+    name: Build Linux AppImage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install browser dependencies
+      run: cd browser && npm ci
+
+    - name: Build Linux AppImage
+      run: cd browser && npm run dist:linux -- --x64
+
+    - name: Upload AppImage as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-appimage
+        path: browser/dist/*.AppImage
+
+    - name: Upload to GitHub release
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        # build.linux.artifactName pins this name, and latest-linux.yml refers
+        # to it — renaming the asset here would 404 every Linux update.
+        APP="browser/dist/Oya.Browser-${VERSION}-x64.AppImage"
+        if [ ! -f "$APP" ]; then
+          echo "::error::$APP missing — check build.linux.artifactName"
+          exit 1
+        fi
+        if [ ! -f browser/dist/latest-linux.yml ]; then
+          echo "::error::latest-linux.yml missing — Linux auto-update would silently stop"
+          exit 1
+        fi
+        gh release upload "${GITHUB_REF_NAME}" "$APP" browser/dist/latest-linux.yml --clobber
+        echo "Uploaded $(basename "$APP") and latest-linux.yml"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Install browser dependencies
+      run: cd browser && npm ci
+
+    - name: Build NSIS installer
+      run: cd browser && npm run dist:win -- --x64
+
+    - name: Upload to GitHub release
+      shell: bash
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        EXE="browser/dist/Oya.Browser-${VERSION}-x64.exe"
+        if [ ! -f "$EXE" ]; then
+          echo "::error::$EXE missing — check build.win.artifactName"
+          exit 1
+        fi
+        # latest.yml is the Windows update feed, the same way latest-mac.yml is
+        # for macOS. NSIS updates cannot resolve without it.
+        if [ ! -f browser/dist/latest.yml ]; then
+          echo "::error::latest.yml missing — Windows auto-update would silently stop"
+          exit 1
+        fi
+        gh release upload "${GITHUB_REF_NAME}" "$EXE" browser/dist/latest.yml --clobber
+        echo "Uploaded $(basename "$EXE") and latest.yml"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-image:
+    name: Build & push Docker image
+    # Ordered after the desktop builds so their binaries are on the release to
+    # be bundled, but not gated on them: a broken AppImage used to skip this
+    # job and with it the entire prod deploy — no server update, no snapshot
+    # repoint — over a download link. The desktop job still goes red on its own.
+    needs: [build-linux, build-windows]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download browser binaries from release
+      run: |
+        mkdir -p server/downloads
+        # macOS DMG (uploaded by release script)
+        gh release download ${{ github.ref_name }} --pattern '*.dmg' --dir server/downloads --clobber || true
+        # Linux AppImage (uploaded by build-linux job above)
+        gh release download ${{ github.ref_name }} --pattern '*.AppImage' --dir server/downloads --clobber || true
+        # Windows installer (uploaded by build-windows job above)
+        gh release download ${{ github.ref_name }} --pattern '*.exe' --dir server/downloads --clobber || true
+        # The update feed is served from /downloads, so the channel files and the
+        # macOS zip have to ship with the binaries. Squirrel.Mac updates from the
+        # zip, never the dmg, and without latest*.yml every client 404s forever.
+        gh release download ${{ github.ref_name }} --pattern '*.zip' --dir server/downloads --clobber || true
+        gh release download ${{ github.ref_name }} --pattern 'latest*.yml' --dir server/downloads --clobber || true
+        # build.artifactName has emitted dotted names since v1.0.50; this only
+        # still matters for assets carried over from older releases.
+        cd server/downloads
+        for f in *" "*; do [ -f "$f" ] && mv "$f" "$(echo "$f" | tr ' ' '.')" 2>/dev/null; done || true
+        ls -lh server/downloads/ || true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update download URLs in UI
+      run: |
+        VERSION="${{ github.ref_name }}"
+        VERSION="${VERSION#v}"
+        echo "Updating download links to version $VERSION"
+        sed -i "s/Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*-/Oya.Browser-${VERSION}-/g" ui/src/app/page.tsx
+        grep -o 'Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*' ui/src/app/page.tsx | head -2
+
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.IMAGE_SERVER }}:${{ github.ref_name }}
+          ${{ env.IMAGE_SERVER }}:latest
+        platforms: linux/amd64
+        cache-from: type=gha,scope=server-prod
+        cache-to: type=gha,mode=max,scope=server-prod
+
+  build-browser:
+    name: Build & push browser image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v4
+    - uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/build-push-action@v6
+      with:
+        context: browser
+        push: true
+        tags: |
+          ${{ env.IMAGE_BROWSER }}:${{ github.ref_name }}
+          ${{ env.IMAGE_BROWSER }}:latest
+        platforms: linux/amd64
+        cache-from: type=gha,scope=browser-prod
+        cache-to: type=gha,mode=max,scope=browser-prod
+
+  register-snapshot:
+    name: Register Daytona snapshot
+    needs: build-browser
+    runs-on: ubuntu-latest
+    # A snapshot failure must not strand the rest of the release. The deploy
+    # falls back to the previous snapshot, so cloud browsers keep working on
+    # the last good build while this job goes red.
+    continue-on-error: true
+    outputs:
+      snapshot: ${{ steps.register.outputs.snapshot }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - name: Install server dependencies
+      run: cd server && npm ci --omit=dev
+    - name: Create snapshot from the released image
+      id: register
+      env:
+        DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+        DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
+        DAYTONA_TARGET: ${{ secrets.DAYTONA_TARGET }}
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        NAME="oya-browser-${VERSION}"
+        cd server
+        node publish-snapshot.js \
+          --image "${{ env.IMAGE_BROWSER }}:${GITHUB_REF_NAME}" \
+          --name "$NAME"
+        echo "snapshot=$NAME" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to GKE (prod)
+    needs: [build-image, build-browser, register-snapshot]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GKE_SA_KEY }}
+
+    - uses: google-github-actions/get-gke-credentials@v2
+      with:
+        cluster_name: ${{ secrets.GKE_CLUSTER }}
+        location: ${{ secrets.GKE_ZONE }}
+        project_id: ${{ secrets.GKE_PROJECT }}
+
+    - name: Create namespace
+      run: kubectl create namespace ${{ env.NAMESPACE }} 2>/dev/null || true
+
+    - name: Apply secrets
+      env:
+        DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+        # This release's snapshot, or the previous one if registration failed.
+        DAYTONA_SNAPSHOT: ${{ needs['register-snapshot'].outputs.snapshot || secrets.DAYTONA_SNAPSHOT }}
+        DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
+        DAYTONA_TARGET: ${{ secrets.DAYTONA_TARGET }}
+      run: |
+        : "${DAYTONA_API_KEY:?Missing DAYTONA_API_KEY deployment secret}"
+        : "${DAYTONA_SNAPSHOT:?Missing DAYTONA_SNAPSHOT deployment secret}"
+        kubectl create secret generic app-secrets \
+          --from-literal=API_KEYS="${{ secrets.API_KEYS }}" \
+          --from-literal=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+          --from-literal=SUPABASE_SERVICE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}" \
+          --from-literal=DAYTONA_API_KEY="${DAYTONA_API_KEY}" \
+          --from-literal=DAYTONA_SNAPSHOT="${DAYTONA_SNAPSHOT}" \
+          --from-literal=DAYTONA_API_URL="${DAYTONA_API_URL}" \
+          --from-literal=DAYTONA_TARGET="${DAYTONA_TARGET}" \
+          -n ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Create GHCR pull secret
+      run: |
+        kubectl delete secret ghcr-oyadotai -n ${{ env.NAMESPACE }} 2>/dev/null || true
+        kubectl create secret docker-registry ghcr-oyadotai \
+          --docker-server=ghcr.io \
+          --docker-username=${{ github.repository_owner }} \
+          --docker-password=${{ secrets.GHCR_PAT }} \
+          -n ${{ env.NAMESPACE }}
+
+    - name: Deploy with Kustomize
+      run: kubectl apply -k k8s/overlays/prod
+
+    - name: Rolling restart
+      run: |
+        kubectl patch deployment server -n ${{ env.NAMESPACE }} \
+          -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
+        kubectl patch deployment browser -n ${{ env.NAMESPACE }} \
+          -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"rollout\":\"$(date +%s)\"}}}}}" || true
+
+    - name: Wait for rollout
+      # No `|| true` — a stuck rollout (ImagePullBackOff, unschedulable) must
+      # fail the job instead of reporting a green deploy that never landed.
+      run: |
+        kubectl rollout status deployment/server -n ${{ env.NAMESPACE }} --timeout=180s
+        kubectl rollout status deployment/browser -n ${{ env.NAMESPACE }} --timeout=180s
+
+    - name: Diagnose failed rollout
+      if: failure()
+      run: |
+        kubectl get pods -n ${{ env.NAMESPACE }}
+        kubectl get events -n ${{ env.NAMESPACE }} --field-selector type=Warning \
+          --sort-by=.lastTimestamp | tail -20
+
+    - name: Show status
+      if: always()
+      run: kubectl get pods,svc,ingress -n ${{ env.NAMESPACE }}

@@ -1,0 +1,29 @@
+{
+  "name": "@oya-ai/cli",
+  "version": "1.0.57",
+  "description": "Command line for the Oya browser control plane.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "oya": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@oya-ai/browser": "1.0.57",
+    "@types/node": "^20.19.43",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}
