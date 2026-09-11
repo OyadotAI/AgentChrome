@@ -587,10 +587,15 @@ router.get('/personas/options', authMiddleware, (req, res) => {
 
 /** The fingerprint these choices would produce. Persists nothing. */
 router.post('/personas/preview', authMiddleware, (req, res) => {
+  const invalid = personas.prefsError(req.body?.prefs);
+  if (invalid) return res.status(400).json({ error: invalid });
   res.json({ fingerprint: personas.describeProfile(personas.preview(req.body?.prefs)) });
 });
 
 router.post('/personas', authMiddleware, (req, res) => {
+  // Refuse rather than substitute: a persona is a device, and it must be the one asked for.
+  const invalid = personas.prefsError(req.body?.prefs);
+  if (invalid) return res.status(400).json({ error: invalid });
   const created = personas.create(getKey(req), {
     name: req.body?.name,
     proxy: req.body?.proxy,

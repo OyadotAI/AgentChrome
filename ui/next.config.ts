@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  devIndicators: false,
   // This is a running App Router application. Express owns /api and the
   // browser WebSockets; all frontend requests go to the Next.js runtime.
   outputFileTracingRoot: __dirname,

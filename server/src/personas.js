@@ -24,6 +24,7 @@ import { fingerprint as ownerOf } from './audit.js';
 import {
   getFingerprintForPersona, previewProfile, defaultPersonaSeed, newPersonaSeed,
 } from './fingerprint.js';
+export { prefsError } from './fingerprint.js';
 import { metrics } from './metrics.js';
 import * as mfa from './mfa.js';
 import * as proxies from './proxies.js';
@@ -86,7 +87,7 @@ export function describe(p) {
     proxy: p.proxy ? { host: p.proxy.host, port: p.proxy.port, geo: p.proxy.geo || null } : null,
     // The proxy it is actually on, when one has been assigned or pinned.
     exit: exit ? { id: exit.id, label: exit.label, geo: exit.geo, healthy: exit.available } : null,
-    prefs: p.prefs || null,
+    prefs: publicPrefs(p.prefs),
     fingerprint: describeProfile(fingerprintFor(p)),
     mfa: mfa.describe(p.id),
     login: loginSummary(p.id),
@@ -126,12 +127,12 @@ export function defaultFor(apiKey) {
   return p;
 }
 
-export function create(apiKey, { name, proxy, maxConcurrent, prefs } = {}) {
+export function create(apiKey, { name, proxy, maxConcurrent, prefs, prefsChecked = true } = {}) {
   const { id, seed } = newPersonaSeed();
   const p = shape({
     id, seed, owner: ownerOf(apiKey),
     name: (name || id).slice(0, 100),
-    prefs: cleanPrefs(prefs),
+    prefs: markChecked(cleanPrefs(prefs), prefsChecked),
     proxy: proxy || null,
     maxConcurrent: Number(maxConcurrent) > 0 ? Number(maxConcurrent) : DEFAULT_MAX_CONCURRENT,
     createdAt: new Date().toISOString(),
@@ -140,6 +141,20 @@ export function create(apiKey, { name, proxy, maxConcurrent, prefs } = {}) {
   dirty = true;
   return p;
 }
+
+/**
+ * Prefs validated at creation carry `checked`, inside prefs so it persists
+ * wherever prefs do. Unmarked (older) prefs keep the rule they were created
+ * under, or their device would move under its cookie jar (fingerprint.js).
+ */
+const markChecked = (prefs, checked) => (checked ? { ...(prefs || {}), checked: true } : prefs);
+
+/** The device choices a caller made, without the internal marker. */
+const publicPrefs = (prefs) => {
+  if (!prefs) return null;
+  const { checked, ...choices } = prefs;
+  return Object.keys(choices).length ? choices : null;
+};
 
 /** Only the three device choices, only as strings. Anything else is dropped. */
 function cleanPrefs(prefs) {
@@ -182,6 +197,8 @@ export function clone(apiKey, id, { name } = {}) {
   return create(apiKey, {
     name: name || `${src.name} (copy)`,
     prefs: src.prefs,
+    // Same kind of device as the source actually is, under the source's rule.
+    prefsChecked: src.prefs?.checked === true,
     proxy: src.proxy,
     maxConcurrent: Number.isFinite(src.maxConcurrent) ? src.maxConcurrent : undefined,
   });
@@ -190,7 +207,7 @@ export function clone(apiKey, id, { name } = {}) {
 /** The fingerprint a persona created with these prefs would get. Persists nothing. */
 export function preview(prefs) {
   const { id, seed } = newPersonaSeed();
-  return previewProfile({ id: `preview-${id}`, seed, prefs: cleanPrefs(prefs) });
+  return previewProfile({ id: `preview-${id}`, seed, prefs: markChecked(cleanPrefs(prefs), true) });
 }
 
 export function list(apiKey) {

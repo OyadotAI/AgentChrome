@@ -107,7 +107,11 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
 
   const screenshot = async () => {
     setBusy('screenshot');
-    const r = await send('screenshot');
+    // Looking needs no control lease: while the agent drives, the agent path
+    // serves it without pausing anyone. Human input is refused until taken.
+    const r = controlMode === 'human' ? await send('screenshot')
+      : await api<{ ok: boolean; data?: { screenshot?: string }; error?: string }>(`/browsers/${browserId}/command`,
+        { key: apiKey, method: 'POST', body: { action: 'screenshot' } }).catch((e) => { toast(errorMessage(e), 'error'); return { ok: false }; });
     setBusy(null);
     const data = (r as { data?: { screenshot?: string } }).data?.screenshot;
     if (data) setShot(data);
@@ -127,6 +131,9 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
 
   const d = detail;
   const cloud = d?.provider === 'oya-cloud';
+  // Console input is human input; the server refuses it unless a person holds control.
+  const human = controlMode === 'human';
+  const needsControl = human ? undefined : 'Take control to drive this browser';
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-bg-card lg:w-[540px]" aria-label="Browser detail">
@@ -160,7 +167,7 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="text-text-dim">{controlMode === 'human' ? 'Human control · agent paused' : controlMode === 'paused' ? 'Paused · awaiting agent resume' : 'Agent control'}</span>
+          <span className="text-text-dim">{controlMode === 'human' ? 'Human control · agent paused' : controlMode === 'paused' ? 'Paused · awaiting agent resume' : 'Agent control · take control to drive'}</span>
           <button className="btn-secondary text-xs" onClick={async () => {
             try {
               const result = await api<{ mode: string }>(`/control/sessions/${browserId}/control`, { key: apiKey, method: 'POST', body: { action: controlMode === 'agent' ? 'acquire' : controlMode === 'human' ? 'release' : 'resume' } });
@@ -169,14 +176,14 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
           }}>{controlMode === 'agent' ? 'Take control' : controlMode === 'human' ? 'Release control' : 'Resume agent'}</button>
         </div>
         {/* URL bar */}
-        <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); go(); }}>
+        <form className="flex items-center gap-1.5" onSubmit={(e) => { e.preventDefault(); if (human) go(); }}>
           {d?.clientType === 'cdp' && (
             <>
-              <button type="button" className="btn-icon" title="Back" onClick={() => send('back')}><ArrowLeft className="h-4 w-4" /></button>
-              <button type="button" className="btn-icon" title="Forward" onClick={() => send('forward')}><ArrowRight className="h-4 w-4" /></button>
+              <button type="button" className="btn-icon" title={needsControl ?? 'Back'} disabled={!human} onClick={() => send('back')}><ArrowLeft className="h-4 w-4" /></button>
+              <button type="button" className="btn-icon" title={needsControl ?? 'Forward'} disabled={!human} onClick={() => send('forward')}><ArrowRight className="h-4 w-4" /></button>
             </>
           )}
-          <button type="button" className="btn-icon" title="Reload (R)" onClick={reload} disabled={busy === 'reload'}>
+          <button type="button" className="btn-icon" title={needsControl ?? 'Reload (R)'} onClick={reload} disabled={busy === 'reload' || !human}>
             <RotateCw className={`h-4 w-4 ${busy === 'reload' ? 'animate-spin' : ''}`} />
           </button>
           <input
@@ -187,20 +194,23 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
             placeholder="Enter a URL and press Enter"
             className="field flex-1 font-mono text-[12.5px]"
             aria-label="Navigate to URL"
+            readOnly={!human}
+            title={needsControl}
             spellCheck={false}
           />
-          <button type="submit" className="btn-primary h-8" disabled={busy === 'navigate'}>{busy === 'navigate' ? 'Going…' : 'Go'}</button>
+          <button type="submit" className="btn-primary h-8" title={needsControl} disabled={busy === 'navigate' || !human}>{busy === 'navigate' ? 'Going…' : 'Go'}</button>
         </form>
 
         {/* Live view */}
         <div className="group">
-          <LiveView frameSrc={frame} fps={fps} frameAgeMs={frameAt ? now - frameAt : null} send={send} onInput={onInput} />
+          <LiveView frameSrc={frame} fps={fps} frameAgeMs={frameAt ? now - frameAt : null} send={send} onInput={onInput} interactive={human} />
         </div>
 
         {/* Actions */}
         <div className="flex flex-wrap items-center gap-2">
           <button className="btn-ghost" onClick={screenshot} disabled={busy === 'screenshot'}><Camera className="h-3.5 w-3.5" /> Screenshot <Kbd>S</Kbd></button>
-          <button className="btn-ghost" onClick={analyze} disabled={busy === 'analyze'}><ScanSearch className="h-3.5 w-3.5" /> Elements</button>
+          {/* Human-only: re-analyzing renumbers element ids under a running agent. */}
+          <button className="btn-ghost" onClick={analyze} disabled={busy === 'analyze' || !human} title={needsControl}><ScanSearch className="h-3.5 w-3.5" /> Elements</button>
           <a className="btn-ghost" href={`/live/${encodeURIComponent(browserId)}`} target="_blank" rel="noreferrer" title="Open live browser in a new tab">
             <ExternalLink className="h-3.5 w-3.5" /> Stream
           </a>
@@ -228,7 +238,7 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
             </div>
             <div className="max-h-[200px] overflow-y-auto rounded-md border border-border bg-bg font-mono text-[12px]">
               {elements.map((e) => (
-                <button key={e.id} className="flex w-full items-center gap-2 border-b border-border/60 px-2 py-1 text-left hover:bg-text/5"
+                <button key={e.id} disabled={!human} title={needsControl} className="flex w-full items-center gap-2 border-b border-border/60 px-2 py-1 text-left hover:bg-text/5 disabled:cursor-default disabled:hover:bg-transparent"
                   onClick={() => { onInput(`click #${e.id}`); send('click', { element_id: e.id, selector: `[data-ac-id="${e.id}"]` }); }}>
                   <span className="w-8 shrink-0 text-right text-accent">#{e.id}</span>
                   <span className="w-14 shrink-0 text-text-muted">{e.type}</span>

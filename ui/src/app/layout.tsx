@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     url: SITE_URL,
     title: `${SITE_NAME} — ${SITE_TAGLINE}`,
     description: SITE_DESCRIPTION,
-    images: [{ url: '/oya-browser-poster.jpg', width: 1200, height: 630, alt: `${SITE_NAME} fleet console` }],
+    images: [{ url: '/oya-browser-poster.jpg', width: 1920, height: 1080, alt: `${SITE_NAME} fleet console` }],
   },
   twitter: {
     card: 'summary_large_image',

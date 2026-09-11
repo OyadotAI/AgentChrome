@@ -12,3 +12,4 @@ server/downloads/
 server/ui-static/
 qa/
 supabase/.temp/
+recorded-video/

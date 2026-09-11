@@ -422,6 +422,20 @@ try {
     assert(pv.body.fingerprint?.platform === 'MacIntel' && pv.body.fingerprint?.timezone === 'Pacific/Honolulu', 'preview honours the choices');
     assert(P.list('tenant-key').length === before, 'preview persists nothing');
 
+    // A choice that cannot be honoured is refused, never swapped for another device.
+    const refused = await call('/api/personas', { method: 'POST', key: 'tenant-key',
+      body: { name: 'nowhere', prefs: { platform: 'Win32', timezone: 'Mars/Olympus' } } });
+    assert(refused.status === 400 && /timezone/.test(refused.body.error), 'an unknown timezone is refused, with the reason');
+    const berlin = await call('/api/personas/preview', { method: 'POST', key: 'tenant-key',
+      body: { prefs: { platform: 'Win32', timezone: 'Europe/Berlin', locale: 'de-DE' } } });
+    assert(berlin.body.fingerprint?.timezone === 'Europe/Berlin' && berlin.body.fingerprint?.locale === 'de-DE',
+      'a Windows machine in Berlin is honoured');
+    // Personas made before choices were validated keep the device they were made as.
+    const { previewProfile } = await import('./src/fingerprint.js');
+    const legacy = previewProfile({ id: 'legacy', seed: 42, prefs: { platform: 'Win32', timezone: 'Europe/Berlin' } });
+    assert(legacy.timezone !== 'Europe/Berlin' && legacy.webglChrome === false,
+      'an older persona keeps its seeded timezone and its WebGL strings');
+
     const created = await call('/api/personas', { method: 'POST', key: 'tenant-key',
       body: { name: 'Mac in Hawaii', prefs: { platform: 'MacIntel', timezone: 'Pacific/Honolulu', locale: 'en-GB' }, maxConcurrent: 3 } });
     assert(created.status === 201, `create with prefs (got ${created.status})`);

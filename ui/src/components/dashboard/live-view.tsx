@@ -13,6 +13,8 @@ interface Props {
   send: Send;
   /** Called with a one-line description whenever the user does something, for the activity feed's optimistic row. */
   onInput?: (line: string) => void;
+  /** False while the agent holds control: the view is watch-only, since human input is refused until taken. */
+  interactive?: boolean;
 }
 
 const SPECIAL: Record<string, string> = {
@@ -28,7 +30,7 @@ const SPECIAL: Record<string, string> = {
  *
  * Bounded on purpose. The fleet is the page; this is a window into one row.
  */
-export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: Props) {
+export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput, interactive = true }: Props) {
   const img = useRef<HTMLImageElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [captured, setCaptured] = useState(false);
@@ -100,7 +102,7 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
   }, [captured, flushTyped, enqueue, onInput]);
 
   const onMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !interactive) return;
     const p = toPage(e.clientX, e.clientY);
     if (!p) return;
     e.preventDefault();
@@ -127,6 +129,7 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
+    if (!interactive) return;
     const p = toPage(e.clientX, e.clientY);
     if (!p) return;
     onInput?.(`double-click ${p.x},${p.y}`);
@@ -134,7 +137,7 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!hover) return;
+    if (!hover || !interactive) return;
     const now = Date.now();
     if (now - lastMove.current < 80) return;
     lastMove.current = now;
@@ -161,7 +164,8 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
       if (!disposed && Math.abs(pending) >= 1) timer = setTimeout(flush, 40);
     };
     const wheel = (e: WheelEvent) => {
-      if (e.ctrlKey || !e.deltaY) return;
+      // Watch-only: let the wheel scroll the dashboard instead of the page.
+      if (!interactive || e.ctrlKey || !e.deltaY) return;
       const p = toPage(e.clientX, e.clientY);
       if (!p) return;
       e.preventDefault();
@@ -175,7 +179,10 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
     // cannot stop the dashboard from scrolling underneath the remote page.
     node.addEventListener('wheel', wheel, { passive: false });
     return () => { disposed = true; clearTimeout(timer); node.removeEventListener('wheel', wheel); };
-  }, [enqueue, onInput, toPage]);
+  }, [enqueue, onInput, toPage, interactive]);
+
+  // Control handed back mid-capture: release the keyboard with it.
+  useEffect(() => { if (!interactive) setCaptured(false); }, [interactive]);
 
   useEffect(() => {
     mounted.current = true;
@@ -209,8 +216,8 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
         onDoubleClick={onDoubleClick}
         onMouseMove={onMouseMove}
         className={`relative select-none outline-none ${fit === 'fit' ? 'max-h-[420px]' : 'max-h-[70vh] overflow-auto'} ${captured ? 'ring-1 ring-inset ring-accent/60' : ''}`}
-        style={{ cursor: 'crosshair' }}
-        aria-label="Live view — click to control, Esc to release the keyboard"
+        style={{ cursor: interactive ? 'crosshair' : 'default' }}
+        aria-label={interactive ? 'Live view — click to control, Esc to release the keyboard' : 'Live view — watch only while the agent has control'}
       >
         {frameSrc ? (
           /* eslint-disable-next-line @next/next/no-img-element */
@@ -226,7 +233,7 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput }: P
         <div className={`pointer-events-none absolute bottom-2 left-2 flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-opacity ${
           captured ? 'border-accent/40 bg-black/70 text-text opacity-100' : 'border-border bg-black/60 text-text-muted opacity-0 group-hover:opacity-100'}`}>
           <Keyboard className="h-3 w-3" />
-          {captured ? <>keyboard captured · <Kbd>Esc</Kbd> releases</> : 'click to control'}
+          {captured ? <>keyboard captured · <Kbd>Esc</Kbd> releases</> : interactive ? 'click to control' : 'watching · take control to interact'}
         </div>
       </div>
     </div>

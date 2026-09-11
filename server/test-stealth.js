@@ -26,7 +26,7 @@ import { CDPConnection } from './src/drivers/cdp.js';
 import { userAgentFor, metadataFor } from './src/ua.js';
 
 const require = createRequire(import.meta.url);
-const { buildInjectionScript } = require('../browser/anonymity/inject.js');
+const { createPersonaApplier } = require('../browser/anonymity/apply.js');
 const { generateProfile } = require('../browser/anonymity/fingerprint.js');
 
 const args = process.argv.slice(2);
@@ -112,7 +112,7 @@ const PROBES = [
   // A Worker is a separate global that addScriptToEvaluateOnNewDocument does
   // not reach, so anything the injection spoofs disagrees between the two
   // scopes and the real machine shows through. CreepJS compares them directly.
-  // Currently FAILS: this is the largest known remaining gap.
+  // apply.js covers workers by pausing each one and applying the persona first.
   { id: 'worker.coherent', weight: 3, expr:
     `(async () => {
        const src = 'self.onmessage=()=>postMessage(navigator.hardwareConcurrency+"|"+navigator.deviceMemory+"|"+navigator.platform)';
@@ -208,26 +208,31 @@ async function score({ protect }) {
     await conn.send('Page.enable', {}, sessionId);
 
     if (protect) {
-      const profile = generateProfile({ id: 'bench-persona' });
-      // Measure the real configuration: the injected script AND the CDP-level
-      // emulation the drivers apply. The UA is an HTTP header as well as a JS
-      // property, so no injected script can fix it on its own.
+      // A persona created today, so the corrected WebGL strings are measured.
+      const profile = { ...generateProfile({ id: 'bench-persona' }), webglChrome: true };
+      // Measure the real configuration: exactly what the drivers apply
+      // (apply.js) — emulation, injection and child targets. The UA is an HTTP
+      // header as well as a JS property, so no injected script fixes it alone.
       const version = (await conn.send('Browser.getVersion')).userAgent;
       const brands = await conn.send('Runtime.evaluate', {
         expression: 'JSON.stringify(navigator.userAgentData?.brands || [])', returnByValue: true,
       }, sessionId).then((r) => { try { return JSON.parse(r.result?.value || '[]'); } catch { return []; } })
         .catch(() => []);
-      await conn.send('Emulation.setUserAgentOverride', {
-        userAgent: userAgentFor(profile, version),
-        acceptLanguage: profile.navigator.languages.join(','),
-        platform: profile.navigator.platform,
-        // Without this Chrome empties navigator.userAgentData, which no real
-        // browser does — the probes below assert it stays populated.
-        userAgentMetadata: metadataFor(profile, version, brands),
-      }, sessionId).catch(() => {});
-      await conn.send('Emulation.setTimezoneOverride', { timezoneId: profile.timezone }, sessionId).catch(() => {});
-      await conn.send('Page.addScriptToEvaluateOnNewDocument',
-        { source: buildInjectionScript(profile) }, sessionId);
+      const persona = createPersonaApplier({
+        send: (method, params, sid) => conn.send(method, params, sid),
+        on: (event, fn) => conn.on(event, fn),
+        profile,
+        userAgent: {
+          userAgent: userAgentFor(profile, version),
+          acceptLanguage: profile.navigator.languages.join(','),
+          platform: profile.navigator.platform,
+          // Without this Chrome empties navigator.userAgentData, which no real
+          // browser does — the probes below assert it stays populated.
+          userAgentMetadata: metadataFor(profile, version, brands),
+        },
+      });
+      await persona.browser();
+      await persona.page(sessionId);
     }
     await conn.send('Page.navigate', { url: PROBE_URL }, sessionId);
     await new Promise((r) => setTimeout(r, 400));

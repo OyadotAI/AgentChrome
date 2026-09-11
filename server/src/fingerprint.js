@@ -107,17 +107,54 @@ function pick(arr, rng) {
  */
 /** What a persona may choose about its device. Everything else follows the seed. */
 export const PLATFORMS = ['Win32', 'MacIntel', 'Linux x86_64'];
+
+/**
+ * Explicit choices, open to every platform: a Windows machine in Berlin is
+ * ordinary. Wider than TIMEZONES/LOCALES above, which stay exactly as they
+ * are — they drive the seeded pick, and changing them would move existing
+ * fingerprints under their cookie jars.
+ */
+const TIMEZONE_CHOICES = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Phoenix',
+  'America/Detroit', 'America/Indianapolis', 'America/Anchorage', 'Pacific/Honolulu', 'America/Toronto',
+  'America/Vancouver', 'America/Mexico_City', 'America/Sao_Paulo', 'America/Argentina/Buenos_Aires',
+  'Europe/London', 'Europe/Dublin', 'Europe/Lisbon', 'Europe/Paris', 'Europe/Berlin', 'Europe/Madrid',
+  'Europe/Rome', 'Europe/Amsterdam', 'Europe/Brussels', 'Europe/Zurich', 'Europe/Vienna', 'Europe/Stockholm',
+  'Europe/Oslo', 'Europe/Copenhagen', 'Europe/Helsinki', 'Europe/Warsaw', 'Europe/Prague', 'Europe/Athens',
+  'Europe/Istanbul', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Cairo', 'Asia/Dubai', 'Asia/Kolkata',
+  'Asia/Singapore', 'Asia/Hong_Kong', 'Asia/Shanghai', 'Asia/Tokyo', 'Asia/Seoul', 'Asia/Jakarta',
+  'Asia/Manila', 'Australia/Sydney', 'Australia/Melbourne', 'Pacific/Auckland', 'UTC',
+];
+const LOCALE_CHOICES = [
+  'en-US', 'en-GB', 'en-CA', 'en-AU', 'en-IN', 'de-DE', 'de-AT', 'de-CH', 'fr-FR', 'fr-CA', 'es-ES', 'es-MX',
+  'it-IT', 'nl-NL', 'pt-BR', 'pt-PT', 'sv-SE', 'da-DK', 'nb-NO', 'fi-FI', 'pl-PL', 'cs-CZ', 'tr-TR', 'ru-RU',
+  'ja-JP', 'ko-KR', 'zh-CN', 'zh-TW', 'hi-IN', 'id-ID',
+];
+
 export const PREF_OPTIONS = {
   platforms: PLATFORMS,
-  timezones: TIMEZONES,
-  locales: Object.fromEntries(Object.entries(LOCALES).map(([k, v]) => [k, [...new Set(v)]])),
+  timezones: Object.fromEntries(PLATFORMS.map((p) => [p, TIMEZONE_CHOICES])),
+  locales: Object.fromEntries(PLATFORMS.map((p) => [p, LOCALE_CHOICES])),
 };
 
 /**
- * Preferences are honoured only where they are coherent with each other: a
- * timezone or locale that the chosen platform's table does not carry is
- * ignored rather than producing a Windows machine in a timezone Windows never
- * reports here. Unknown values fall back to the seeded pick.
+ * Why these prefs cannot be honoured, or null. Checked at creation, so a
+ * persona never silently gets a device other than the one it asked for.
+ */
+export function prefsError(prefs) {
+  if (!prefs || typeof prefs !== 'object') return null;
+  const bad = (key, value, list) => (typeof value === 'string' && value && value !== 'auto' && !list.includes(value)
+    ? `${key} "${value}" is not offered for personas; GET /api/personas/options lists the choices` : null);
+  return bad('platform', prefs.platform, PLATFORMS)
+    || bad('timezone', prefs.timezone, TIMEZONE_CHOICES)
+    || bad('locale', prefs.locale, LOCALE_CHOICES);
+}
+
+/**
+ * Personas created before prefs were validated (no `prefs.checked`) keep the
+ * rule they were created under: a timezone or locale outside the platform's
+ * seeded table falls back to the seeded pick. Widening it for them would
+ * change their device under an existing cookie jar.
  */
 function prefsFor(identity) {
   const p = identity?.prefs || {};
@@ -145,9 +182,10 @@ function generateProfile(identity) {
   const audioNoise = rng() * 0.01;
   const rectsNoise = rng() * 0.001;
   const tzPick = pick(TIMEZONES[platform] || TIMEZONES.Win32, rng);
-  const timezone = (TIMEZONES[platform] || []).includes(prefs.timezone) ? prefs.timezone : tzPick;
+  const checked = identity.prefs?.checked === true;
+  const timezone = (checked ? TIMEZONE_CHOICES : TIMEZONES[platform] || []).includes(prefs.timezone) ? prefs.timezone : tzPick;
   const locPick = pick(LOCALES[platform] || LOCALES.Win32, rng);
-  const locale = (LOCALES[platform] || []).includes(prefs.locale) ? prefs.locale : locPick;
+  const locale = (checked ? LOCALE_CHOICES : LOCALES[platform] || []).includes(prefs.locale) ? prefs.locale : locPick;
   const lang = locale.split('-')[0];
 
   return {
@@ -176,6 +214,9 @@ function generateProfile(identity) {
     fonts: { available: fonts },
     timezone,
     locale,
+    // Chrome-shaped WebGL strings for personas made under the current rules;
+    // older ones keep reporting what they always have (fingerprint.js, browser).
+    webglChrome: checked,
     proxy: identity.proxy || null,
   };
 }

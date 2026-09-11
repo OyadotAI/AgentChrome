@@ -11,7 +11,7 @@
  */
 
 const { buildMaskPreamble, buildStealthBody } = require('./stealth');
-const { buildFingerprintBody } = require('./fingerprint');
+const { buildFingerprintBody, buildWorkerBody } = require('./fingerprint');
 
 /**
  * @param {object|null} profile - anonymity profile, or null for stealth only
@@ -24,4 +24,12 @@ function buildInjectionScript(profile) {
   return `(function() {\n'use strict';\n${parts.join('\n')}\n})();`;
 }
 
-module.exports = { buildInjectionScript };
+/**
+ * @param {object} profile - anonymity profile
+ * @returns {string} source to evaluate in a paused worker before its script runs
+ */
+function buildWorkerScript(profile, options) {
+  return `(function() {\n'use strict';\n${buildMaskPreamble()}\n${buildWorkerBody(profile, options)}\n})();`;
+}
+
+module.exports = { buildInjectionScript, buildWorkerScript };

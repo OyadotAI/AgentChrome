@@ -1,43 +1,185 @@
 # @oya-ai/cli
 
-The `oya` command: start, drive and watch browsers on the Oya control plane from your terminal.
+<p align="center">
+  <strong>The Command-Line Interface for the Oya Browser Control Plane.</strong>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@oya-ai/cli"><img src="https://img.shields.io/npm/v/@oya-ai/cli?color=39ed35&label=@oya-ai/cli&logo=npm" alt="NPM Version"></a>
+  <a href="https://github.com/OyadotAI/oya-browser/blob/main/packages/cli/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?color=39ed35" alt="License: MIT"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg" alt="Node Version"></a>
+</p>
+
+---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/OyadotAI/oya-browser/main/assets/cli-demo.svg" alt="oya start, goto, ask and ls in a terminal" width="100%">
+</p>
+
+Manage, navigate, benchmark, and watch browser agent instances on Oya Cloud, Browserbase, Steel, Anchor, Browser Use, or your self-hosted Chrome fleet straight from your terminal.
+
+Oya does for browser vendors what OpenRouter does for LLM providers: one interface, and the vendor behind it is a setting.
 
 ```bash
-npm i -g @oya-ai/cli
-oya login     # paste an API key from browser.getoya.ai
-oya init      # pick your model, browser provider and sign-ins
+npm install -g @oya-ai/cli
 ```
 
-## A session
+---
+
+## ⚡ 60-Second Setup
 
 ```bash
-oya start --persona auto          # prints the browser id
-oya goto https://example.com      # defaults to the newest browser
-oya ask "Find the pricing page"   # drive it in plain language
-oya open                          # watch it live
+# 1. Authenticate with an API key (interactive or via flags)
+oya login
+
+# 2. Interactive onboarding: pick your AI model, default browser provider, and solver
+oya init
+```
+
+---
+
+## 🚀 Everyday Workflow
+
+```bash
+# Start an orchestrated browser with an automatically rotated persona
+oya start --persona auto
+# Output: ✅ oya-8ed39f1c
+
+# Navigate to a target website (defaults to your newest active browser)
+oya goto https://news.ycombinator.com
+
+# Drive the browser in plain English using your configured LLM
+oya ask "Extract top 3 articles with points and comments"
+
+# Open the sub-second interactive live stream in your desktop browser
+oya open
+
+# Check real-time health, command logs, and latencies
+oya status
+
+# Inspect running fleet instances
+oya ls
+
+# Gracefully terminate all active browsers
 oya rm --all
 ```
 
-## Commands
+---
 
-| Command | |
-|---|---|
-| `oya start [--persona auto] [--provider <p>]` | Start a browser and print its id |
-| `oya goto <url>` · `oya ask "<prompt>"` | Navigate · drive it in plain language (`--id` picks a browser) |
-| `oya ls` · `oya rm <id> \| --all` | List · stop browsers |
-| `oya status` · `oya open` | Health and recent activity · open the live view |
-| `oya personas [new \| edit \| clone \| rm]` | Identities: fingerprint + cookies + proxy |
-| `oya config [key=value ...]` | Show or change this key's settings |
-| `oya sessions` · `oya events` · `oya control` | Durable sessions, lifecycle events, project overview |
-| `oya takeover <id>` · `oya release <id>` · `oya resume <id>` | Human control of a running browser |
-| `oya members` · `oya credential` · `oya webhook` | Team, service credentials, signed webhooks |
-| `oya usage` | What this key has spent |
-| `oya stealth-test [--live]` | Score this deployment against bot detectors |
+## 📖 Command Reference
 
-Run `oya help` for every flag.
+### Fleet Execution & Control
 
-## Configuration
+| Command | Flags | Description |
+|:---|:---|:---|
+| `oya start` | `[--persona <id\|auto>] [--provider <p>] [--name <n>] [--governed] [--budget-usd <n>]` | Launch browser instance and print its ID and CDP endpoint |
+| `oya goto <url>` | `[--id <id>]` | Navigate to URL (defaults to newest browser) |
+| `oya ask "<prompt>"` | `[--id <id>]` | Drive page using configured AI model |
+| `oya open` | `[--id <id>]` | Launch interactive SSE live view in system browser |
+| `oya ls` | `[--json]` | List active fleet browsers with health status |
+| `oya status` | `[--id <id>] [--json]` | Detailed metrics, error counts, and recent activity log |
+| `oya rm <id>...` | `[--all]` | Terminate target browser or entire fleet |
 
-`oya login` saves the key to `~/.oya/config.json` (or under `OYA_CONFIG_HOME`). `OYA_API_KEY` and `OYA_BASE_URL` override it, and so do `--key` and `--url`, so CI needs no login. Add `--json` for machine-readable output.
+### Persona Management (Anti-Ban Identities)
 
-Building an agent in code? Use the SDK: [@oya-ai/browser](https://www.npmjs.com/package/@oya-ai/browser).
+```bash
+# List all saved personas and active concurrency
+oya personas
+
+# Create a new persona with fixed device parameters
+oya personas new us-shopper --platform MacIntel --tz America/New_York --locale en-US --max 2 --geo US
+
+# Preview generated hardware fingerprint without saving
+oya personas new --preview --platform Win32 --tz Europe/London
+
+# Clone an existing persona (same hardware fingerprint class, clean cookie jar)
+oya personas clone <id> --name us-shopper-backup
+
+# Edit persona concurrency cap or residential proxy geo
+oya personas edit <id> --max 4 --geo US
+
+# Delete a persona and its stored cookie jar
+oya personas rm <id>
+```
+
+### Human-in-the-Loop Takeover
+
+When automation encounters hardware 2FA, phone biometric approvals, or complex verification:
+
+```bash
+# 1. Acquire human control lease (pauses agent execution safely)
+oya takeover <browser-id>
+
+# 2. Complete manual verification via interactive live view
+oya open --id <browser-id>
+
+# 3. Release control when done
+oya release <browser-id>
+
+# 4. Acknowledge and resume autonomous agent execution
+oya resume <browser-id>
+```
+
+### Governance, Auditing & Webhooks
+
+```bash
+# View fleet overview, spend rate cards, and limits
+oya control
+
+# Inspect durable sessions (including cleanup-pending or disconnected nodes)
+oya sessions [id]
+
+# Force termination of an unresponsive session
+oya stop <id> --force
+
+# Read durable append-only lifecycle events
+oya events [--after <cursor>]
+
+# Audit hourly token and sandbox spend
+oya usage
+
+# Mint scoped service credentials
+oya credential new --role operator --label "ci-runner"
+
+# Register an HMAC-signed webhook for fleet lifecycle events
+oya webhook new https://api.mycorp.com/oya-events
+```
+
+### Stealth Benchmarking
+
+Benchmark your browser deployment against live detection platforms (CreepJS and Bot.Sannysoft). The harness lives in `server/`, so run this from a checkout of the repo, or set `OYA_SERVER_DIR`:
+
+```bash
+# Run local evasion probe suite
+oya stealth-test
+
+# Run live benchmark against detection platforms
+oya stealth-test --live
+```
+
+---
+
+## 🤖 CI/CD & Headless Environments
+
+In automated pipelines (GitHub Actions, GitLab CI, Docker), use flags or environment variables to bypass interactive prompts:
+
+```bash
+export OYA_API_KEY="oya_live_..."
+export OYA_BASE_URL="https://browser.getoya.ai"
+
+# Non-interactive launch with JSON output
+oya start --provider browserbase --persona auto --json
+```
+
+| Global Flag | Description |
+|:---|:---|
+| `--key <key>` | Override API key for command |
+| `--url <url>` | Override control plane URL |
+| `--id <id>` | Target specific browser instance ID |
+| `--json` | Output pure JSON for programmatic parsing |
+
+---
+
+## 📄 License
+
+MIT © [Oya](https://getoya.ai)

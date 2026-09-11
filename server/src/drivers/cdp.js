@@ -29,16 +29,16 @@ const { LoginState, cdpCookies } = require('../../../browser/login-state.js');
  */
 const PROVIDER_SHIPS_STEALTH = new Set(['anchor', 'browserbase', 'steel', 'browseruse']);
 
-let injectBuilder;
-function getInjection(fingerprint) {
-  if (injectBuilder === undefined) {
-    try { ({ buildInjectionScript: injectBuilder } = require('../../../browser/anonymity/inject.js')); }
+let applierFactory;
+function getApplier() {
+  if (applierFactory === undefined) {
+    try { ({ createPersonaApplier: applierFactory } = require('../../../browser/anonymity/apply.js')); }
     catch (e) {
-      injectBuilder = null;
-      console.warn(`[cdp] anonymity/inject.js not found (${e.message}) — CDP browsers run unspoofed`);
+      applierFactory = null;
+      console.warn(`[cdp] anonymity/apply.js not found (${e.message}) — CDP browsers run unspoofed`);
     }
   }
-  return injectBuilder ? injectBuilder(fingerprint) : null;
+  return applierFactory;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -245,6 +245,7 @@ export class CDPDriver {
 
   async connect() {
     this.conn = await new CDPConnection(this.wsUrl).connect();
+    this.personaApply = null;   // bound to the connection it listens on
     this.conn.ws.on('close', () => { try { this.onClose?.(); } catch {} });
 
     // Attach to a page target, creating one if the browser has none.
@@ -276,6 +277,7 @@ export class CDPDriver {
     // governs that session's cookie jar, proxy and concurrency there — only
     // the device spoofing is theirs to do.
     if (this.fingerprint && !PROVIDER_SHIPS_STEALTH.has(this.provider)) {
+      let userAgent = null;
       try {
         const version = await this.conn.send('Browser.getVersion');
         // Read the browser's own brand list first. The GREASE entry
@@ -289,30 +291,30 @@ export class CDPDriver {
           .catch(() => []);
 
         this.userAgent = userAgentFor(this.fingerprint, version.userAgent);
-        await this.conn.send('Emulation.setUserAgentOverride', {
+        userAgent = {
           userAgent: this.userAgent,
           ...(this.acceptLanguage ? { acceptLanguage: this.acceptLanguage } : {}),
           platform: this.fingerprint.navigator?.platform || undefined,
           userAgentMetadata: metadataFor(this.fingerprint, version.userAgent, brands),
-        }, sessionId);
+        };
       } catch (e) {
         console.warn(`[cdp] user agent override failed (${e.message}) — this browser reports its real UA`);
       }
-      if (this.fingerprint.timezone) {
-        await this.conn.send('Emulation.setTimezoneOverride',
-          { timezoneId: this.fingerprint.timezone }, sessionId).catch(() => {});
+      // The persona, applied exactly as test-stealth.js measures it: native
+      // emulation, the injection, and every worker and cross-site iframe. One
+      // applier per connection; service workers are browser-wide, so once.
+      const create = getApplier();
+      if (create && !this.personaApply) {
+        this.personaApply = create({
+          send: (method, params, sid) => this.conn.send(method, params, sid),
+          on: (event, fn) => this.conn.on(event, fn),
+          profile: this.fingerprint,
+          userAgent,
+          onError: (what, err) => console.warn(`[cdp] ${what} failed — not covered: ${err.message}`),
+        });
+        await this.personaApply.browser();
       }
-    }
-
-    // The persona's fingerprint, which until now was computed, handed to this
-    // driver and then used for nothing at all. Canvas, WebGL, audio, rects,
-    // fonts and screen all need the injected script.
-    if (this.fingerprint && !PROVIDER_SHIPS_STEALTH.has(this.provider)) {
-      const source = getInjection(this.fingerprint);
-      if (source) {
-        await this.conn.send('Page.addScriptToEvaluateOnNewDocument', { source }, sessionId)
-          .catch((e) => console.warn(`[cdp] fingerprint injection failed: ${e.message}`));
-      }
+      if (this.personaApply) await this.personaApply.page(sessionId);
     }
 
     // The analyzer lives in an isolated world, never the page's. In the main
@@ -594,7 +596,8 @@ export class CDPDriver {
         await this.conn.send('Target.closeTarget', { targetId: id });
         if (id === this.targetId) {
           const { targetInfos = [] } = await this.conn.send('Target.getTargets');
-          const next = targetInfos.find((t) => t.type === 'page');
+          // closeTarget can return before the tab leaves the list; never re-attach to it.
+          const next = targetInfos.find((t) => t.type === 'page' && t.targetId !== id);
           if (next) await this.attach(next.targetId);
         }
         return { ok: true };

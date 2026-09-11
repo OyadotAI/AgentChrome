@@ -1,64 +1,121 @@
 /**
  * Anti-detection stealth — builds a JS string injected before page code runs.
  *
- * The load-bearing piece is the Function.prototype.toString mask. Without it
- * every override below reports its own source ("() => val") where a real
- * browser reports "[native code]", which is the first thing any commercial
- * detector checks — so the mask has to be installed before anything else and
- * every patched function has to be registered with it.
+ * Two rules, both learned from CreepJS's lie battery:
+ *
+ * 1. Prefer native. Anything CDP emulation can set (webdriver, platform,
+ *    hardwareConcurrency, locale, timezone, screen) is set there by apply.js,
+ *    and the patches below only fire where the running value is still wrong.
+ *    A value Chrome reports itself can never be caught lying.
+ * 2. Where a patch is needed, it must be shaped like the native it replaces:
+ *    not constructible, no `prototype`, own keys exactly length+name, the right
+ *    name and length, "[native code]" from any realm's toString, and getters
+ *    that throw Illegal invocation when read off the prototype.
  */
+
+const { randomBytes } = require('crypto');
 
 /**
- * The mask, and the helpers every patch must use. Emitted once at the top of
- * the combined injection so the fingerprint patches are covered too — they run
- * before stealth and were previously left unmasked.
+ * The mask and the helpers every patch must use. Emitted once at the top of
+ * the combined injection so every patch after it is covered. Works in page and
+ * worker scopes alike.
  */
 function buildMaskPreamble() {
+  // One key per build. Every frame of a target gets the same source, so
+  // same-origin frames can find each other's registry; nothing else can.
+  const key = randomBytes(12).toString('hex');
   return `
-  // ── Native toString mask ──
-  // Registered functions report as native. The proxy registers itself, so
-  // Function.prototype.toString.toString() is native too.
+  // ── Captured before any page script runs ──
+  // A page that later patches Reflect, WeakMap or Object can neither watch
+  // the mask work nor break it.
+  const _apply = Reflect.apply;
+  const _defProp = Object.defineProperty;
+  const _getDesc = Object.getOwnPropertyDescriptor;
+  const _wmGet = WeakMap.prototype.get;
+  const _wmSet = WeakMap.prototype.set;
   const _origToString = Function.prototype.toString;
-  const _native = new WeakMap();
-  const _mark = (fn, name) => { try { _native.set(fn, name || fn.name || ''); } catch {} return fn; };
+  const _global = typeof window !== 'undefined' ? window : self;
 
-  const _toStringProxy = new Proxy(_origToString, {
-    apply(target, thisArg, args) {
-      if (_native.has(thisArg)) {
-        return 'function ' + _native.get(thisArg) + '() { [native code] }';
-      }
-      return Reflect.apply(target, thisArg, args);
-    },
-  });
-  _mark(_toStringProxy, 'toString');
-  try { Function.prototype.toString = _toStringProxy; } catch {}
+  // ── Native toString mask ──
+  // One registry for every same-origin realm. Detectors call ANOTHER frame's
+  // Function.prototype.toString on this frame's functions (CreepJS runs its
+  // lie battery from a "phantom" iframe), so a frame adopts its parent's
+  // registry through a key only this injection knows.
+  const _KEY = '${key}';
+  let _native = null;
+  try {
+    const parent = _global.parent;
+    if (parent && parent !== _global) {
+      const shared = _apply(parent.Function.prototype.toString, null, [_KEY]);
+      // The registry may come from the top frame, a realm neither this one nor
+      // the parent owns, so no instanceof: WeakMap.prototype.get accepts a
+      // WeakMap from any realm and throws for anything else.
+      _apply(_wmGet, shared, [_global]);
+      _native = shared;
+    }
+  } catch {}
+  if (!_native) _native = new WeakMap();
 
-  /** defineProperty with a getter that reports as a native accessor. */
-  const _defineGetter = (target, prop, value) => {
-    const get = () => value;
-    _mark(get, 'get ' + prop);
-    try {
-      Object.defineProperty(target, prop, { get, configurable: true, enumerable: true });
-    } catch {}
+  const _mark = (fn, name) => {
+    try { _apply(_wmSet, _native, [fn, name === undefined ? fn.name : name]); } catch {}
+    return fn;
   };
 
-  /** Replace a method, keeping the original and reporting native. */
+  // A method, not a Proxy and not a function declaration: a Proxy fails
+  // CreepJS's prototype-cycle checks ("too much recursion", "reflect set
+  // proto"), and a declaration is constructible and carries a prototype.
+  const _toString = { toString() {
+    if (arguments.length === 1 && arguments[0] === _KEY) return _native;
+    const name = _apply(_wmGet, _native, [this]);
+    if (name !== undefined) return 'function ' + name + '() { [native code] }';
+    return _apply(_origToString, this, arguments);
+  } }.toString;
+  _mark(_toString, 'toString');
+  try { Function.prototype.toString = _toString; } catch {}
+
+  /** A function shaped like a native method: own keys length+name only. */
+  const _nativeLike = (name, impl, length) => {
+    const fn = { [name](...args) { return _apply(impl, this, args); } }[name];
+    try { _defProp(fn, 'length', { value: length }); } catch {}
+    return _mark(fn, name);
+  };
+
+  /** Replace a method in place (its descriptor is kept). Returns the original. */
   const _patch = (target, name, make) => {
     try {
       const orig = target[name];
       if (typeof orig !== 'function') return null;
-      const fn = make(orig);
-      _mark(fn, name);
-      target[name] = fn;
+      target[name] = _nativeLike(name, make(orig), orig.length);
       return orig;
     } catch { return null; }
   };
 
   /**
+   * A read-only accessor shaped like a native one. Reading it off the
+   * prototype throws, as the real one does; returning a value there is
+   * CreepJS's "descriptor.value undefined" lie.
+   */
+  const _defineGetter = (target, prop, value) => {
+    const Brand = typeof target.constructor === 'function' && target.constructor.prototype === target
+      ? target.constructor : null;
+    const get = _getDesc({ get [prop]() {
+      if (Brand && !(this instanceof Brand)) throw new TypeError('Illegal invocation');
+      return value;
+    } }, prop).get;
+    _mark(get, 'get ' + prop);
+    try { _defProp(target, prop, { get, set: undefined, enumerable: true, configurable: true }); } catch {}
+  };
+
+  /** Define only where the running value is wrong. Emulated values need no lie. */
+  const _ensure = (target, instance, prop, want) => {
+    let now;
+    try { now = instance[prop]; } catch {}
+    if (now !== want) _defineGetter(target, prop, want);
+  };
+
+  /**
    * Deterministic noise: a pure function of the seed and the inputs, so the
-   * same query returns the same answer. An advancing RNG made
-   * getBoundingClientRect() and toDataURL() differ between consecutive calls,
-   * which no real browser does and which CreepJS tests directly.
+   * same query returns the same answer, as a real browser does.
    */
   const _noise = (seed, ...parts) => {
     let h = (seed >>> 0) || 1;
@@ -74,14 +131,14 @@ function buildMaskPreamble() {
 `;
 }
 
-/** The stealth patches themselves. Assumes the mask preamble is in scope. */
+/** The stealth patches themselves. Page scope; assumes the mask preamble. */
 function buildStealthBody() {
   return `
   // ── navigator.webdriver ──
-  // On the PROTOTYPE, not the instance: an own property named 'webdriver' on
-  // navigator never exists in real Chrome. And the value is false, not
-  // undefined — undefined is itself the tell.
-  _defineGetter(Navigator.prototype, 'webdriver', false);
+  // Emulation.setAutomationOverride makes this natively false. The getter is
+  // for runtimes where that did not apply; on the prototype, never the
+  // instance, and false rather than undefined — undefined is itself the tell.
+  if (navigator.webdriver !== false) _defineGetter(Navigator.prototype, 'webdriver', false);
 
   // ── Remove Electron globals ──
   // Tabs run with contextIsolation and sandbox, so these should already be
@@ -94,47 +151,49 @@ function buildStealthBody() {
   try { delete window.__filename; } catch {}
 
   // ── window.chrome ──
-  // app/csi/loadTimes exist on a normal page in real Chrome. chrome.runtime
-  // does NOT — it is only present on extension pages, so defining it is
-  // positive evidence of automation rather than cover. Deliberately absent.
+  // Filled in only where missing: Chrome has its own, and replacing a native
+  // member is a lie. chrome.runtime is deliberately never defined — it exists
+  // only on extension pages, so defining it is evidence, not cover.
   if (!window.chrome) window.chrome = {};
-  window.chrome.app = {
-    isInstalled: false,
-    InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
-    RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
-    getDetails: _mark(function getDetails() { return null; }, 'getDetails'),
-    getIsInstalled: _mark(function getIsInstalled() { return false; }, 'getIsInstalled'),
-    installState: _mark(function installState(cb) { if (cb) cb('not_installed'); }, 'installState'),
-  };
-
-  window.chrome.csi = _mark(function csi() {
-    return { onloadT: Date.now(), startE: Date.now(), pageT: performance.now() };
-  }, 'csi');
-
-  window.chrome.loadTimes = _mark(function loadTimes() {
-    const nav = performance.getEntriesByType('navigation')[0] || {};
-    const origin = performance.timeOrigin / 1000;
-    return {
-      commitLoadTime: origin + (nav.responseStart || 0) / 1000,
-      connectionInfo: 'h2',
-      finishDocumentLoadTime: origin + (nav.domContentLoadedEventEnd || 0) / 1000,
-      finishLoadTime: origin + (nav.loadEventEnd || 0) / 1000,
-      firstPaintAfterLoadTime: 0,
-      firstPaintTime: origin + (nav.responseEnd || 0) / 1000,
-      navigationType: 'Other',
-      npnNegotiatedProtocol: 'h2',
-      requestTime: origin + (nav.startTime || 0) / 1000,
-      startLoadTime: origin + (nav.startTime || 0) / 1000,
-      wasAlternateProtocolAvailable: false,
-      wasFetchedViaSpdy: true,
-      wasNpnNegotiated: true,
+  if (!window.chrome.app) {
+    window.chrome.app = {
+      isInstalled: false,
+      InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+      RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+      getDetails: _nativeLike('getDetails', () => null, 0),
+      getIsInstalled: _nativeLike('getIsInstalled', () => false, 0),
+      installState: _nativeLike('installState', (cb) => { if (cb) cb('not_installed'); }, 0),
     };
-  }, 'loadTimes');
+  }
+  if (!window.chrome.csi) {
+    window.chrome.csi = _nativeLike('csi', () => ({ onloadT: Date.now(), startE: Date.now(), pageT: performance.now() }), 0);
+  }
+  if (!window.chrome.loadTimes) {
+    window.chrome.loadTimes = _nativeLike('loadTimes', () => {
+      const nav = performance.getEntriesByType('navigation')[0] || {};
+      const origin = performance.timeOrigin / 1000;
+      return {
+        commitLoadTime: origin + (nav.responseStart || 0) / 1000,
+        connectionInfo: 'h2',
+        finishDocumentLoadTime: origin + (nav.domContentLoadedEventEnd || 0) / 1000,
+        finishLoadTime: origin + (nav.loadEventEnd || 0) / 1000,
+        firstPaintAfterLoadTime: 0,
+        firstPaintTime: origin + (nav.responseEnd || 0) / 1000,
+        navigationType: 'Other',
+        npnNegotiatedProtocol: 'h2',
+        requestTime: origin + (nav.startTime || 0) / 1000,
+        startLoadTime: origin + (nav.startTime || 0) / 1000,
+        wasAlternateProtocolAvailable: false,
+        wasFetchedViaSpdy: true,
+        wasNpnNegotiated: true,
+      };
+    }, 0);
+  }
 
   // ── navigator.plugins / mimeTypes ──
-  // Electron ships empty arrays. The values below match modern Chrome; the
-  // types matter as much as the data — a plain object reports
-  // "[object Object]" where a real one reports "[object PluginArray]".
+  // Only where the runtime ships none (Electron). Modern Chrome has these
+  // natively, and a native list replaced by ours is a lie. The types matter as
+  // much as the data: "[object PluginArray]", not "[object Object]".
   const _pluginSpecs = [
     { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
     { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
@@ -142,7 +201,6 @@ function buildStealthBody() {
     { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
     { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
   ];
-
   const _mimeSpecs = [
     { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
     { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
@@ -163,26 +221,23 @@ function buildStealthBody() {
     const list = items.slice();
     list.forEach((item, i) => { arr[i] = item; });
     Object.defineProperty(arr, 'length', { value: list.length, enumerable: false });
-    arr.item = _mark(function item(i) { return list[i] || null; }, 'item');
-    arr.namedItem = _mark(function namedItem(n) {
-      return list.find((x) => x[namedKey] === n) || null;
-    }, 'namedItem');
-    if (Ctor === window.PluginArray) {
-      arr.refresh = _mark(function refresh() {}, 'refresh');
-    }
+    arr.item = _nativeLike('item', (i) => list[i] || null, 1);
+    arr.namedItem = _nativeLike('namedItem', (n) => list.find((x) => x[namedKey] === n) || null, 1);
+    if (Ctor === window.PluginArray) arr.refresh = _nativeLike('refresh', () => {}, 0);
     list.forEach((item) => { arr[item[namedKey]] = item; });
     return _asInterface(arr, Ctor) || arr;
   };
 
-  if (typeof window.Plugin === 'function' && typeof window.PluginArray === 'function'
+  if (navigator.plugins && navigator.plugins.length === 0
+      && typeof window.Plugin === 'function' && typeof window.PluginArray === 'function'
       && typeof window.MimeType === 'function' && typeof window.MimeTypeArray === 'function') {
     const mimes = _mimeSpecs.map((m) => _asInterface(Object.assign(Object.create(null), m), window.MimeType)
       || Object.assign({}, m));
     const plugins = _pluginSpecs.map((p) => {
       const plugin = Object.assign(Object.create(null), p, {
         length: mimes.length,
-        item: _mark(function item(i) { return mimes[i] || null; }, 'item'),
-        namedItem: _mark(function namedItem(t) { return mimes.find((m) => m.type === t) || null; }, 'namedItem'),
+        item: _nativeLike('item', (i) => mimes[i] || null, 1),
+        namedItem: _nativeLike('namedItem', (t) => mimes.find((m) => m.type === t) || null, 1),
       });
       mimes.forEach((m, i) => { plugin[i] = m; });
       return _asInterface(plugin, window.Plugin) || plugin;
@@ -193,17 +248,6 @@ function buildStealthBody() {
     _defineGetter(Navigator.prototype, 'mimeTypes', _buildArrayLike(mimes, window.MimeTypeArray, 'type'));
   }
 
-  // ── navigator.permissions.query ──
-  const _origQuery = navigator.permissions.query;
-  const query = function query(params) {
-    if (params && params.name === 'notifications') {
-      return Promise.resolve({ state: Notification.permission, onchange: null });
-    }
-    return Reflect.apply(_origQuery, navigator.permissions, arguments);
-  };
-  _mark(query, 'query');
-  try { navigator.permissions.query = query; } catch {}
-
   // ── outerWidth / outerHeight ──
   // A headless window can report 0, which no real window does.
   if (!window.outerWidth || !window.outerHeight) {
@@ -211,9 +255,10 @@ function buildStealthBody() {
     _defineGetter(window, 'outerHeight', window.innerHeight + 88);
   }
 
-  // Error.prepareStackTrace is deliberately NOT patched. It is undefined on a
-  // real page, so defining it is a stronger signal than the debugger frames it
-  // was hiding.
+  // navigator.permissions is deliberately NOT patched: modern headless answers
+  // correctly, and the old replacement returned 'default' where Chrome says
+  // 'prompt'. Error.prepareStackTrace is deliberately NOT patched either: it is
+  // undefined on a real page, so defining it is the stronger signal.
 `;
 }
 

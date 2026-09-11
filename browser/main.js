@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const WebSocket = require('ws');
 const { applyTelemetryFlags, applyDomainBlocking } = require('./anonymity/telemetry');
 const { buildInjectionScript } = require('./anonymity/inject');
+const { createPersonaApplier } = require('./anonymity/apply');
 const { LoginState } = require('./login-state');
 const { configureProxy, applyDNSLeakPrevention } = require('./anonymity/proxy');
 const { ProfileStore } = require('./anonymity/profile-store');
@@ -1040,13 +1041,10 @@ function createTab(url, activate = true) {
   // allowlist includes bot-detection vendors, which therefore read a completely
   // unspoofed browser and only saw the overrides afterwards.
   view.webContents.on('did-create-window', (childWindow) => {
-    const source = buildInjectionScript(activeProfile);
-
     try {
       const dbg = childWindow.webContents.debugger;
       if (!dbg.isAttached()) dbg.attach(CDP_VERSION);
-      dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source })
-        .catch((e) => console.error('[anonymity] popup injection failed — popup is NOT protected:', e.message));
+      applyPersona(dbg, (what, e) => console.error(`[anonymity] popup ${what} failed — popup is NOT protected:`, e?.message || e));
       dbg.sendCommand('Page.enable').catch(() => {});
 
       // A sign-in popup is where the session actually gets written, so it needs
@@ -1147,6 +1145,26 @@ function createTab(url, activate = true) {
   return id;
 }
 
+/**
+ * The persona on one webContents, applied as the server's CDP driver applies
+ * it (anonymity/apply.js): emulation, the injection, and the tab's workers and
+ * cross-site iframes. The screen stays the window's own; the session already
+ * carries the UA, workers included.
+ */
+function applyPersona(dbg, fail) {
+  if (!activeProfile) {
+    return dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: buildInjectionScript(null) })
+      .catch((e) => fail('stealth injection', e));
+  }
+  return createPersonaApplier({
+    send: (method, params, sessionId) => dbg.sendCommand(method, params, sessionId),
+    on: (event, fn) => dbg.on('message', (_e, method, params, sessionId) => { if (method === event) fn(params, sessionId); }),
+    profile: activeProfile,
+    screen: false,
+    onError: fail,
+  }).page();
+}
+
 async function setupTabCDP(view) {
   const fail = (what, err) => {
     // A silent failure here means a tab that loads with no fingerprint and no
@@ -1162,9 +1180,7 @@ async function setupTabCDP(view) {
     // analyzer is loaded separately into an isolated world by ensureWorld().
     if (view.oyaConfigured) return;
     view.oyaConfigured = true;
-    await view.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-      source: buildInjectionScript(activeProfile),
-    }).catch((e) => fail('fingerprint/stealth injection', e));
+    await applyPersona(view.webContents.debugger, fail);
     view.webContents.debugger.sendCommand('Page.enable').catch((e) => fail('Page.enable', e));
     if (loginState) await loginState.attach(
       (method, params = {}) => cdp(view, method, params),
@@ -1176,15 +1192,6 @@ async function setupTabCDP(view) {
     view.webContents.on('did-finish-load', () => {
       ensureWorld(view, { force: true }).catch((e) => fail('isolated world', e));
     });
-
-    if (activeProfile?.timezone) {
-      cdp(view, 'Emulation.setTimezoneOverride', { timezoneId: activeProfile.timezone })
-        .catch((e) => fail('timezone override', e));
-    }
-    if (activeProfile?.locale) {
-      cdp(view, 'Emulation.setLocaleOverride', { locale: activeProfile.locale })
-        .catch((e) => fail('locale override', e));
-    }
   } catch (e) {
     fail('CDP setup', e);
   }

@@ -152,178 +152,132 @@ function generateProfile(options = {}) {
 
 // ── Build injection script string with profile baked in ──
 
-/** Fingerprint patches. Assumes the mask preamble (_mark, _noise, _patch) is in scope. */
+/**
+ * WebGL, shared by page and worker scopes so both report the same GPU —
+ * CreepJS's hasBadWebGL compares the page against its service worker.
+ *
+ * Chrome answers the UNMASKED_* constants with the ANGLE strings ("Google
+ * Inc. (NVIDIA)", "ANGLE (NVIDIA, …)") and VENDOR/RENDERER with "WebKit" /
+ * "WebKit WebGL". Older personas reported the bare driver strings instead;
+ * they keep doing so (profile.webglChrome unset), because a device's reported
+ * GPU must not change under its cookie jar.
+ */
+function buildWebGLBody() {
+  return `
+  const _glVendor = __fp.webglChrome ? __fp.webgl.vendor : __fp.webgl.unmaskedVendor;
+  const _glRenderer = __fp.webglChrome ? __fp.webgl.renderer : __fp.webgl.unmaskedRenderer;
+  const _patchWebGL = (proto) => {
+    _patch(proto, 'getParameter', (orig) => function getParameter(pname) {
+      if (pname === 0x9245) return _glVendor;     // UNMASKED_VENDOR_WEBGL
+      if (pname === 0x9246) return _glRenderer;   // UNMASKED_RENDERER_WEBGL
+      if (!__fp.webglChrome && pname === 0x1F00) return __fp.webgl.vendor;
+      if (!__fp.webglChrome && pname === 0x1F01) return __fp.webgl.renderer;
+      return _apply(orig, this, arguments);
+    });
+  };
+  if (typeof WebGLRenderingContext === 'function') _patchWebGL(WebGLRenderingContext.prototype);
+  if (typeof WebGL2RenderingContext === 'function') _patchWebGL(WebGL2RenderingContext.prototype);
+`;
+}
+
+/** Fingerprint patches. Page scope; assumes the mask preamble (_mark, _noise, _patch, _ensure). */
 function buildFingerprintBody(profile) {
   const p = JSON.stringify(profile);
 
   return `
   const __fp = ${p};
 
-  // ── Navigator overrides ──
-  const navProps = {
-    platform: __fp.navigator.platform,
-    hardwareConcurrency: __fp.navigator.hardwareConcurrency,
-    deviceMemory: __fp.navigator.deviceMemory,
-    maxTouchPoints: __fp.navigator.maxTouchPoints,
-    languages: Object.freeze(__fp.navigator.languages),
-    language: __fp.navigator.languages[0],
-    vendor: __fp.navigator.vendor,
-  };
-  for (const [key, val] of Object.entries(navProps)) {
-    try {
-      Object.defineProperty(Navigator.prototype, key, {
-        get: () => val,
-        configurable: true,
-        enumerable: true,
-      });
-    } catch {}
+  // ── Navigator ──
+  // CDP emulation (UA override with platform and accept-language, hardware
+  // concurrency, locale) sets these natively; only a value still wrong gets
+  // a getter. maxTouchPoints and vendor are right natively on desktop Chrome.
+  _ensure(Navigator.prototype, navigator, 'platform', __fp.navigator.platform);
+  _ensure(Navigator.prototype, navigator, 'hardwareConcurrency', __fp.navigator.hardwareConcurrency);
+  if ('deviceMemory' in Navigator.prototype) {
+    _ensure(Navigator.prototype, navigator, 'deviceMemory', __fp.navigator.deviceMemory);
+  }
+  if (navigator.language !== __fp.navigator.languages[0]) {
+    _defineGetter(Navigator.prototype, 'languages', Object.freeze(__fp.navigator.languages.slice()));
+    _defineGetter(Navigator.prototype, 'language', __fp.navigator.languages[0]);
   }
 
-  // ── Screen overrides ──
-  const screenProps = __fp.screen;
-  for (const [key, val] of Object.entries(screenProps)) {
-    if (key === 'devicePixelRatio') continue;
-    try {
-      Object.defineProperty(Screen.prototype, key, {
-        get: () => val,
-        configurable: true,
-        enumerable: true,
-      });
-    } catch {}
+  // ── Screen ──
+  // Emulation.setDeviceMetricsOverride sets width/height natively, so matchMedia
+  // agrees with them. The avail* pair is always ours: an emulated screen has
+  // no taskbar, which is its own tell. devicePixelRatio is left native — a
+  // spoofed one disagrees with matchMedia('(resolution)').
+  for (const key of ['width', 'height', 'availWidth', 'availHeight', 'colorDepth', 'pixelDepth']) {
+    _ensure(Screen.prototype, screen, key, __fp.screen[key]);
   }
-  Object.defineProperty(window, 'devicePixelRatio', {
-    get: () => screenProps.devicePixelRatio,
-    configurable: true,
-  });
 
   // ── Canvas fingerprint noise ──
+  // Only the anti-aliased edges of a real drawing move, by a stable ±1 keyed
+  // to the persona and the pixel's absolute position. Flat fills and cleared
+  // pixels read back exactly as drawn: CreepJS clears a canvas and expects
+  // zeros ("pixel data modified"), and tiny reads are probes, not fingerprints.
   const __canvasSeed = Math.floor(__fp.canvas.noiseSeed * 100000);
-
-  // Noise a COPY, never the source. The previous version wrote the noised
-  // pixels back into the caller's canvas, so a second toDataURL() noised
-  // already-noised data and returned something different — non-deterministic,
-  // and it silently corrupted the page's own canvas.
   const _origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
 
-  const _noiseImageData = (img) => {
-    for (let i = 0; i < img.data.length; i += 4) {
-      const v = img.data[i];
-      img.data[i] = Math.max(0, Math.min(255, v + (_noise(__canvasSeed, i, v) < 0 ? -1 : 1)));
+  const _noiseImageData = (img, sx, sy) => {
+    const d = img.data, w = img.width;
+    if (d.length < 4 * 256) return img;
+    for (let row = 0; row < img.height; row++) {
+      let i = row * w * 4;
+      let pr = d[i], pg = d[i + 1], pb = d[i + 2];
+      for (let x = 1; x < w; x++) {
+        i += 4;
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const edge = r !== pr || g !== pg || b !== pb;
+        pr = r; pg = g; pb = b;
+        if (!edge || d[i + 3] === 0) continue;
+        const up = _noise(__canvasSeed, sx + x, sy + row, r) >= 0;
+        d[i] = up ? (r < 255 ? r + 1 : r - 1) : (r > 0 ? r - 1 : r + 1);
+      }
     }
     return img;
   };
 
+  // Noise a COPY, never the source: writing back would noise already-noised
+  // data on the next read, and corrupt the page's own canvas.
   const _noisyCopy = (source) => {
     const copy = document.createElement('canvas');
     copy.width = source.width;
     copy.height = source.height;
     const cctx = copy.getContext('2d');
     cctx.drawImage(source, 0, 0);
-    const region = Math.min(source.width, 16);
-    const img = _origGetImageData.call(cctx, 0, 0, region, Math.min(source.height, 16));
-    cctx.putImageData(_noiseImageData(img), 0, 0);
+    const w = Math.min(source.width, 512), h = Math.min(source.height, 512);
+    cctx.putImageData(_noiseImageData(_apply(_origGetImageData, cctx, [0, 0, w, h]), 0, 0), 0, 0);
     return copy;
   };
 
   _patch(HTMLCanvasElement.prototype, 'toDataURL', (orig) => function toDataURL(type, quality) {
-    if (!this.width || !this.height) return orig.call(this, type, quality);
-    try { return orig.call(_noisyCopy(this), type, quality); }
-    catch { return orig.call(this, type, quality); }
+    if (!this.width || !this.height) return _apply(orig, this, arguments);
+    try { return _apply(orig, _noisyCopy(this), arguments); }
+    catch { return _apply(orig, this, arguments); }
   });
 
   _patch(HTMLCanvasElement.prototype, 'toBlob', (orig) => function toBlob(cb, type, quality) {
-    if (!this.width || !this.height) return orig.call(this, cb, type, quality);
-    try { return orig.call(_noisyCopy(this), cb, type, quality); }
-    catch { return orig.call(this, cb, type, quality); }
+    if (!this.width || !this.height) return _apply(orig, this, arguments);
+    try { return _apply(orig, _noisyCopy(this), arguments); }
+    catch { return _apply(orig, this, arguments); }
   });
 
-  // getImageData was left unpatched, so a detector could read the true pixels
-  // and compare them against the noised toDataURL output.
-  _patch(CanvasRenderingContext2D.prototype, 'getImageData', (orig) => function getImageData(x, y, w, h, settings) {
-    return _noiseImageData(orig.call(this, x, y, w, h, settings));
+  // The same noise on direct reads, or a detector compares them with the export.
+  _patch(CanvasRenderingContext2D.prototype, 'getImageData', (orig) => function getImageData(sx, sy) {
+    return _noiseImageData(_apply(orig, this, arguments), sx | 0, sy | 0);
   });
 
-  // ── WebGL overrides ──
-  function patchWebGL(proto) {
-    const origGetParam = proto.getParameter;
-    proto.getParameter = function(pname) {
-      if (pname === 0x9245) return __fp.webgl.unmaskedVendor;   // UNMASKED_VENDOR_WEBGL
-      if (pname === 0x9246) return __fp.webgl.unmaskedRenderer; // UNMASKED_RENDERER_WEBGL
-      if (pname === 0x1F00) return __fp.webgl.vendor;           // VENDOR
-      if (pname === 0x1F01) return __fp.webgl.renderer;         // RENDERER
-      return origGetParam.call(this, pname);
-    };
+  ${buildWebGLBody()}
 
-    const origGetExtension = proto.getExtension;
-    proto.getExtension = function(name) {
-      const ext = origGetExtension.call(this, name);
-      if (name === 'WEBGL_debug_renderer_info' && ext) {
-        return new Proxy(ext, {
-          get(target, prop) {
-            if (prop === 'UNMASKED_VENDOR_WEBGL') return 0x9245;
-            if (prop === 'UNMASKED_RENDERER_WEBGL') return 0x9246;
-            return target[prop];
-          }
-        });
-      }
-      return ext;
-    };
-  }
-
-  try { patchWebGL(WebGLRenderingContext.prototype); } catch {}
-  try { patchWebGL(WebGL2RenderingContext.prototype); } catch {}
-
-  // ── AudioContext fingerprint noise ──
-  const __audioSeed = Math.floor(__fp.audio.noiseSeed * 100000);
-
-  if (typeof OfflineAudioContext !== 'undefined') {
-    const origStartRendering = OfflineAudioContext.prototype.startRendering;
-    OfflineAudioContext.prototype.startRendering = function() {
-      return origStartRendering.call(this).then(function(buffer) {
-        try {
-          const data = buffer.getChannelData(0);
-          for (let i = 0; i < Math.min(data.length, 100); i++) {
-            data[i] += _noise(__audioSeed, i) * 0.0001;
-          }
-        } catch {}
-        return buffer;
-      });
-    };
-  }
-
-  // ── ClientRects noise ──
-  // Keyed by the rect's own geometry, so measuring the same element twice
-  // gives the same answer — a real browser is deterministic here, and the
-  // analyzer no longer needs a bypass because it runs in an isolated world.
-  const __rectsSeed = Math.floor(__fp.rects.noiseSeed * 1000000);
-
-  function addRectsNoise(rect) {
-    const n = (k) => _noise(__rectsSeed, k, rect.x, rect.y, rect.width, rect.height) * 0.1;
-    return new DOMRect(rect.x + n('x'), rect.y + n('y'), rect.width + n('w'), rect.height + n('h'));
-  }
-
-  _patch(Element.prototype, 'getBoundingClientRect', (orig) => function getBoundingClientRect() {
-    return addRectsNoise(orig.call(this));
-  });
-
-  _patch(Element.prototype, 'getClientRects', (orig) => function getClientRects() {
-    const rects = orig.call(this);
-    const out = [];
-    for (let i = 0; i < rects.length; i++) out.push(addRectsNoise(rects[i]));
-    // A plain Array reports [object Array]; a real one reports [object DOMRectList].
-    out.item = _mark(function item(i) { return out[i] || null; }, 'item');
-    Object.defineProperty(out, 'length', { value: rects.length });
-    if (typeof DOMRectList === 'function') {
-      try { Object.setPrototypeOf(out, DOMRectList.prototype); } catch {}
-    }
-    return out;
-  });
+  // Audio and client-rect noise are gone: CreepJS detects both directly
+  // ("sample noise", rect mismatches), and a detected lie costs more than the
+  // entropy they added.
 
   // ── performance.memory ──
-  // Present on every desktop Chrome and absent in headless, which is exactly
-  // what the CHR_MEMORY check reads. Values are derived from the persona so
-  // they are stable and consistent with its deviceMemory.
-  if (window.performance && !window.performance.memory) {
+  // Present on desktop Chrome, absent in some headless builds — the CHR_MEMORY
+  // check. Only filled in where missing, derived from the persona so it is
+  // stable and consistent with its deviceMemory.
+  if (typeof Performance === 'function' && !('memory' in Performance.prototype)) {
     const limit = (__fp.navigator.deviceMemory || 8) * 1024 * 1024 * 1024 / 4;
     const used = Math.floor(limit * (0.08 + Math.abs(_noise(__canvasSeed, 'heap')) * 0.1));
     const memory = Object.create(null);
@@ -332,14 +286,14 @@ function buildFingerprintBody(profile) {
       totalJSHeapSize: { value: Math.floor(used * 1.4), enumerable: true },
       usedJSHeapSize: { value: used, enumerable: true },
     });
-    _defineGetter(window.performance, 'memory', memory);
+    _defineGetter(Performance.prototype, 'memory', memory);
   }
 
   // ── mediaDevices ──
   // A headless container enumerates zero devices; a real desktop never does.
   // Labels stay empty, which is what a real browser returns without permission,
   // and the ids are derived from the persona so they are stable for it.
-  if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
+  if (typeof MediaDevices === 'function' && navigator.mediaDevices) {
     const deviceId = (n) => {
       let h = Math.floor(Math.abs(__fp.canvas.noiseSeed) * 1e9) ^ (n * 2654435761);
       let out = '';
@@ -354,23 +308,19 @@ function buildFingerprintBody(profile) {
       ? Object.setPrototypeOf({ ...d, toJSON() { return d; } }, InputDeviceInfo.prototype)
       : Object.setPrototypeOf({ ...d, toJSON() { return d; } }, MediaDeviceInfo.prototype)));
 
-    _patch(navigator.mediaDevices, 'enumerateDevices', (orig) => function enumerateDevices() {
-      return orig.call(this).then((real) => (real && real.length ? real : devices));
+    _patch(MediaDevices.prototype, 'enumerateDevices', (orig) => function enumerateDevices() {
+      return _apply(orig, this, arguments).then((real) => (real && real.length ? real : devices));
     });
   }
 
   // ── WebRTC leak prevention ──
+  // Empty ICE servers and no host/srflx candidates, so STUN cannot reveal the
+  // machine's real address behind the persona's proxy.
   if (typeof RTCPeerConnection !== 'undefined') {
     const OrigRTC = RTCPeerConnection;
-    window.RTCPeerConnection = function(config, constraints) {
-      // Force empty ICE servers to prevent STUN-based IP leak
-      if (config) {
-        config.iceServers = [];
-      } else {
-        config = { iceServers: [] };
-      }
+    const RTC = function RTCPeerConnection(config, constraints) {
+      config = Object.assign({}, config || {}, { iceServers: [] });
       const pc = new OrigRTC(config, constraints);
-      // Strip host/srflx candidates from SDP
       const origSetLocal = pc.setLocalDescription.bind(pc);
       pc.setLocalDescription = function(desc) {
         if (desc && desc.sdp) {
@@ -380,25 +330,55 @@ function buildFingerprintBody(profile) {
       };
       return pc;
     };
-    window.RTCPeerConnection.prototype = OrigRTC.prototype;
-    Object.defineProperty(window, 'RTCPeerConnection', { writable: true, configurable: true });
-    // Also patch webkitRTCPeerConnection if it exists
-    if (typeof webkitRTCPeerConnection !== 'undefined') {
-      window.webkitRTCPeerConnection = window.RTCPeerConnection;
-    }
+    RTC.prototype = OrigRTC.prototype;
+    _mark(RTC, 'RTCPeerConnection');
+    window.RTCPeerConnection = RTC;
+    if (typeof webkitRTCPeerConnection !== 'undefined') window.webkitRTCPeerConnection = RTC;
   }
 
-  // ── Timezone override (JS-level backup, CDP Emulation is primary) ──
+  // ── Timezone ──
+  // Emulation.setTimezoneOverride is primary and native. This backup fires
+  // only where it did not apply.
   try {
-    const tz = __fp.timezone;
-    const OrigDTF = Intl.DateTimeFormat;
-    const origResolvedOptions = OrigDTF.prototype.resolvedOptions;
-    OrigDTF.prototype.resolvedOptions = function() {
-      const opts = origResolvedOptions.call(this);
-      opts.timeZone = tz;
-      return opts;
-    };
+    if (new Intl.DateTimeFormat().resolvedOptions().timeZone !== __fp.timezone) {
+      const tz = __fp.timezone;
+      _patch(Intl.DateTimeFormat.prototype, 'resolvedOptions', (orig) => function resolvedOptions() {
+        const opts = _apply(orig, this, arguments);
+        opts.timeZone = tz;
+        return opts;
+      });
+    }
   } catch {}
+`;
+}
+
+/**
+ * The persona inside a worker. Workers are separate globals that
+ * addScriptToEvaluateOnNewDocument never reaches; apply.js evaluates this in
+ * each one before its script runs. The UA arrives natively through
+ * Network.setUserAgentOverride on the worker's session.
+ */
+function buildWorkerBody(profile, { userAgent = null } = {}) {
+  return `
+  const __fp = ${JSON.stringify(profile)};
+  const __ua = ${JSON.stringify(userAgent)};
+  if (typeof WorkerNavigator === 'function') {
+    const _wn = WorkerNavigator.prototype;
+    // Network.setUserAgentOverride on the worker session is primary; a
+    // service worker can start with the browser UA regardless, so fall back.
+    if (__ua) {
+      _ensure(_wn, navigator, 'userAgent', __ua);
+      _ensure(_wn, navigator, 'appVersion', __ua.replace(/^Mozilla\\//, ''));
+    }
+    _ensure(_wn, navigator, 'platform', __fp.navigator.platform);
+    _ensure(_wn, navigator, 'hardwareConcurrency', __fp.navigator.hardwareConcurrency);
+    if ('deviceMemory' in _wn) _ensure(_wn, navigator, 'deviceMemory', __fp.navigator.deviceMemory);
+    if (navigator.language !== __fp.navigator.languages[0]) {
+      _defineGetter(_wn, 'languages', Object.freeze(__fp.navigator.languages.slice()));
+      _defineGetter(_wn, 'language', __fp.navigator.languages[0]);
+    }
+  }
+  ${buildWebGLBody()}
 `;
 }
 
@@ -408,4 +388,4 @@ function buildFingerprintInjectScript(profile) {
   return `(function() {\n'use strict';\n${buildMaskPreamble()}\n${buildFingerprintBody(profile)}\n})();`;
 }
 
-module.exports = { generateProfile, buildFingerprintInjectScript, buildFingerprintBody };
+module.exports = { generateProfile, buildFingerprintInjectScript, buildFingerprintBody, buildWorkerBody };

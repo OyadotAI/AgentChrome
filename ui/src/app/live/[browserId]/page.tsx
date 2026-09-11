@@ -52,7 +52,7 @@ export default function LiveBrowserPage() {
     </header>
     {apiKey === '' ? <p>Connect your Oya key in the <Link href="/dashboard" className="underline">dashboard</Link> to view this browser.</p> : <>
       {error && <p role="alert" className="mb-4 rounded-lg border border-red/20 bg-red/5 p-3 text-sm text-red">{error}</p>}
-      <LiveView frameSrc={frame} fps={fps} frameAgeMs={age} send={send} />
+      <LiveView frameSrc={frame} fps={fps} frameAgeMs={age} send={send} interactive={mode === 'human'} />
     </>}
   </main>;
 }
