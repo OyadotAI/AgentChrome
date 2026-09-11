@@ -1,7 +1,7 @@
 /**
- * @oya/browser — thousands of browsers, one API.
+ * @oya-ai/browser — thousands of browsers, one API.
  *
- *   import { Oya } from '@oya/browser';
+ *   import { Oya } from '@oya-ai/browser';
  *
  *   const oya = new Oya();                                    // OYA_API_KEY
  *   const browser = await oya.browser.start({ persona: 'auto', captcha: 'auto' });
@@ -24,7 +24,7 @@ import {
 export { Browser, OyaError };
 export * from './types.js';
 
-const DEFAULT_BASE_URL = 'http://localhost:3100';
+const DEFAULT_BASE_URL = 'https://browser.getoya.ai';
 const READY_POLL_MS = 2_000;
 
 const env = (name: string): string | undefined =>

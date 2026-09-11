@@ -25,7 +25,7 @@ export function browserSnippets(b: BrowserRow): Snippet[] {
   const out: Snippet[] = [
     {
       id: 'sdk', label: 'TypeScript', file: 'drive.ts',
-      code: (k) => `import { Oya } from "@oya/browser";
+      code: (k) => `import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya({ apiKey: "${k}", baseUrl: "${http}" });
 const browser = await oya.browser.get("${b.id}");   // ${b.name}
@@ -104,7 +104,7 @@ export function fleetSnippets(): Snippet[] {
   return [
     {
       id: 'sdk', label: 'TypeScript', file: 'start.ts',
-      code: (k) => `import { Oya } from "@oya/browser";
+      code: (k) => `import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya({ apiKey: "${k}", baseUrl: "${http}" });
 
@@ -116,7 +116,7 @@ await browser.stop();`,
     },
     {
       id: 'cli', label: 'CLI', file: 'terminal',
-      code: (k) => `npm i -g oya
+      code: (k) => `npm i -g @oya-ai/cli
 oya login --url ${http} --key ${k}
 
 oya start --persona auto --name checkout-worker

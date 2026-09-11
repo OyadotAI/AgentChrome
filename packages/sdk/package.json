@@ -1,5 +1,5 @@
 {
-  "name": "@oya/browser",
+  "name": "@oya-ai/browser",
   "version": "0.1.0",
   "description": "Rotate thousands of browsers behind one API — personas, proxies, stealth, CAPTCHA and MFA.",
   "license": "MIT",
@@ -14,13 +14,20 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "prepublishOnly": "npm run build"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"

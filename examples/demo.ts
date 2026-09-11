@@ -10,10 +10,10 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
-import { Oya, type Provider } from '@oya/browser';
+import { Oya, type Provider } from '@oya-ai/browser';
 
 const oya = new Oya();
-const console_ = process.env.OYA_BASE_URL || 'http://localhost:3100';
+const console_ = process.env.OYA_BASE_URL || 'https://browser.getoya.ai';
 const rl = process.stdin.isTTY && !process.argv.includes('--no-pause')
   ? createInterface({ input: process.stdin, output: process.stdout }) : null;
 

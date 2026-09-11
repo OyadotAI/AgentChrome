@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build browser, update download links, create GitHub release, tag, and push.
+# Build browser, update download links, create GitHub release, tag, push, and
+# publish the npm SDK (@oya-ai/browser) and CLI (@oya-ai/cli) at the same version.
 # Usage: ./release.sh [version]
 #   ./release.sh           — auto-increments patch (v1.0.0 → v1.0.1)
 #   ./release.sh 1.2.0     — tags as v1.2.0
@@ -54,6 +55,18 @@ fi
 log_ok "Notarization credentials valid"
 echo ""
 
+# ── Preflight: npm login ──
+
+# The npm publish runs after the build and the push, so a lapsed login would
+# otherwise surface only once everything else has shipped.
+log_info "Checking npm login"
+if ! NPM_USER=$(npm whoami 2>/dev/null); then
+  log_err "Not logged in to npm. Run: npm login"
+  exit 1
+fi
+log_ok "npm: $NPM_USER"
+echo ""
+
 read -rp "Build browser and release $TAG? [y/N] " CONFIRM
 if [[ ! "$CONFIRM" =~ ^[yY]$ ]]; then
   echo "Aborted."
@@ -66,6 +79,15 @@ log_info "Updating browser/package.json version to $VERSION"
 cd "$ROOT/browser"
 npm version "$VERSION" --no-git-tag-version --allow-same-version
 cd "$ROOT"
+
+# ── Update SDK and CLI versions ──
+
+# The CLI pin moves first so that `npm version` rewrites the lockfile with it;
+# in the other order the lock keeps the old pin until the next install.
+log_info "Updating @oya-ai/browser and @oya-ai/cli to $VERSION"
+npm pkg set "devDependencies.@oya-ai/browser=$VERSION" --workspace=@oya-ai/cli
+npm version "$VERSION" --no-git-tag-version --allow-same-version \
+  --workspace=@oya-ai/browser --workspace=@oya-ai/cli >/dev/null
 
 # ── Build browser ──
 
@@ -126,9 +148,9 @@ done
 # ── Commit, tag, push ──
 
 log_info "Committing version bump and link updates"
-git add browser/package.json
+git add browser/package.json packages/sdk/package.json packages/cli/package.json package-lock.json
 for UI_PAGE in $UI_PAGES; do [ -f "$UI_PAGE" ] && git add "$UI_PAGE"; done
-git commit -m "release: $TAG — update browser version and download links"
+git commit -m "release: $TAG — update versions and download links"
 
 git tag "$TAG"
 log_ok "Tagged $TAG"
@@ -147,6 +169,20 @@ gh release create "$TAG" "$DST_DMG" "$SRC_ZIP" "$SRC_YML" \
 
 log_ok "GitHub release $TAG created with macOS binary and update feed"
 log_ok "Linux build + prod deploy will be triggered by the tag push"
+
+# ── Publish SDK and CLI to npm ──
+#
+# npm asks for 2FA approval in the browser on each publish. A missed prompt
+# undoes nothing above, so report the retry and carry on to the snapshot step.
+
+for PKG in @oya-ai/browser @oya-ai/cli; do
+  log_info "Publishing $PKG@$VERSION"
+  if npm publish --workspace="$PKG"; then
+    log_ok "Published $PKG@$VERSION"
+  else
+    log_err "$PKG publish failed. Retry from $TAG: npm publish --workspace=$PKG"
+  fi
+done
 
 # ── Point cloud browsers at this release ──
 #

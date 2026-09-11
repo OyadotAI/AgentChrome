@@ -7,7 +7,7 @@ Stop building on dumb browsers and single-vendor runners. Oya is the **control p
 Every browser runs as a **persona** — a stable, mathematically seeded device identity with its own logins, cookie jar, and pinned residential exit IP. CAPTCHA and MFA are solved automatically or handed off to human takeover via sub-second interactive streaming. The underlying execution provider is a setting on your API key, not a code rewrite.
 
 ```ts
-import { Oya } from "@oya/browser";
+import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();                                    // OYA_API_KEY
 const browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
@@ -17,8 +17,8 @@ await browser.goto("https://example.com");
 That is the whole surface. Which provider actually runs the browser — Oya Cloud sandboxes, your own machines, Browser Use, Browserbase, Steel, Anchor, or a CDP URL you hand us — is a configuration setting on your key. Your agent code never branches on it.
 
 ```bash
-npm i @oya/browser
-npx oya login && npx oya init
+npm i @oya-ai/browser
+npm i -g @oya-ai/cli && oya login && oya init
 ```
 
 ---
@@ -171,7 +171,7 @@ oya stealth-test [--live]       Benchmark evasion against CreepJS and Sannysoft
 
 ```ts
 import { chromium } from "playwright";
-import { Oya } from "@oya/browser";
+import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();
 const browser = await oya.browser.start();
@@ -218,8 +218,8 @@ Register the tagged image with Daytona and set `DAYTONA_SNAPSHOT`. `OYA_PUBLIC_W
 ## Repository Layout
 
 ```
-packages/sdk     @oya/browser — TypeScript client (ESM, CJS, Types)
-packages/cli     oya — terminal CLI for fleet control and stealth testing
+packages/sdk     @oya-ai/browser — TypeScript client (ESM, CJS, Types)
+packages/cli     @oya-ai/cli — terminal CLI for fleet control and stealth testing
 server           Browser Control Plane: API, gateway, personas, proxies, challenge routing
 browser          Containerized & desktop Electron browser with stealth injection
 ui               Control Plane Dashboard: Browsers · Personas · Control

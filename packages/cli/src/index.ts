@@ -13,7 +13,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { Oya, OyaError } from '@oya/browser';
+import { Oya, OyaError } from '@oya-ai/browser';
 import { load, save, resolved, configPath } from './config.js';
 import { ask, askSecret, choose } from './prompt.js';
 

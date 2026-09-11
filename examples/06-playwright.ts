@@ -1,6 +1,6 @@
 // Bring your own tools: Playwright (or Puppeteer, Stagehand, browser-use) through Oya's CDP gateway.
 import { chromium } from 'playwright-core';
-import { Oya } from '@oya/browser';
+import { Oya } from '@oya-ai/browser';
 
 const oya = new Oya();
 await using browser = await oya.browser.start({ provider: 'browserbase' });

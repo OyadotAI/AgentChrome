@@ -1,5 +1,5 @@
 // Two-factor logins: the TOTP seed is sealed on the persona, and completeMfa() enters the code.
-import { Oya } from '@oya/browser';
+import { Oya } from '@oya-ai/browser';
 
 const oya = new Oya();
 const persona = (await oya.personas.list()).find((p) => p.name === 'billing-admin')

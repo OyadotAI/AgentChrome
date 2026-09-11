@@ -26,7 +26,8 @@ export class Http {
     try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
 
     if (!res.ok) {
-      const message = (payload as { error?: string })?.error || `${method} ${path} failed (${res.status})`;
+      let message = (payload as { error?: string })?.error || `${method} ${path} failed (${res.status})`;
+      if (message === 'Invalid API key') message += ` for ${this.baseUrl}. Check OYA_API_KEY: a value exported in your shell beats .env.`;
       throw new OyaError(message, res.status, payload);
     }
     return payload as T;

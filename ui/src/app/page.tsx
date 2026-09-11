@@ -51,7 +51,7 @@ const examples = [
     label: 'TypeScript SDK',
     language: 'typescript' as const,
     file: 'agent.ts',
-    code: `import { Oya } from "@oya/browser";
+    code: `import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();                                    // Reads OYA_API_KEY
 // Provider (Oya Cloud, Browserbase, Steel, Anchor, Browser Use) is a setting, not code
@@ -98,7 +98,7 @@ elements: 24
     language: 'typescript' as const,
     file: 'playwright.ts',
     code: `import { chromium } from "playwright";
-import { Oya } from "@oya/browser";
+import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();
 const oyaBrowser = await oya.browser.start({ persona: "auto" });
@@ -138,7 +138,7 @@ await page.goto("https://github.com");`,
     label: 'Terminal CLI',
     language: 'bash' as const,
     file: 'Terminal',
-    code: `npm install -g oya
+    code: `npm install -g @oya-ai/cli
 oya login
 oya init                               # Model, provider, solver, desktop pairing
 
@@ -1899,7 +1899,7 @@ export default function Home() {
                 </Link>
                 <div className="mt-3 sm:mt-4 flex items-center gap-3 border-t border-border/80 pt-4 sm:pt-5 text-[11.5px] sm:text-[12px] text-text-dim font-mono">
                   <Terminal size={14} className="text-accent shrink-0" />
-                  <code>npm install @oya/browser</code>
+                  <code>npm install @oya-ai/browser</code>
                 </div>
               </div>
             </div>

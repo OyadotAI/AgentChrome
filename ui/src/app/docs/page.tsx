@@ -524,9 +524,9 @@ oya stealth-test --live     # Benchmark live against Bot.Sannysoft and CreepJS`}
 
           {/* ============ QUICKSTART ============ */}
           <SectionHeading id="quickstart">Quickstart</SectionHeading>
-          <CodeBlock>{`npm i @oya/browser
-npx oya login && npx oya init`}</CodeBlock>
-          <CodeBlock>{`import { Oya } from "@oya/browser";
+          <CodeBlock>{`npm i @oya-ai/browser
+npm i -g @oya-ai/cli && oya login && oya init`}</CodeBlock>
+          <CodeBlock>{`import { Oya } from "@oya-ai/browser";
 
 const oya = new Oya();                                    // OYA_API_KEY
 const browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
@@ -545,7 +545,7 @@ await browser.goto("https://example.com");`}</CodeBlock>
           {/* ============ SDK ============ */}
           <SectionHeading id="sdk">SDK</SectionHeading>
           <p className="mb-3 text-[15px] leading-relaxed">
-            <InlineCode>@oya/browser</InlineCode> is TypeScript with no runtime dependencies, shipped as
+            <InlineCode>@oya-ai/browser</InlineCode> is TypeScript with no runtime dependencies, shipped as
             ESM, CJS and types. Element IDs come from <InlineCode>analyze()</InlineCode> and are only valid
             until the page changes — after a navigation or a click that redraws, analyze again.
           </p>

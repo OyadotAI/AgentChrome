@@ -162,7 +162,7 @@ export interface BrowserDetail extends BrowserInfo { activity: Activity[] }
 export interface OyaOptions {
   /** Defaults to OYA_API_KEY. */
   apiKey?: string;
-  /** Defaults to OYA_BASE_URL, then http://localhost:3100. */
+  /** Defaults to OYA_BASE_URL, then https://browser.getoya.ai. */
   baseUrl?: string;
   /** Per-request timeout. Navigation gets its own, longer budget. */
   timeoutMs?: number;

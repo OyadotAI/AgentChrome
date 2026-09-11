@@ -9,12 +9,17 @@
 | [`05-personas.ts`](05-personas.ts) | Stable device identities: create, reuse, rotate, clone |
 | [`06-playwright.ts`](06-playwright.ts) | Playwright through Oya's CDP gateway (needs a CDP vendor: Browserbase, Steel, Anchor or Browser Use) |
 
+Needs Node 20.6+ and an API key from the dashboard at https://browser.getoya.ai.
+
 ```bash
-npm install && npm run build:sdk   # repo root
-cd examples && npm install
-cp .env.example .env               # add your API key from https://browser.getoya.ai
+git clone https://github.com/OyadotAI/AgentChrome.git
+cd AgentChrome/examples
+npm install                  # also builds the SDK from ../packages/sdk
+cp .env.example .env         # paste your API key after OYA_API_KEY=
 npx tsx --env-file=.env 01-quickstart.ts
 ```
+
+If `OYA_API_KEY` is already exported in your shell, it wins over `.env`. Run `unset OYA_API_KEY` first.
 
 Vendor keys (Browserbase, Steel, Anchor, Browser Use) and your CAPTCHA solver key are set once on your Oya key in the dashboard. They never appear in code.
 

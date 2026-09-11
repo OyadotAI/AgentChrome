@@ -2,11 +2,13 @@
   "name": "oya-browser-examples",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=20.6" },
   "scripts": {
+    "postinstall": "npm install --prefix .. --no-audit --no-fund && npm run build:sdk --prefix ..",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@oya/browser": "file:../packages/sdk",
+    "@oya-ai/browser": "file:../packages/sdk",
     "playwright-core": "^1.63.0"
   },
   "devDependencies": {

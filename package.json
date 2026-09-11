@@ -10,7 +10,7 @@
     "setup": "npm ci && npm ci --prefix server && npm ci --prefix ui && npm ci --prefix browser",
     "dev": "OYA_UI_MODE=development node --env-file-if-exists=server/.env server/src/index.js",
     "start": "OYA_UI_MODE=production node --env-file-if-exists=server/.env server/src/index.js",
-    "build:sdk": "npm run build --workspace=@oya/browser && npm run build --workspace=oya",
+    "build:sdk": "npm run build --workspace=@oya-ai/browser && npm run build --workspace=@oya-ai/cli",
     "lint": "npm run lint --prefix ui"
   }
 }

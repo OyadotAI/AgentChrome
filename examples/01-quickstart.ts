@@ -1,5 +1,5 @@
 // Start a cloud browser, open a page, drive it in plain English.
-import { Oya } from '@oya/browser';
+import { Oya } from '@oya-ai/browser';
 
 const oya = new Oya();
 await using browser = await oya.browser.start(); // stopped when the script exits, even on error

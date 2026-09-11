@@ -32,6 +32,6 @@ export function resolved(): Required<CliConfig> {
   const saved = load();
   return {
     apiKey: process.env.OYA_API_KEY || saved.apiKey || '',
-    baseUrl: (process.env.OYA_BASE_URL || saved.baseUrl || 'http://localhost:3100').replace(/\/+$/, ''),
+    baseUrl: (process.env.OYA_BASE_URL || saved.baseUrl || 'https://browser.getoya.ai').replace(/\/+$/, ''),
   };
 }

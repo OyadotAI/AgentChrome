@@ -75,7 +75,7 @@ deploy-dev: ## Push to main (triggers dev deploy)
 
 deploy-prod: release ## Tag and push (triggers prod deploy)
 
-release: ## Build browser, update links, create GitHub release, tag and push
+release: ## Build browser, update links, create GitHub release, tag and push, publish npm SDK + CLI
 	@./k8s/scripts/release.sh
 
 # ── Kubernetes ──

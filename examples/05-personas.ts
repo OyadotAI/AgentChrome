@@ -1,5 +1,5 @@
 // A persona is one device: fingerprint, cookie jar and exit IP, the same on every run.
-import { Oya } from '@oya/browser';
+import { Oya } from '@oya-ai/browser';
 
 const oya = new Oya();
 const persona = (await oya.personas.list()).find((p) => p.name === 'us-shopper')

@@ -1,5 +1,5 @@
 {
-  "name": "oya",
+  "name": "@oya-ai/cli",
   "version": "0.1.0",
   "description": "Command line for the Oya browser control plane.",
   "license": "MIT",
@@ -17,10 +17,11 @@
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {
-    "@oya/browser": "0.1.0"
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
+    "@oya-ai/browser": "0.1.0",
     "@types/node": "^20.19.43",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0"

@@ -1,5 +1,5 @@
 // The same code on five browser vendors. The provider is one string; vendor keys live on your Oya key.
-import { Oya, type Provider } from '@oya/browser';
+import { Oya, type Provider } from '@oya-ai/browser';
 
 const oya = new Oya();
 const vendors: Provider[] = ['oya-cloud', 'browserbase', 'steel', 'anchor', 'browseruse'];
