@@ -18,6 +18,10 @@ on:
 env:
   NAMESPACE: oya-browser
 
+# Least privilege by default; jobs that need more say so themselves.
+permissions:
+  contents: read
+
 jobs:
   redeploy:
     name: Re-apply secrets and restart

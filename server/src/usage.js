@@ -14,6 +14,7 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
+import { fingerprint } from './audit.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const USAGE_PATH = process.env.OYA_DATA_DIR
@@ -30,42 +31,55 @@ export const FIELDS = [
 const hourOf = (d = new Date()) => new Date(Date.UTC(
   d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours())).toISOString();
 
-/** apiKey -> { hour, counters } for the current bucket. */
+/**
+ * Keyed by key fingerprint, never by the key. These rows are persisted, and a
+ * metering table is no place to keep a working bearer credential — audit.js
+ * has recorded actors this way from the start.
+ */
+/** fingerprint -> { hour, counters } for the current bucket. */
 const buckets = new Map();
-/** apiKey -> Map<browserId, connectedAtMs>, for browser_seconds. */
+/** fingerprint -> Map<browserId, connectedAtMs>, for browser_seconds. */
 const live = new Map();
 let dirty = false;
 let warnedFallback = false;
 
-function bucket(apiKey) {
+function bucket(id) {
   const hour = hourOf();
-  let b = buckets.get(apiKey);
+  let b = buckets.get(id);
   if (!b || b.hour !== hour) {
     b = { hour, counters: Object.fromEntries(FIELDS.map((f) => [f, 0])) };
-    buckets.set(apiKey, b);
+    buckets.set(id, b);
   }
   return b;
 }
 
+function recordId(id, field, n) {
+  if (!id || !FIELDS.includes(field) || !Number.isFinite(n)) return;
+  bucket(id).counters[field] += n;
+  dirty = true;
+}
+
 /** Add to a counter for this key's current hour. */
 export function record(apiKey, field, n = 1) {
-  if (!apiKey || !FIELDS.includes(field) || !Number.isFinite(n)) return;
-  bucket(apiKey).counters[field] += n;
-  dirty = true;
+  if (!apiKey) return;
+  recordId(fingerprint(apiKey), field, n);
 }
 
 export function browserConnected(apiKey, browserId) {
   if (!apiKey || !browserId) return;
-  if (!live.has(apiKey)) live.set(apiKey, new Map());
-  live.get(apiKey).set(browserId, Date.now());
-  record(apiKey, 'browsers_started');
+  const id = fingerprint(apiKey);
+  if (!live.has(id)) live.set(id, new Map());
+  live.get(id).set(browserId, Date.now());
+  recordId(id, 'browsers_started', 1);
 }
 
 export function browserDisconnected(apiKey, browserId) {
-  const started = live.get(apiKey)?.get(browserId);
+  if (!apiKey) return;
+  const id = fingerprint(apiKey);
+  const started = live.get(id)?.get(browserId);
   if (!started) return;
-  live.get(apiKey).delete(browserId);
-  record(apiKey, 'browser_seconds', Math.round((Date.now() - started) / 1000));
+  live.get(id).delete(browserId);
+  recordId(id, 'browser_seconds', Math.round((Date.now() - started) / 1000));
 }
 
 /**
@@ -74,11 +88,11 @@ export function browserDisconnected(apiKey, browserId) {
  */
 function settleOpenBrowsers() {
   const now = Date.now();
-  for (const [apiKey, browsers] of live) {
+  for (const [key, browsers] of live) {
     for (const [id, since] of browsers) {
       const seconds = Math.round((now - since) / 1000);
       if (seconds <= 0) continue;
-      record(apiKey, 'browser_seconds', seconds);
+      recordId(key, 'browser_seconds', seconds);
       browsers.set(id, now);
     }
   }
@@ -86,17 +100,18 @@ function settleOpenBrowsers() {
 
 /** Current hour's counters for one key. */
 export function current(apiKey) {
-  const b = buckets.get(apiKey);
-  const openBrowsers = live.get(apiKey)?.size || 0;
+  const id = fingerprint(apiKey);
+  const b = buckets.get(id);
+  const openBrowsers = live.get(id)?.size || 0;
   return { hour: b?.hour || hourOf(), openBrowsers, ...(b?.counters || Object.fromEntries(FIELDS.map((f) => [f, 0]))) };
 }
 
 /** Every key with activity this hour. */
 export function snapshot() {
-  return [...buckets.entries()].map(([apiKey, b]) => ({
-    actor: apiKey.slice(0, 4) + '…' + apiKey.slice(-4),
+  return [...buckets.entries()].map(([id, b]) => ({
+    actor: id.slice(0, 12),
     hour: b.hour,
-    openBrowsers: live.get(apiKey)?.size || 0,
+    openBrowsers: live.get(id)?.size || 0,
     ...b.counters,
   }));
 }
@@ -106,7 +121,7 @@ export async function history(apiKey, { hours = 24 } = {}) {
   if (!db) return { source: 'memory', rows: [current(apiKey)] };
   const since = new Date(Date.now() - hours * 3600_000).toISOString();
   const { data, error } = await db.from('usage')
-    .select('*').eq('api_key', apiKey).gte('hour', since).order('hour', { ascending: false });
+    .select('*').eq('api_key', fingerprint(apiKey)).gte('hour', since).order('hour', { ascending: false });
   if (error) return { source: 'memory', rows: [current(apiKey)], error: error.message };
   return { source: 'database', rows: data };
 }
@@ -115,8 +130,8 @@ async function flush() {
   settleOpenBrowsers();
   if (!dirty) return;
   dirty = false;
-  const rows = [...buckets.entries()].map(([apiKey, b]) => ({
-    api_key: apiKey, hour: b.hour, ...b.counters, updated_at: new Date().toISOString(),
+  const rows = [...buckets.entries()].map(([id, b]) => ({
+    api_key: id, hour: b.hour, ...b.counters, updated_at: new Date().toISOString(),
   }));
   if (!rows.length) return;
   const toFile = async () => {

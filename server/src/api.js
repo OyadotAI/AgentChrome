@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import {
   authMiddleware, userAuthMiddleware,
-  registerApiKey, listApiKeys, deleteApiKey,
+  registerApiKey, listApiKeys, deleteApiKey, keyDigest,
   provisionKeys,
   signup, login, getProfile, updateProfile,
 } from './auth.js';
@@ -44,7 +44,11 @@ import { admission } from './control/admission.js';
 import { projectAccountRouter } from './control/membership.js';
 import { controlRouter } from './control/routes.js';
 
-export const router = Router();
+// caseSensitive: Express matches routes case-insensitively by default, but the
+// role guards in authMiddleware test req.path — which keeps the client's
+// casing. `GET /api/Pool/Cookies` would otherwise route to the handler while
+// slipping past the guard that names `/pool/cookies`.
+export const router = Router({ caseSensitive: true });
 for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
   const register = router[method].bind(router);
   router[method] = (path, ...handlers) => register(path, ...handlers.map(handler => handler.constructor.name === 'AsyncFunction' ? (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next) : handler));
@@ -134,6 +138,58 @@ router.get('/health', (req, res) => {
 
 // ─── User Auth ────────────────────────────────────────────────────────────────
 
+// ─── Session cookie ──────────────────────────────────────────────────────────
+
+/**
+ * The refresh token is the long-lived half of a session, so it travels in an
+ * httpOnly cookie that page JavaScript cannot read. In localStorage it handed
+ * any XSS in the console a way to hold the session open forever.
+ *
+ * SameSite=Lax means the cookie only comes back to its own origin, so a console
+ * served from a different origin than the API — NEXT_PUBLIC_API_URL pointed
+ * elsewhere during development — would never send it. In that case the token is
+ * returned in the body as before and the caller stores it; `refresh_in_cookie`
+ * tells the client which of the two happened.
+ */
+const REFRESH_COOKIE = 'oya_rt';
+const REFRESH_COOKIE_PATH = '/api/auth';
+/**
+ * A readable companion to the httpOnly cookie above, holding nothing but the
+ * fact that a session exists. Page JavaScript cannot see `oya_rt`, so without
+ * this the console has to POST /auth/refresh on every anonymous page load just
+ * to find out there is nothing to refresh.
+ */
+const SESSION_HINT = 'oya_session';
+
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;                 // same-origin fetch, or a non-browser client
+  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+}
+
+function readRefreshCookie(req) {
+  const raw = (req.headers.cookie || '').split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${REFRESH_COOKIE}=`));
+  if (!raw) return '';
+  try { return decodeURIComponent(raw.slice(REFRESH_COOKIE.length + 1)); } catch { return ''; }
+}
+
+function issueSession(req, res, result) {
+  const { refresh_token: refresh, ...rest } = result;
+  if (!refresh || !sameOrigin(req)) return res.json(result);
+  const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
+  const maxAge = 30 * 24 * 3600 * 1000;
+  res.cookie(REFRESH_COOKIE, refresh, { httpOnly: true, sameSite: 'lax', secure, path: REFRESH_COOKIE_PATH, maxAge });
+  res.cookie(SESSION_HINT, '1', { httpOnly: false, sameSite: 'lax', secure, path: '/', maxAge });
+  res.json({ ...rest, refresh_in_cookie: true });
+}
+
+function clearSessionCookies(res) {
+  res.clearCookie(REFRESH_COOKIE, { path: REFRESH_COOKIE_PATH });
+  res.clearCookie(SESSION_HINT, { path: '/' });
+}
+
 router.post('/auth/signup', async (req, res) => {
   const { email, password, display_name } = req.body;
   if (!email || !password) {
@@ -157,24 +213,31 @@ router.post('/auth/login', async (req, res) => {
   }
   try {
     const result = await login(email, password);
-    res.json(result);
+    issueSession(req, res, result);
   } catch (err) {
     res.status(401).json({ error: err.message });
   }
 });
 
 router.post('/auth/refresh', async (req, res) => {
-  const { refresh_token } = req.body;
-  if (!refresh_token) {
+  const presented = req.body?.refresh_token || readRefreshCookie(req);
+  if (!presented) {
     return res.status(400).json({ error: 'refresh_token required' });
   }
   try {
     const { refreshSession } = await import('./auth.js');
-    const result = await refreshSession(refresh_token);
-    res.json(result);
+    const result = await refreshSession(presented);
+    issueSession(req, res, result);
   } catch (err) {
+    clearSessionCookies(res);
     res.status(401).json({ error: err.message });
   }
+});
+
+/** Signing out has to reach the cookie, which the page cannot clear itself. */
+router.post('/auth/logout', (req, res) => {
+  clearSessionCookies(res);
+  res.json({ ok: true });
 });
 
 router.get('/auth/me', userAuthMiddleware, async (req, res) => {
@@ -208,12 +271,14 @@ router.get('/auth/keys', userAuthMiddleware, async (req, res) => {
   }
 });
 
+// The only time the key itself is returned. Only its digest is stored, so
+// there is no second chance to read it and nothing to hand back later.
 router.post('/auth/keys', userAuthMiddleware, async (req, res) => {
   const { label } = req.body;
   try {
     const key = randomBytes(24).toString('base64url');
     await registerApiKey(key, req.user.id, label);
-    res.json({ key, label: label || 'Default' });
+    res.json({ key, id: keyDigest(key), prefix: key.slice(0, 8), project: control().projectIdFor(key), label: label || 'Default' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -221,20 +286,27 @@ router.post('/auth/keys', userAuthMiddleware, async (req, res) => {
 
 router.post('/auth/keys/import', userAuthMiddleware, async (req, res) => {
   const { key, label } = req.body;
-  if (!key || typeof key !== 'string' || key.length < 1) {
-    return res.status(400).json({ error: 'key is required' });
+  // An imported key becomes an administrator credential over a project holding
+  // cookie jars, MFA seeds and proxy credentials, so it has to be as hard to
+  // guess as one this server mints (randomBytes(24) — 32 base64url chars).
+  // Without this, importing "a" was a valid, publicly guessable admin key.
+  if (!key || typeof key !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(key)) {
+    return res.status(400).json({ error: 'key must be 32-128 characters of A-Z a-z 0-9 _ -' });
   }
   try {
     await registerApiKey(key, req.user.id, label || 'Imported');
-    res.json({ ok: true, key, label: label || 'Imported' });
+    res.json({ ok: true, id: keyDigest(key), prefix: key.slice(0, 8), project: control().projectIdFor(key), label: label || 'Imported' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
-router.delete('/auth/keys/:key', userAuthMiddleware, async (req, res) => {
+// By digest, which is what GET /auth/keys returns as `id`. The server cannot
+// look a key up by its plaintext any more, and a URL is the last place to put
+// one anyway.
+router.delete('/auth/keys/:id', userAuthMiddleware, async (req, res) => {
   try {
-    await deleteApiKey(req.params.key, req.user.id);
+    await deleteApiKey(req.params.id, req.user.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -979,7 +1051,7 @@ router.post('/gateway/providers', authMiddleware, async (req, res) => {
     // Recheck after DNS validation, which can yield to a concurrent addition.
     if (pool.get(cfg.owner, cfg.name)) return res.status(409).json({ error: 'A provider with this name already exists. Choose another name.' });
     const provider = pool.register(cfg);
-    if (credential && keyConfig.FIELDS[credentialField]?.secret) keyConfig.set(key, { [credentialField]: credential });
+    if (credential && keyConfig.FIELDS[credentialField]?.secret) await keyConfig.set(key, { [credentialField]: credential });
     await keyConfig.saveRouting(key, pool);
     audit({ action: 'provider.upsert', actorKey: getKey(req), targetType: 'provider', targetId: provider.name,
       meta: { type: provider.type, maxConcurrent: provider.maxConcurrent, priority: provider.priority }, req });
@@ -1142,10 +1214,10 @@ router.get('/config', authMiddleware, (req, res) => {
   }
 });
 
-router.post('/config', authMiddleware, (req, res) => {
+router.post('/config', authMiddleware, async (req, res) => {
   const key = getKey(req);
   try {
-    keyConfig.set(key, req.body);
+    await keyConfig.set(key, req.body);
     audit({ action: 'config.update', actorKey: key, targetType: 'config',
       meta: { fields: Object.keys(req.body || {}) }, req });
     res.json({ ok: true, ...keyConfig.get(key) });
@@ -1156,9 +1228,9 @@ router.post('/config', authMiddleware, (req, res) => {
 
 // Writing the deployment-wide default affects every key that has not set its
 // own, so it stays behind the operator token.
-router.post('/config/host', operatorOnly, (req, res) => {
+router.post('/config/host', operatorOnly, async (req, res) => {
   try {
-    runtimeConfig.set(req.body);
+    await runtimeConfig.set(req.body);
     audit({ action: 'config.update', actorKey: getKey(req), targetType: 'config',
       meta: { scope: 'host', fields: Object.keys(req.body || {}) }, req });
     res.json({ ok: true, scope: 'host', ...runtimeConfig.get() });
@@ -1173,15 +1245,14 @@ router.get('/browsers', authMiddleware, async (req, res) => {
   res.json(await listSandboxBrowsers(key, registry.list(key)));
 });
 
-// Live view — SSE stream of JPEG frames
-// Supports both header auth and ?key= query param (EventSource can't set headers)
-router.get('/live/:browserId', (req, res, next) => {
-  const queryKey = req.query.key;
-  if (queryKey) {
-    req.headers.authorization = `Bearer ${queryKey}`;
-  }
-  authMiddleware(req, res, next);
-}, (req, res) => {
+// Live view — SSE stream of JPEG frames.
+//
+// Header auth, or ?ticket= for EventSource, which cannot set headers. A ticket
+// is single-use and lives 60 seconds (control().ticket / redeem, redeemed in
+// forwardHttp). ?key= used to be accepted here: that put a project's permanent
+// administrator credential into browser history, Referer headers, proxy and
+// CDN access logs, and — via `oya open` — the process argv table.
+router.get('/live/:browserId', authMiddleware, (req, res) => {
   const { browserId } = req.params;
 
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {

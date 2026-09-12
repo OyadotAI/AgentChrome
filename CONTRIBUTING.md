@@ -4,7 +4,9 @@ Thanks for looking. Bug reports, fixes and new backends are all welcome.
 
 ## Before you start
 
-- **Security problems** go through [SECURITY.md](SECURITY.md), never a public issue.
+- **Security problems** go through GitHub's private advisory form —
+  [Report a vulnerability](https://github.com/OyadotAI/oya-browser/security/advisories/new) —
+  never a public issue.
 - **Large changes** — a new provider, a new storage backend, a change to the
   persona model — open an issue first so we can agree on the shape.
 - **Licensing.** The SDK (`packages/sdk`) and CLI (`packages/cli`) are MIT.
@@ -26,6 +28,20 @@ npm test               # server suite + CLI suite, no credentials needed
 The test suite is hermetic: it runs with no database, no cloud keys and no
 network. If a test of yours needs any of those, mock it — `server/test-providers.js`
 and `server/test-sandbox.js` show the pattern.
+
+Some tracked tests are deliberately *not* reachable from `npm test`, because
+they need something CI does not have. Run them by hand when you touch that area:
+
+| Test | Needs |
+|:---|:---|
+| `server/test-stealth.js` | a real Chrome, and the public detector sites |
+| `server/test-control-postgres.js` | a Postgres at `DATABASE_URL` |
+| `server/test-control-supabase.js` | a live Supabase project |
+| `browser/test-cdp-front-door.mjs` | a running browser container and `playwright-core` |
+| `ui/tests/*.spec.ts` | Playwright and a running stack (`npx playwright test`) |
+
+`browser/test-regressions.js` needs neither Electron nor a display and does run
+in CI (`npm test --prefix browser`).
 
 Running the stack locally:
 

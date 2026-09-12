@@ -28,6 +28,12 @@ jobs:
       # No secrets are passed on purpose: the suite must stay hermetic. A test
       # that only passes with a live Supabase or Daytona key fails here.
       - run: npm test
+      # The desktop regression suite reads source and needs no Electron binary,
+      # which is the only reason installing browser/ here is cheap.
+      - run: npm ci --prefix browser
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test --prefix browser
 
   lint:
     name: Lint

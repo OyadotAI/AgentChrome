@@ -156,7 +156,7 @@ export function handleConnection(ws, req) {
         ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona, provider,
       });
       registry.get(browserId).authToken = presentedKey;
-      if (provider === 'oya-desktop') keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
+      if (provider === 'oya-desktop') await keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
       metrics.wsConnections.inc({ outcome: 'ok' });
       metrics.browsersConnected.set({}, registry.browsers.size);
       usage.browserConnected(apiKey, browserId);

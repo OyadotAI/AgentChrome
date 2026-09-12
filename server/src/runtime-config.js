@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
+import { assertSafeTarget } from './net-guard.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // OYA_DATA_DIR lets tests point at a scratch directory instead of writing
@@ -104,11 +105,11 @@ export const runtimeConfig = {
     };
   },
 
-  set(updates) {
+  async set(updates) {
     if (updates.openai_api_key !== undefined && !updates.openai_api_key.startsWith('••••')) {
       config.openai_api_key = updates.openai_api_key;
     }
-    if (updates.openai_base_url !== undefined) config.openai_base_url = validateBaseUrl(updates.openai_base_url);
+    if (updates.openai_base_url !== undefined) config.openai_base_url = await validateBaseUrl(updates.openai_base_url);
     if (updates.chat_model !== undefined) config.chat_model = updates.chat_model;
     save();
   },
@@ -131,13 +132,7 @@ export const runtimeConfig = {
 // The control plane fetches whatever base URL a tenant saves, so an
 // unvalidated value is a server-side request forgery primitive: cloud metadata,
 // internal services, anything routable from this host.
-const PRIVATE_HOST = new RegExp(
-  '^(localhost$|.*\\.local$|.*\\.internal$'
-  + '|127\\.|10\\.|192\\.168\\.|169\\.254\\.|0\\.'
-  + '|172\\.(1[6-9]|2[0-9]|3[01])\\.'
-  + '|::1$|::$|fc|fd|fe80)', 'i');
-
-export function validateBaseUrl(value) {
+export async function validateBaseUrl(value) {
   const raw = String(value).trim();
   if (!raw) return '';
   let url;
@@ -148,12 +143,10 @@ export function validateBaseUrl(value) {
   if (url.protocol !== 'https:') reject('must use https');
   if (url.username || url.password) reject('must not embed credentials');
   if (url.hash) reject('must not contain a fragment');
-  // WHATWG keeps the brackets on IPv6 hostnames ("[::1]"), so strip them first.
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (PRIVATE_HOST.test(host)) reject('must not point at a private, loopback or link-local address');
-  // ponytail: hostname check only. A public name that resolves to an internal
-  // address (DNS rebinding) still gets through; closing that needs a
-  // resolve-then-pin agent at connect time. redirect:'error' on the fetch
-  // covers the cheap redirect-to-internal variant.
+  // The same resolving guard wsUrl, proxies and webhooks go through. A
+  // hostname-only check let a public name with an A record of 10.0.0.5
+  // through, and chat-service hands the response body back to the caller —
+  // a read SSRF, not a blind one.
+  await assertSafeTarget(url.href, { protocols: ['https:'], label: 'openai_base_url' });
   return url.href.replace(/\/+$/, '');
 }

@@ -10,9 +10,27 @@
  */
 
 const http = require('http');
+const { isIP } = require('net');
 const WebSocket = require('ws');
 
 const isUi = (info) => info?.type === 'page' && /^file:.*\/renderer\/index\.html/.test(info.url || '');
+
+/**
+ * Chromium refuses a debug request whose Host is neither an IP literal nor
+ * localhost, and refuses a WebSocket upgrade carrying an Origin. Both checks
+ * live on the endpoint this proxy re-issues requests to — `fetch` below sends
+ * Host: 127.0.0.1, and the `ws` client sends no Origin — so they are lost
+ * unless the front door makes them itself.
+ *
+ * Without the Host check, a page the user visits points a name it controls at
+ * 127.0.0.1, reaches this port *same-origin*, reads /json/list and opens a CDP
+ * socket onto tabs the persona is signed into.
+ */
+const localHost = (req) => {
+  const raw = req.headers.host || '';
+  const host = raw.startsWith('[') ? raw.slice(1, raw.indexOf(']')) : raw.split(':')[0];
+  return host === 'localhost' || isIP(host) !== 0;
+};
 
 function start({ port, upstream, host, tabs, createTab, closeTab }) {
   const up = `127.0.0.1:${upstream}`;
@@ -47,9 +65,13 @@ function start({ port, upstream, host, tabs, createTab, closeTab }) {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(typeof body === 'string' ? body : JSON.stringify(body));
     };
+    if (!localHost(req)) return send(403, { error: 'Host header must be an IP address or localhost' });
     try {
       const path = req.url.split('?')[0].replace(/\/$/, '');
       if (path === '/json/new') {
+        // PUT-only, as Chromium made it: a page cannot send one, so an <img> or
+        // a form cannot open a tab in the persona on the victim's behalf.
+        if (req.method !== 'PUT') return send(405, { error: '/json/new requires PUT' });
         const url = decodeURIComponent(req.url.split('?')[1] || '') || 'about:blank';
         const targetId = await openTab(url);
         const target = (await refreshHidden()).find((t) => t.id === targetId);
@@ -68,6 +90,7 @@ function start({ port, upstream, host, tabs, createTab, closeTab }) {
 
   const wss = new WebSocket.Server({ noServer: true, perMessageDeflate: false, maxPayload: 256 * 1024 * 1024 });
   server.on('upgrade', async (req, socket, head) => {
+    if (!localHost(req) || req.headers.origin) return socket.destroy();
     const m = req.url.match(/^\/devtools\/(browser|page)\/([^/?]+)/);
     try { await refreshHidden(); } catch { return socket.destroy(); }
     if (!m || hidden.has(m[2])) return socket.destroy();
@@ -129,4 +152,4 @@ function start({ port, upstream, host, tabs, createTab, closeTab }) {
   return server;
 }
 
-module.exports = { start, isUi };
+module.exports = { start, isUi, localHost };

@@ -40,9 +40,11 @@ export function createManaged(options) {
 /**
  * Cleanup follows the descriptor that was stored when the session was created,
  * not whatever OYA_FLEET_RUNTIME says now: a browser started on Docker must still
- * be torn down on Docker after the operator moves the fleet to Kubernetes.
+ * be torn down on Docker after the operator moves the fleet to Kubernetes, and
+ * a pod started in one namespace must be deleted from that namespace, not from
+ * whatever OYA_K8S_NAMESPACE points at today.
  * Descriptors written before runtimes existed carry no `runtime` and are Docker.
  */
-export function removeManaged(container, apiKey, browserId, daemonId = null, runtime = 'docker') {
-  return runtimeFor(runtime).remove(container, apiKey, browserId, daemonId);
+export function removeManaged(container, apiKey, browserId, daemonId = null, runtime = 'docker', namespace = null) {
+  return runtimeFor(runtime).remove(container, apiKey, browserId, daemonId, namespace);
 }

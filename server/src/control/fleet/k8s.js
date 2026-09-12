@@ -158,8 +158,13 @@ export async function create({ apiKey, browserId, persona, name, policies = [] }
   return { browserId, runtime };
 }
 
-export async function remove(pod, apiKey, browserId, clusterId = null) {
-  const ns = namespace();
+export async function remove(pod, apiKey, browserId, clusterId = null, storedNamespace = null) {
+  // The namespace the pod was created in, not the one configured now: after an
+  // operator changes OYA_K8S_NAMESPACE, every in-flight pod and its -enroll
+  // Secret (which carries OYA_API_KEY and the egress proxy password) would
+  // otherwise be orphaned, while the delete is aimed at a namespace that never
+  // held them.
+  const ns = storedNamespace || namespace();
   if (clusterId) {
     const current = (await kubectl(['get', 'namespace', 'kube-system', '-o', 'jsonpath={.metadata.uid}'])).trim();
     if (current !== clusterId) throw fault('runtime_unavailable', 'Cleanup requires the original Kubernetes cluster', 503);

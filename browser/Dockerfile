@@ -70,4 +70,16 @@ ENV VNC_PORT=5900
 
 EXPOSE 5900
 
+# Not root. This is the one container that renders attacker-chosen web content,
+# and uid 0 plus --no-sandbox means a renderer bug is a root shell in the
+# container. --no-sandbox stays in the entrypoint: dropping it also needs
+# unprivileged user namespaces (or --cap-add SYS_ADMIN), which is a decision
+# about the host's runtime, not something an image can make.
+# Xvfb creates its socket directory only as root; without this it falls back to
+# an abstract socket and logs an error on every boot.
+RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+RUN useradd --create-home --uid 10001 oya && chown -R oya:oya /app
+USER oya
+ENV HOME=/home/oya
+
 ENTRYPOINT ["/docker-entrypoint.sh"]

@@ -17,10 +17,24 @@ export async function migrateLegacy() {
     else if (entry.isFile()) await copyFile(source, destination, 1).catch(e => { if (e.code !== 'EEXIST') throw e; });
   }
   const mapping = [];
+  // Env keys and the fleet token are the only ones this process holds in the
+  // clear; a database key is reached through the project id stored beside its
+  // digest, because api_keys no longer keeps the key itself.
   for (const key of knownKeys()) {
     const project = await service.project(key), owner = await getKeyOwner(key);
     if (owner) await service.store.transact(async tx => { (await tx.get('project', project.id)).ownerUser = owner; });
     mapping.push({ project: project.id, legacyOwner: project.legacyOwner });
+  }
+  if (db) {
+    const { data } = await db.from('api_keys').select('project, user_id');
+    for (const row of data || []) {
+      if (!row.project || !row.user_id) continue;
+      await service.store.transact(async tx => {
+        const p = await tx.get('project', row.project);
+        if (p && !p.ownerUser) p.ownerUser = row.user_id;
+      });
+      mapping.push({ project: row.project });
+    }
   }
   if (db) {
     const { data, error } = await db.from('browsers').select('id, api_key, name');

@@ -13,11 +13,17 @@ metadata:
     nginx.ingress.kubernetes.io/session-cookie-max-age: "10800"
     nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
     nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    # CORS — `*` is
+    # correct for a bearer-token API: a third-party page can send a request but
+    # has no way to obtain the Authorization header, so there is no ambient
+    # authority to abuse. allow-credentials is NOT set, deliberately — nothing
+    # here authenticates with cookies, and `*` plus credentials is invalid per
+    # the Fetch spec, which is how "just reflect the Origin" gets introduced
+    # later as a fix.
     nginx.ingress.kubernetes.io/enable-cors: "true"
     nginx.ingress.kubernetes.io/cors-allow-origin: "*"
     nginx.ingress.kubernetes.io/cors-allow-methods: "GET,POST,PUT,DELETE,OPTIONS"
     nginx.ingress.kubernetes.io/cors-allow-headers: "Content-Type,Authorization"
-    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
 spec:
   ingressClassName: nginx
   tls:

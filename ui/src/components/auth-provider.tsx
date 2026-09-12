@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import { login as apiLogin, signup as apiSignup, getProfile, refreshToken as apiRefreshToken } from '@/lib/api';
+import { login as apiLogin, signup as apiSignup, getProfile, refreshToken as apiRefreshToken, logout as apiLogout } from '@/lib/api';
 
 interface User {
   id: string;
@@ -46,25 +46,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     localStorage.removeItem('oya_token');
     localStorage.removeItem('oya_refresh_token');
-    localStorage.removeItem('oya_api_key');
+    localStorage.removeItem('oya_api_key');   // written by versions before this one
+    sessionStorage.removeItem('oya_console_key');
     sessionStorage.removeItem('oya_project_credential');
     sessionStorage.removeItem('oya_project_id');
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
   }, []);
 
-  // Refresh the access token using the refresh token
+  /**
+   * Refresh from the httpOnly cookie the server set at login — nothing here
+   * reads or writes a refresh token, which is the point: page JavaScript
+   * cannot reach it, so an XSS cannot walk off with the session.
+   *
+   * The localStorage token is only the fallback for a console served from a
+   * different origin than the API, where SameSite=Lax keeps the cookie at home
+   * and the server returns the token in the body instead.
+   */
   const doRefresh = useCallback(async (): Promise<string | null> => {
     const version = sessionVersion.current;
-    const rt = localStorage.getItem('oya_refresh_token');
-    if (!rt) return null;
+    const stored = localStorage.getItem('oya_refresh_token') || undefined;
+    // `oya_session` is the readable half the server sets alongside the httpOnly
+    // cookie. Without it there is nothing to refresh, and asking anyway puts a
+    // failed request in the console of every anonymous page load.
+    if (!stored && !document.cookie.split('; ').some(c => c.startsWith('oya_session='))) return null;
     try {
-      const data = await apiRefreshToken(rt);
+      const data = await apiRefreshToken(stored);
       if (version !== sessionVersion.current) return null;
       const newToken = data.access_token;
-      const newRefresh = data.refresh_token;
       setToken(newToken);
-      localStorage.setItem('oya_token', newToken);
-      if (newRefresh) localStorage.setItem('oya_refresh_token', newRefresh);
+      // Only ever stored when the server could not use a cookie.
+      if (data.refresh_token) localStorage.setItem('oya_refresh_token', data.refresh_token);
+      else localStorage.removeItem('oya_refresh_token');
       if (data.user) setUser(data.user);
       return newToken;
     } catch {
@@ -85,11 +97,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     const version = sessionVersion.current;
+    // The access token is never persisted — it is rebuilt from the refresh
+    // cookie on every load, so a closed tab leaves nothing readable behind.
     const restore = async () => {
-      const saved = localStorage.getItem('oya_token');
-      if (!saved) return;
-      const exp = getTokenExpiry(saved);
-      const tok = exp && Date.now() / 1000 > exp - 30 ? await doRefresh() : saved;
+      const tok = await doRefresh();
       if (!tok) return;
       const profile = await getProfile(tok);
       if (!cancelled && version === sessionVersion.current) {
@@ -107,7 +118,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await apiLogin(email, password);
     sessionVersion.current++;
     setToken(data.access_token);
-    localStorage.setItem('oya_token', data.access_token);
     if (data.refresh_token) localStorage.setItem('oya_refresh_token', data.refresh_token);
     setUser(data.user);
   }, []);
@@ -119,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearSession();
+    void apiLogout();   // the cookie is httpOnly; only the server can clear it
   }, [clearSession]);
 
   const applyProfile = useCallback((profile: User) => setUser(profile), []);

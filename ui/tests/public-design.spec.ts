@@ -73,9 +73,11 @@ test('code snippet tester and video motion showcase are interactive and function
   await expect(page.getByText('ALL CHECKS PASSED')).toBeVisible({ timeout: 6000 });
   await expect(page.getByText('Execution verified successfully')).toBeVisible();
 
-  // Switch to telemetry tab
+  // Switch to telemetry tab. Assert on a label rather than a number: this
+  // asserted '99.8%', which the panel has not shown for some time, so the test
+  // was red before anyone read it.
   await page.getByRole('button', { name: 'TELEMETRY' }).click();
-  await expect(page.getByText('99.8%', { exact: true })).toBeVisible();
+  await expect(page.getByText('creepJsHeadless', { exact: true })).toBeVisible();
 
   // Switch to output tab
   await page.getByRole('button', { name: 'OUTPUT' }).click();
@@ -89,9 +91,11 @@ test('code snippet tester and video motion showcase are interactive and function
 
   // 3. Test Benchmarks section
   await expect(page.getByRole('heading', { name: 'Hard numbers. Zero marketing fluff.' })).toBeVisible();
-  const tokenBenchBtn = page.getByRole('tab', { name: /LLM Token Economy/ });
-  await tokenBenchBtn.click();
-  await expect(page.getByText('85% Token Reduction')).toBeVisible();
+  // The benchmarks section is down to the one claim that is reproducible; the
+  // "LLM Token Economy" tab and its "85% Token Reduction" went with the rest.
+  const benchTab = page.getByRole('tab', { name: /Bot evasion, measured/ });
+  await benchTab.click();
+  await expect(page.getByText('0% CreepJS headless, 0 lies, 31 / 31 Bot.Sannysoft')).toBeVisible();
 
   // 4. Test Use Cases section
   await expect(page.getByText('Autonomous Procurement & Enterprise ERP')).toBeVisible();

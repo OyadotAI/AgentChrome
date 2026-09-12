@@ -92,7 +92,14 @@ function loadConfig() {
 }
 
 function saveConfig() {
-  try { fs.writeFileSync(configPath, JSON.stringify(config, null, 2)); } catch {}
+  // 0600: config holds apiKey, which is a control-plane credential for the
+  // whole project. Every other credential-bearing write in this codebase is
+  // explicit about the mode; the default 0644 leaves it readable by any other
+  // local account on a Linux host or in a container.
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.chmodSync(configPath, 0o600);   // a file written before this was 0644
+  } catch {}
 }
 
 // ─── Scripts ───
@@ -1512,7 +1519,7 @@ ipcMain.handle('dev-action', async (e, action, params) => {
         if (!params?.element_id || !params?.value) return { ok: false, error: 'element_id and value required' };
         await injectScripts(view);
         const sResult = await worldEval(view, `(() => {
-          const el = document.querySelector('[data-ac-id="${params.element_id}"]');
+          const el = document.querySelector('[data-ac-id=' + ${JSON.stringify(JSON.stringify(String(params.element_id)))} + ']');
           if (!el || el.tagName !== 'SELECT') return { ok: false, error: 'Select element not found' };
           el.value = ${JSON.stringify(params.value)};
           el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -2091,7 +2098,7 @@ async function handleCommand(msg) {
       await sleep(300);
 
       // Run analyzer after scroll if requested
-      const result = await worldEval(view, `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params?.analyze || {})}) : { ok: true, data: { direction: '${params?.direction || 'down'}', amount: ${amount} } }`, true
+      const result = await worldEval(view, `(typeof analyzePage === 'function') ? analyzePage(${JSON.stringify(params?.analyze || {})}) : { ok: true, data: { direction: ${JSON.stringify(String(params?.direction || 'down'))}, amount: ${amount} } }`, true
       );
       sendResult(id, result?.ok ?? true, result?.data, result?.error);
       return;

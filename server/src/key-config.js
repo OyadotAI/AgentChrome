@@ -126,7 +126,7 @@ export function get(apiKey) {
   };
 }
 
-export function set(apiKey, updates = {}) {
+export async function set(apiKey, updates = {}) {
   const owner = ownerOf(apiKey);
   const row = { ...(store.get(owner) || {}) };
   let changed = false;
@@ -136,7 +136,7 @@ export function set(apiKey, updates = {}) {
     value = value === null ? '' : String(value);
     // Never write the masked placeholder back over a real credential.
     if (spec.secret && value.startsWith('•')) continue;
-    if (spec.validate && value) value = spec.validate(value);
+    if (spec.validate && value) value = await spec.validate(value);
     if (!value) delete row[field];
     else row[field] = spec.secret ? sealText(scopeFor(owner), value) : value;
     changed = true;

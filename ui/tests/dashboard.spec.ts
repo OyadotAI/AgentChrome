@@ -12,9 +12,12 @@ async function dashboard(page: Page, cloudReady = false, signedIn = false) {
     commands: 0, errors: 0, pending: 0, streaming: true, activity: [],
   };
   await page.context().addInitScript((account: boolean) => {
-    localStorage.setItem('oya_api_key', 'isolated-ui-test');
-    // An unsigned token with a far-future expiry; the mocked API below answers for it.
-    if (account) localStorage.setItem('oya_token', `e30.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`);
+    // sessionStorage, not localStorage: the console keeps its credential for the
+    // life of the tab, and the refresh token lives in an httpOnly cookie the
+    // page cannot read. `oya_session` is the readable marker that says one
+    // exists, which is what makes AuthProvider attempt a refresh at all.
+    sessionStorage.setItem('oya_console_key', 'isolated-ui-test');
+    if (account) document.cookie = 'oya_session=1; path=/';
     // A deterministic frame; no real browser session or credentials are used.
     const frame = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600"><rect width="1000" height="600" fill="#eee"/><text x="40" y="60">Test browser</text></svg>');
     class Frames {
@@ -28,8 +31,21 @@ async function dashboard(page: Page, cloudReady = false, signedIn = false) {
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, '');
     let body: unknown = {};
     if (path.startsWith('/auth/')) body = { id: 'user-test', email: 'qa@example.com' };
-    if (path === '/auth/keys') body = [{ key: 'isolated-ui-test', label: 'Checkout agents' }, { key: 'second-project-key', label: 'Research' }];
-    if (path === '/auth/projects') body = [{ id: 'prj-own', name: 'Checkout agents', role: 'administrator', owner: true }, { id: 'prj-shared', name: 'Partner workspace', role: 'operator', owner: false }];
+    // An unsigned token with a far-future expiry; the mocks answer for it.
+    if (path === '/auth/refresh') body = { access_token: `e30.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`, user: { id: 'user-test', email: 'qa@example.com' }, refresh_in_cookie: true };
+    // Metadata only. The server stores sha256(key), so there is no key to list.
+    if (path === '/auth/keys') body = [
+      { id: 'a'.repeat(64), prefix: 'isolated', project: 'prj-own', label: 'Checkout agents' },
+      { id: 'b'.repeat(64), prefix: 'second-p', project: 'prj-two', label: 'Research' },
+    ];
+    if (path === '/auth/projects') body = [
+      { id: 'prj-own', name: 'Checkout agents', role: 'administrator', owner: true },
+      { id: 'prj-two', name: 'Research', role: 'administrator', owner: true },
+      { id: 'prj-shared', name: 'Partner workspace', role: 'operator', owner: false },
+    ];
+    // Every project is opened the same way now, owned or shared.
+    if (path === '/auth/projects/prj-own/access') body = { token: 'oya_own-credential' };
+    if (path === '/auth/projects/prj-two/access') body = { token: 'oya_research-credential' };
     if (path === '/auth/projects/prj-shared/access') body = { token: 'oya_shared-credential' };
     if (path === '/control') body = { project: { id: 'prj-test', name: 'Test project', settings: { maxConcurrent: 3, budgetUsd: null, recordingDays: 7, auditDays: 90, rates: {}, policy: {} } }, sessions: [{ ...browser, state: 'ready', managed: false, costUsd: 0, control: { mode } }], events: [], credentials: [], webhooks: [], deliveries: [] };
     if (path === '/control/members') body = { owner: null, members: [{ userId: 'member-test', role: 'operator' }] };
@@ -74,7 +90,10 @@ test('one project switcher covers your projects and projects shared with you', a
   await switcher.click();
   await page.getByRole('button', { name: /^Research/ }).click();
   await expect(switcher).toContainText('Research');
-  expect(await page.evaluate(() => [sessionStorage.getItem('oya_project_credential'), localStorage.getItem('oya_api_key')])).toEqual([null, 'second-project-key']);
+  // A project you own opens with a scoped credential too — no API key is
+  // handed back by the server, and nothing lands on disk.
+  expect(await page.evaluate(() => [sessionStorage.getItem('oya_project_credential'), localStorage.getItem('oya_api_key')]))
+    .toEqual(['oya_research-credential', null]);
   await switcher.click();
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await expect(page.getByLabel('Project name')).toBeFocused();

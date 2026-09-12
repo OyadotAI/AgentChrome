@@ -252,7 +252,7 @@ Interactive API testing (Swagger UI): GET /swagger
     GET  /browsers                  List connected browsers (scoped to your key)
     POST /browsers/:id/command      Send command (body: { "action": "...", "params": {} })
     POST /browsers/:id/chat         Chat with LLM (body: { "messages": [...] })
-    GET  /live/:id?key=...          SSE live view frame stream
+    GET  /live/:id?ticket=...       SSE live view frame stream (single-use ticket)
     GET  /mcp/:id                   MCP Streamable HTTP endpoint
     POST /mcp/:id                   MCP Streamable HTTP endpoint
     POST /mcp/pool                  Pool MCP endpoint (round-robin)

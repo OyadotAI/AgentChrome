@@ -4,6 +4,10 @@ on:
   push:
     tags: ['v*']
 
+# Least privilege by default; jobs that need more say so themselves.
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
   IMAGE_SERVER: ghcr.io/oyadotai/oya-browser-server
@@ -115,17 +119,20 @@ jobs:
     - name: Download browser binaries from release
       run: |
         mkdir -p server/downloads
+        # "${GITHUB_REF_NAME}", not ${{ github.ref_name }}: the expression form
+        # is pasted into the script before the shell sees it, so a tag named
+        # v1.0.0$(...) would run on the runner.
         # macOS DMG (uploaded by release script)
-        gh release download ${{ github.ref_name }} --pattern '*.dmg' --dir server/downloads --clobber || true
+        gh release download "${GITHUB_REF_NAME}" --pattern '*.dmg' --dir server/downloads --clobber || true
         # Linux AppImage (uploaded by build-linux job above)
-        gh release download ${{ github.ref_name }} --pattern '*.AppImage' --dir server/downloads --clobber || true
+        gh release download "${GITHUB_REF_NAME}" --pattern '*.AppImage' --dir server/downloads --clobber || true
         # Windows installer (uploaded by build-windows job above)
-        gh release download ${{ github.ref_name }} --pattern '*.exe' --dir server/downloads --clobber || true
+        gh release download "${GITHUB_REF_NAME}" --pattern '*.exe' --dir server/downloads --clobber || true
         # The update feed is served from /downloads, so the channel files and the
         # macOS zip have to ship with the binaries. Squirrel.Mac updates from the
         # zip, never the dmg, and without latest*.yml every client 404s forever.
-        gh release download ${{ github.ref_name }} --pattern '*.zip' --dir server/downloads --clobber || true
-        gh release download ${{ github.ref_name }} --pattern 'latest*.yml' --dir server/downloads --clobber || true
+        gh release download "${GITHUB_REF_NAME}" --pattern '*.zip' --dir server/downloads --clobber || true
+        gh release download "${GITHUB_REF_NAME}" --pattern 'latest*.yml' --dir server/downloads --clobber || true
         # build.artifactName has emitted dotted names since v1.0.50; this only
         # still matters for assets carried over from older releases.
         cd server/downloads
@@ -136,8 +143,7 @@ jobs:
 
     - name: Update download URLs in UI
       run: |
-        VERSION="${{ github.ref_name }}"
-        VERSION="${VERSION#v}"
+        VERSION="${GITHUB_REF_NAME#v}"
         echo "Updating download links to version $VERSION"
         sed -i "s/Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*-/Oya.Browser-${VERSION}-/g" ui/src/app/page.tsx
         grep -o 'Oya\.Browser-[0-9]*\.[0-9]*\.[0-9]*' ui/src/app/page.tsx | head -2
@@ -236,6 +242,12 @@ jobs:
 
     - name: Apply secrets
       env:
+        # Through env, not ${{ }} in the script: expression interpolation pastes
+        # the value into the command line before the shell parses it, so a
+        # secret containing a quote or $(...) escapes and executes on the runner.
+        API_KEYS: ${{ secrets.API_KEYS }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
         # This release's snapshot, or the previous one if registration failed.
         DAYTONA_SNAPSHOT: ${{ needs['register-snapshot'].outputs.snapshot || secrets.DAYTONA_SNAPSHOT }}
@@ -245,9 +257,9 @@ jobs:
         : "${DAYTONA_API_KEY:?Missing DAYTONA_API_KEY deployment secret}"
         : "${DAYTONA_SNAPSHOT:?Missing DAYTONA_SNAPSHOT deployment secret}"
         kubectl create secret generic app-secrets \
-          --from-literal=API_KEYS="${{ secrets.API_KEYS }}" \
-          --from-literal=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
-          --from-literal=SUPABASE_SERVICE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}" \
+          --from-literal=API_KEYS="${API_KEYS}" \
+          --from-literal=SUPABASE_URL="${SUPABASE_URL}" \
+          --from-literal=SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_KEY}" \
           --from-literal=DAYTONA_API_KEY="${DAYTONA_API_KEY}" \
           --from-literal=DAYTONA_SNAPSHOT="${DAYTONA_SNAPSHOT}" \
           --from-literal=DAYTONA_API_URL="${DAYTONA_API_URL}" \
@@ -255,13 +267,24 @@ jobs:
           -n ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Create GHCR pull secret
+      env:
+        GHCR_PAT: ${{ secrets.GHCR_PAT }}
       run: |
         kubectl delete secret ghcr-oyadotai -n ${{ env.NAMESPACE }} 2>/dev/null || true
         kubectl create secret docker-registry ghcr-oyadotai \
           --docker-server=ghcr.io \
-          --docker-username=${{ github.repository_owner }} \
-          --docker-password=${{ secrets.GHCR_PAT }} \
+          --docker-username='${{ github.repository_owner }}' \
+          --docker-password="${GHCR_PAT}" \
           -n ${{ env.NAMESPACE }}
+
+    - name: Pin images to this release
+      # :latest is still pushed for convenience, but a Deployment that names it
+      # re-pulls whatever latest means *now* on every restart, eviction or node
+      # drain — and `kubectl rollout undo` cannot roll back a moving tag. The
+      # immutable tag was pushed by build-image; use it.
+      run: |
+        sed -i "s|newTag: latest|newTag: ${GITHUB_REF_NAME}|g" k8s/overlays/prod/kustomization.yaml
+        grep newTag k8s/overlays/prod/kustomization.yaml
 
     - name: Deploy with Kustomize
       run: kubectl apply -k k8s/overlays/prod
@@ -306,9 +329,21 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Install mcp-publisher
+      # Pinned, not `latest`: this binary is executed in a job holding
+      # id-token: write, so whatever it is gets to mint an OIDC token for this
+      # repo and publish under io.github.OyadotAI/*. Bump MCP_PUBLISHER_VERSION
+      # deliberately.
+      env:
+        MCP_PUBLISHER_VERSION: v1.8.1
       run: |
-        curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
-          | tar xz mcp-publisher
+        os=$(uname -s | tr '[:upper:]' '[:lower:]')
+        arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        base="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+        asset="mcp-publisher_${os}_${arch}.tar.gz"
+        curl -fsSL -o "$asset" "${base}/${asset}"
+        curl -fsSL -o checksums.txt "${base}/registry_${MCP_PUBLISHER_VERSION#v}_checksums.txt"
+        grep " ${asset}\$" checksums.txt | sha256sum -c -
+        tar xzf "$asset" mcp-publisher
 
     - name: Publish this release
       run: |

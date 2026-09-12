@@ -422,6 +422,59 @@ try {
     await wait(150);
   }
 
+  console.log('\n🔟  A role guard cannot be stepped around by changing the path\'s case');
+  {
+    // The guards in authMiddleware test req.path, which keeps whatever casing
+    // the client sent. Express routes case-insensitively by default, so
+    // /api/Pool/Cookies used to reach the handler while reading as a path the
+    // guards did not name — a viewer credential's way to every session cookie.
+    for (const path of ['/api/Pool/Cookies', '/api/POOL/COOKIES', '/api/Config']) {
+      const res = await request('GET', path, { key: keyA });
+      assert(res.status === 404, `${path} does not route (got ${res.status})`);
+    }
+    const canonical = await request('GET', '/api/config', { key: keyA });
+    assert(canonical.status === 200, `the canonical spelling still works (got ${canonical.status})`);
+  }
+
+  console.log('\n1️⃣1️⃣  openai_base_url cannot be pointed at an internal address');
+  {
+    // The control plane fetches this URL, and chat-service used to hand the
+    // response back to the caller — a read SSRF. The old check was a hostname
+    // regex, so every range it forgot (CGNAT, benchmarking, multicast) was a
+    // way in. It now goes through the same resolving guard as wsUrl.
+    const { validateBaseUrl } = await import('./src/runtime-config.js');
+    const refused = async (url) => {
+      try { await validateBaseUrl(url); return false; } catch { return true; }
+    };
+    for (const url of ['https://100.64.0.1/v1', 'https://198.18.0.1/v1', 'https://127.0.0.1/v1',
+      'https://[::1]/v1', 'https://169.254.169.254/v1', 'http://api.openai.com/v1']) {
+      assert(await refused(url), `${url} is refused`);
+    }
+    assert(await validateBaseUrl('') === '', 'an empty base URL clears the field');
+
+    const res = await request('POST', '/api/config', {
+      key: keyA, body: { openai_base_url: 'https://169.254.169.254/v1' },
+    });
+    assert(res.status === 400, `POST /config refuses a link-local base URL (got ${res.status})`);
+  }
+
+  console.log('\n1️⃣2️⃣  The live view no longer takes an API key in the URL');
+  {
+    // ?key= put a permanent administrator credential into browser history,
+    // Referer headers and every proxy log on the way. EventSource still cannot
+    // set headers, so the supported form is a single-use ?ticket=.
+    // A connected browser is not needed: authMiddleware runs first, so an
+    // accepted credential reaches the handler and stops at 404, while a
+    // rejected one never gets that far. (Asking for a live browser would open
+    // an SSE stream this helper cannot close.)
+    const absent = uuidv4();
+    const leaked = await request('GET', `/api/live/${absent}?key=${encodeURIComponent(keyA)}`, { omitAuth: true });
+    assert(leaked.status === 401, `?key= does not authenticate the live view (got ${leaked.status})`);
+
+    const withHeader = await request('GET', `/api/live/${absent}`, { key: keyA });
+    assert(withHeader.status === 404, `the Authorization header still authenticates (got ${withHeader.status})`);
+  }
+
   // ── Summary ──
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`  ${passed} passed, ${failed} failed`);

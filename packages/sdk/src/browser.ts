@@ -143,12 +143,30 @@ export class Browser {
   }
 
   /**
-   * Watch it work: an SSE stream of JPEG frames. EventSource cannot set
-   * headers, so the key travels as a query parameter — treat the URL itself as
-   * a credential.
+   * Watch it work: the console, opened on this browser.
+   *
+   * This used to return the raw frame stream with the project's API key in the
+   * query string — a permanent credential in browser history, Referer headers
+   * and every proxy log on the way, and a URL that renders as a wall of
+   * text/event-stream if a person actually opens it. It is the console deep
+   * link now, the same one the server hands back from `completeMfa()`, and it
+   * carries no credential at all.
+   *
+   * For the frames themselves, use `liveStreamUrl()`.
    */
   liveViewUrl(): string {
-    return `${this.http.baseUrl}/api/live/${this.id}?key=${encodeURIComponent(this.http.apiKey)}`;
+    return `${this.http.baseUrl}/dashboard/?browser=${encodeURIComponent(this.id)}`;
+  }
+
+  /**
+   * The SSE stream of JPEG frames, for embedding in your own UI. EventSource
+   * cannot set headers, so the URL carries a connection ticket: single use,
+   * 60 seconds. Mint one per viewer — the first connection spends it.
+   */
+  async liveStreamUrl(): Promise<string> {
+    const { ticket } = await this.http.request<{ ticket: string }>(
+      'POST', `/api/control/sessions/${encodeURIComponent(this.id)}/ticket`, {});
+    return `${this.http.baseUrl}/api/live/${this.id}?ticket=${encodeURIComponent(ticket)}`;
   }
 
   /** Counters, health and the last 50 things this browser did. */

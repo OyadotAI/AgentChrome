@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+# Least privilege by default; jobs that need more say so themselves.
+permissions:
+  contents: read
+
 env:
   REGISTRY: ghcr.io
   IMAGE_SERVER: ghcr.io/oyadotai/oya-browser-server
@@ -125,6 +129,12 @@ jobs:
 
     - name: Apply secrets
       env:
+        # Through env, not ${{ }} in the script: expression interpolation pastes
+        # the value into the command line before the shell parses it, so a
+        # secret containing a quote or $(...) escapes and executes on the runner.
+        API_KEYS: ${{ secrets.API_KEYS }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
         DAYTONA_SNAPSHOT: ${{ secrets.DAYTONA_SNAPSHOT }}
         DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
@@ -133,9 +143,9 @@ jobs:
         : "${DAYTONA_API_KEY:?Missing DAYTONA_API_KEY deployment secret}"
         : "${DAYTONA_SNAPSHOT:?Missing DAYTONA_SNAPSHOT deployment secret}"
         kubectl create secret generic app-secrets \
-          --from-literal=API_KEYS="${{ secrets.API_KEYS }}" \
-          --from-literal=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
-          --from-literal=SUPABASE_SERVICE_KEY="${{ secrets.SUPABASE_SERVICE_KEY }}" \
+          --from-literal=API_KEYS="${API_KEYS}" \
+          --from-literal=SUPABASE_URL="${SUPABASE_URL}" \
+          --from-literal=SUPABASE_SERVICE_KEY="${SUPABASE_SERVICE_KEY}" \
           --from-literal=DAYTONA_API_KEY="${DAYTONA_API_KEY}" \
           --from-literal=DAYTONA_SNAPSHOT="${DAYTONA_SNAPSHOT}" \
           --from-literal=DAYTONA_API_URL="${DAYTONA_API_URL}" \
@@ -143,12 +153,14 @@ jobs:
           -n ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Create GHCR pull secret
+      env:
+        GHCR_PAT: ${{ secrets.GHCR_PAT }}
       run: |
         kubectl delete secret ghcr-oyadotai -n ${{ env.NAMESPACE }} 2>/dev/null || true
         kubectl create secret docker-registry ghcr-oyadotai \
           --docker-server=ghcr.io \
-          --docker-username=${{ github.repository_owner }} \
-          --docker-password=${{ secrets.GHCR_PAT }} \
+          --docker-username='${{ github.repository_owner }}' \
+          --docker-password="${GHCR_PAT}" \
           -n ${{ env.NAMESPACE }}
 
     - name: Deploy with Kustomize

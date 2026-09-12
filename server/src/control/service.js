@@ -277,6 +277,8 @@ export class ControlService {
       return !!value;
     });
   }
+  /** The project a key opens, without touching storage. */
+  projectIdFor(key) { return projectId(key); }
   async ticket(key, sessionId, authToken = key) {
     const token = randomBytes(32).toString('base64url');
     await this.store.transact(async tx => { tx.put('ticket', hash(token), { project: projectId(key), sessionId, auth: sealText('connection-ticket', authToken), expiresAt: stamp() + 60000 }); });

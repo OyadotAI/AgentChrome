@@ -118,4 +118,25 @@ assert.ok(/electron \. .*--disable-dev-shm-usage/.test(entry),
 assert.ok(/dropPendingCookieChanges\(\);\n\s*while \(tabs\.length\) closeTab/.test(src),
   'persona switch must drop queued cookie changes, not flush them into the new persona');
 
-console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup, shm and persona isolation guarded');
+// The CDP front door re-issues every request to Chromium itself, so Chromium's
+// own DNS-rebinding and CSRF defences never see the caller. Losing any of these
+// three lets a page the user is visiting drive the persona's authenticated tabs.
+const door = fs.readFileSync(path.join(__dirname, 'cdp-front-door.js'), 'utf8');
+assert.ok(/const localHost = \(req\) => \{[\s\S]*?isIP\(host\) !== 0;/.test(door),
+  'cdp-front-door lost its Host check — a rebound DNS name reaches this port same-origin');
+assert.ok(/if \(!localHost\(req\)\) return send\(403/.test(door),
+  'the HTTP handler no longer rejects a non-local Host');
+assert.ok(/if \(!localHost\(req\) \|\| req\.headers\.origin\) return socket\.destroy\(\)/.test(door),
+  'the WebSocket upgrade no longer rejects a non-local Host or a browser Origin');
+assert.ok(/if \(req\.method !== 'PUT'\) return send\(405/.test(door),
+  '/json/new is not PUT-only — an <img> or a form can open a tab in the persona');
+
+// ...and it must parse a bracketed IPv6 Host: a naive split on ':' reads
+// "[::1]" as "[" and locks out every IPv6 loopback client.
+const { localHost } = require('./cdp-front-door');
+for (const [host, want] of [['127.0.0.1:9222', true], ['localhost:9222', true], ['[::1]:9222', true],
+  ['[::1]', true], ['10.0.0.4:9222', true], ['rebind.attacker.test:9222', false], ['', false]]) {
+  assert.strictEqual(localHost({ headers: { host } }), want, `localHost(${JSON.stringify(host)})`);
+}
+
+console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup, shm, persona isolation and the CDP front door guarded');

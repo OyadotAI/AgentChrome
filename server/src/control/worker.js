@@ -47,7 +47,7 @@ export async function tick(service = control()) {
     for (const x of jobs) {
       const key = openText(`control:${x.project}`, keys.get(x.project));
       try {
-        if (x.cleanup?.kind === 'docker') await removeManaged(x.cleanup.container, key, x.id, x.cleanup.daemonId, x.cleanup.runtime);
+        if (x.cleanup?.kind === 'docker') await removeManaged(x.cleanup.container, key, x.id, x.cleanup.daemonId, x.cleanup.runtime, x.cleanup.namespace);
         else if (x.cleanup?.kind === 'sandbox') await removeSandbox(x.cleanup.browserId, key);
         else if (x.cleanup?.kind === 'vendor') await releasePersisted(x.cleanup);
         else if (!attachOnly.has(x.provider) && !registry.get(x.id) && !gateways.get(x.id)) throw new Error('Resource outcome is unknown; operator reconciliation required');

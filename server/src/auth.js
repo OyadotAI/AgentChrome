@@ -3,12 +3,14 @@
  *
  * Three layers:
  *   1. Supabase Auth (signup/login) — users get JWTs
- *   2. API keys (per user, stored in oya_browser.api_keys) — browsers connect with these
+ *   2. API keys (per user) — browsers connect with these. Only sha256(key) is
+ *      stored, in oya_browser.api_keys.key_hash, alongside an 8-character
+ *      prefix for display: a read of that table yields no working credential.
  *   3. Admin keys (env var) + fleet token (env var) — for ops/fleet management
  */
 
-import { randomBytes } from 'crypto';
-import { control } from './control/service.js';
+import { createHash, randomBytes } from 'crypto';
+import { control, projectId } from './control/service.js';
 import { db as supabase, dbAuth as supabaseAuth } from './db.js';
 
 // ── Env-configured admin keys ──
@@ -24,20 +26,36 @@ const envKeys = new Set(
 
 const fleetToken = (process.env.FLEET_TOKEN || '').trim() || null;
 
-// ── In-memory cache of API keys (loaded from Supabase on startup) ──
+// ── Key digests ──
 
-const keyCache = new Set();
+/**
+ * The stored form of a key. Nothing here ever persists the key itself: a
+ * backup, a replica, a support export or an over-broad grant on api_keys then
+ * yields administrator credentials for every tenant's browsers, cookie jars and
+ * personas. The rest of the control plane already worked this way — audit.js,
+ * key-config.js, personas and sandbox labels all record a digest.
+ */
+export const keyDigest = (key) => createHash('sha256').update(String(key)).digest('hex');
+
+/** What a person sees in a key list. The key itself is shown once, at creation. */
+const keyPrefix = (key) => String(key).slice(0, 8);
+
+/** Keys this process still holds in the clear: the env ones and the fleet token. */
+export const knownKeys = () => [...new Set([...envKeys, ...(fleetToken ? [fleetToken] : [])])];
+
+// ── In-memory cache of key digests (loaded from Supabase on startup) ──
+
+const keyCache = new Set();     // sha256 hex digests, never keys
 let loaded = false;
-export const knownKeys = () => [...new Set([...envKeys, ...keyCache, ...(fleetToken ? [fleetToken] : [])])];
 
 async function loadKeys() {
   if (!supabase || loaded) return;
   try {
-    const { data, error } = await supabase.from('api_keys').select('key');
+    const { data, error } = await supabase.from('api_keys').select('key_hash');
     if (error) throw error;
-    for (const row of data) keyCache.add(row.key);
+    for (const row of data) keyCache.add(row.key_hash);
     loaded = true;
-    console.log(`[auth] Loaded ${data.length} API keys from Supabase`);
+    console.log(`[auth] Loaded ${data.length} API key digests from Supabase`);
   } catch (e) {
     console.error('[auth] Failed to load keys:', e.message);
   }
@@ -88,7 +106,7 @@ export async function refreshSession(refreshToken) {
 
 export function validateApiKey(key) {
   if (!key) return false;
-  return envKeys.has(key) || keyCache.has(key) || isFleetToken(key);
+  return envKeys.has(key) || keyCache.has(keyDigest(key)) || isFleetToken(key);
 }
 
 /**
@@ -106,7 +124,7 @@ export async function getKeyOwner(key) {
     const { data, error } = await supabase
       .from('api_keys')
       .select('user_id')
-      .eq('key', key)
+      .eq('key_hash', keyDigest(key))
       .maybeSingle();
     if (error) throw error;
     const owner = data?.user_id || null;
@@ -122,45 +140,58 @@ export async function getKeyOwner(key) {
 }
 
 export async function registerApiKey(key, userId, label) {
+  const digest = keyDigest(key);
   if (supabase && userId) {
-    const { data: existing, error: lookupError } = await supabase.from('api_keys').select('user_id').eq('key', key).maybeSingle();
+    const { data: existing, error: lookupError } = await supabase.from('api_keys').select('user_id').eq('key_hash', digest).maybeSingle();
     if (lookupError) throw lookupError;
     if (existing && existing.user_id !== userId) throw Object.assign(new Error('Key cannot be imported'), { status: 403 });
-    if (existing) { keyCache.add(key); ownerCache.set(key, userId); return; }
+    if (existing) { keyCache.add(digest); ownerCache.set(key, userId); return; }
     const { error } = await supabase.from('api_keys').insert(
-      { key, user_id: userId, label: label || 'Default', created_at: new Date().toISOString() }
+      { key_hash: digest, key_prefix: keyPrefix(key), project: projectId(key),
+        user_id: userId, label: label || 'Default', created_at: new Date().toISOString() }
     );
     if (error) throw error;
   }
-  keyCache.add(key);
+  keyCache.add(digest);
   if (userId) ownerCache.set(key, userId);
   const project = await control().project(key);
   if (userId) await control().store.transact(async tx => {
     const p = await tx.get('project', project.id);
+    // Claiming only works on an unowned project. Assigning unconditionally let
+    // an import of someone else's key — one with a project but no api_keys row,
+    // such as a key from API_KEYS — hand its browsers and the right to mint
+    // credentials to whoever imported it.
+    if (p.ownerUser && p.ownerUser !== userId) throw Object.assign(new Error('Key belongs to another account'), { status: 403 });
     p.ownerUser = userId;
     // A new project takes its key's label as its name, so every view calls it the same thing.
     if (label && /^Project [0-9a-f]{6}$/.test(p.name)) p.name = String(label).slice(0, 100);
   });
 }
 
+/**
+ * Key metadata, never a key. `id` is the digest — the handle the console uses to
+ * delete one — and `project` is what a project is opened with, via
+ * POST /auth/projects/:id/access, which mints a scoped, expiring credential.
+ */
 export async function listApiKeys(userId) {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from('api_keys')
-    .select('key, label, created_at, last_used_at')
+    .select('key_hash, key_prefix, project, label, created_at, last_used_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return data;
+  return (data || []).map(({ key_hash, key_prefix, ...rest }) => ({ id: key_hash, prefix: key_prefix, ...rest }));
 }
 
-export async function deleteApiKey(key, userId) {
+/** By digest: the server has no way to look a key up by its plaintext any more. */
+export async function deleteApiKey(id, userId) {
   if (!supabase) throw Object.assign(new Error('Accounts need Supabase'), { status: 409 });
-  const { data, error } = await supabase.from('api_keys').delete().eq('key', key).eq('user_id', userId).select('key');
+  const { data, error } = await supabase.from('api_keys').delete().eq('key_hash', id).eq('user_id', userId).select('key_hash');
   if (error) throw error;
   if (!data?.length) throw Object.assign(new Error('Key not found'), { status: 404 });
-  ownerCache.delete(key);
-  keyCache.delete(key);
+  keyCache.delete(id);
+  for (const [key, owner] of ownerCache) if (owner === userId && keyDigest(key) === id) ownerCache.delete(key);
 }
 
 export async function touchApiKey(key) {
@@ -169,7 +200,7 @@ export async function touchApiKey(key) {
       await supabase
         .from('api_keys')
         .update({ last_used_at: new Date().toISOString() })
-        .eq('key', key);
+        .eq('key_hash', keyDigest(key));
     } catch (e) {
       console.error('[auth] touchApiKey failed:', e.message);
     }
@@ -228,13 +259,13 @@ export async function provisionKeys(count) {
   for (let i = 0; i < count; i++) {
     const key = randomBytes(24).toString('base64url');
     keys.push(key);
-    rows.push({ key, created_at: new Date().toISOString() });
+    rows.push({ key_hash: keyDigest(key), key_prefix: keyPrefix(key), project: projectId(key), created_at: new Date().toISOString() });
   }
   if (supabase && rows.length > 0) {
-    const { error } = await supabase.from('api_keys').upsert(rows, { onConflict: 'key' });
+    const { error } = await supabase.from('api_keys').upsert(rows, { onConflict: 'key_hash' });
     if (error) throw error;
   }
-  for (const key of keys) { keyCache.add(key); await control().project(key); }
+  for (const key of keys) { keyCache.add(keyDigest(key)); await control().project(key); }
   return keys;
 }
 
@@ -270,12 +301,13 @@ export async function authenticateToken(token, { allowBrowser = false } = {}) {
     if (principal) return principal;
   }
   if (envKeys.has(token) || isFleetToken(token)) return { key: token, role: 'administrator' };
+  const digest = keyDigest(token);
   if (supabase) {
-    const { data, error } = await supabase.from('api_keys').select('key').eq('key', token).maybeSingle();
+    const { data, error } = await supabase.from('api_keys').select('key_hash').eq('key_hash', digest).maybeSingle();
     if (error) throw Object.assign(new Error('Credential validation unavailable'), { status: 503 });
-    if (data) { keyCache.add(token); return { key: token, role: 'administrator' }; }
-    keyCache.delete(token);
-  } else if (keyCache.has(token)) return { key: token, role: 'administrator' };
+    if (data) { keyCache.add(digest); return { key: token, role: 'administrator' }; }
+    keyCache.delete(digest);
+  } else if (keyCache.has(digest)) return { key: token, role: 'administrator' };
   throw Object.assign(new Error('Invalid API key'), { status: 403 });
 }
 
@@ -286,9 +318,10 @@ export async function authMiddleware(req, res, next) {
     req.authToken = token;
     req.principal = principal;
     if (principal.role === 'viewer' && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Viewer credentials cannot change resources' });
-    if (principal.role !== 'administrator' && /^\/(config|personas|proxies|gateway\/(providers|strategy|profiles))/.test(req.path) && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Administrator permission required' });
+    if (principal.role !== 'administrator' && /^\/(config|personas|proxies|gateway\/(providers|strategy|profiles))/i.test(req.path) && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Administrator permission required' });
     // Secrets and recordings are not part of the sanitized viewer surface.
-    if (principal.role === 'viewer' && /^\/(config|pool\/cookies|live|gateway\/(profiles|recordings))/.test(req.path)) return res.status(403).json({ error: 'Operator permission required' });
+    // Both guards are case-insensitive to match however the router is configured.
+    if (principal.role === 'viewer' && /^\/(config|pool\/cookies|live|gateway\/(profiles|recordings))/i.test(req.path)) return res.status(403).json({ error: 'Operator permission required' });
     req.headers.authorization = `Bearer ${principal.key}`;
     next();
   } catch (err) { res.status(err.status || 503).json({ error: err.message }); }

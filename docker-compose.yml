@@ -29,15 +29,21 @@ services:
 
   browser:
     build: browser
-    env_file:
-      - path: .env
-        required: false
+    # Deliberately no `env_file: .env` here. This is the container that renders
+    # whatever page an agent is pointed at, and .env holds SUPABASE_SERVICE_KEY,
+    # OPENAI_API_KEY, DAYTONA_API_KEY and OYA_PROFILE_SECRET — the KEK for every
+    # credential at rest. One renderer compromise should not reach the database
+    # and the encryption key. Everything the browser actually reads is listed
+    # below; k8s/base/browser.yaml has always been explicit the same way.
     environment:
       # Reached over the compose network, so it overrides any public URL in .env.
       - OYA_SERVER_URL=ws://server:3100/ws
       - OYA_API_KEY=${API_KEYS:-}
       - OYA_AUTO_CONNECT=true
       - OYA_BROWSER_NAME=${BROWSER_NAME:-Oya Browser Docker}
+      - OYA_PERSONA=${OYA_PERSONA:-}
+      - OYA_PROVIDER=${OYA_PROVIDER:-}
+      - OYA_GOVERNANCE=${OYA_GOVERNANCE:-}
       - SCREEN_WIDTH=${SCREEN_WIDTH:-1920}
       - SCREEN_HEIGHT=${SCREEN_HEIGHT:-1080}
       - VNC_ENABLED=${VNC_ENABLED:-false}
@@ -45,8 +51,13 @@ services:
     # A range, not a single port: `--scale browser=N` starts N containers and a
     # fixed host port means the second one fails to bind. Each replica takes the
     # next free port in the range.
+    #
+    # Bound to the host's loopback: x11vnc runs with -nopw and -shared, so an
+    # interface-wide bind hands full keyboard and mouse control of a browser
+    # holding the persona's logged-in sessions to anyone who can reach the port.
+    # Reach it over an SSH tunnel: ssh -L 5900:127.0.0.1:5900 <host>
     ports:
-      - "${VNC_PORT_RANGE:-5900-5999}:5900"
+      - "127.0.0.1:${VNC_PORT_RANGE:-5900-5999}:5900"
     depends_on:
       - server
     shm_size: '2gb'

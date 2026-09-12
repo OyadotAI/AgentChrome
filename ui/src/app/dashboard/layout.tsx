@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { ToastProvider } from '@/components/dashboard/toast';
-import { apiUrl, apiKeyHeaders } from '@/lib/api';
+import { apiUrl, apiKeyHeaders, consoleCredential } from '@/lib/api';
 
 /**
  * An API key is enough to be here.
@@ -26,7 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // true, so the redirect below never fired and log out appeared to do
   // nothing — the session was gone, the page just stayed.
   useEffect(() => {
-    const key = sessionStorage.getItem('oya_project_credential') || localStorage.getItem('oya_api_key') || '';
+    const key = consoleCredential();
     let cancelled = false;
     const check = key ? fetch(apiUrl('/control'), { headers: apiKeyHeaders(key) }).then(res => res.ok) : Promise.resolve(false);
     check.then(ok => { if (!cancelled) setKeyOk(ok); }).catch(() => { if (!cancelled) setKeyOk(false); });

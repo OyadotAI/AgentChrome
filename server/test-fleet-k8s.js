@@ -226,6 +226,22 @@ try {
     assert.ok((await calls()).every((c) => c.tool === 'docker'));
   });
 
+  // ── ...and the namespace comes from the descriptor too ───────────────────
+  // Change OYA_K8S_NAMESPACE with sessions in flight and re-deriving it here
+  // leaves the pod — and its -enroll Secret, which carries OYA_API_KEY and the
+  // egress proxy password — running in the old namespace forever.
+  await reset();
+  const before = process.env.OYA_K8S_NAMESPACE;
+  process.env.OYA_K8S_NAMESPACE = 'moved-since';
+  delete process.env.OYA_FAKE_POD;
+  await removeManaged(podName, KEY, session.id, 'cluster-uid-1', 'k8s', 'oya-browsers');
+  if (before === undefined) delete process.env.OYA_K8S_NAMESPACE; else process.env.OYA_K8S_NAMESPACE = before;
+  await check('cleanup targets the namespace the pod was created in', async () => {
+    const del = (await calls()).find((c) => c.args[0] === 'delete');
+    assert.ok(del, 'a delete was issued');
+    assert.equal(del.args[del.args.indexOf('-n') + 1], 'oya-browsers');
+  });
+
   console.log(`\n  ${passed} passed, 0 failed`);
 } finally {
   await rm(work, { recursive: true, force: true });

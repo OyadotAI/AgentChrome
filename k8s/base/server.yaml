@@ -26,6 +26,16 @@ spec:
       - name: server
         image: ghcr.io/oyadotai/oya-browser-server:latest
         imagePullPolicy: Always
+        # Not runAsNonRoot: the server image installs as root and a managed
+        # Docker fleet needs socket access, so flipping the uid here would break
+        # existing deployments on upgrade. Dropping the capability set is the
+        # part that costs nothing and removes NET_RAW, SETUID and DAC_OVERRIDE.
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          seccompProfile:
+            type: RuntimeDefault
         ports:
         - containerPort: 3100
         envFrom:

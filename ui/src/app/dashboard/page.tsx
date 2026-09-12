@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Monitor, Users, Activity, HelpCircle } from 'lucide-react';
 import { useToast } from '@/components/dashboard/toast';
 import { api, errorMessage } from '@/lib/api-client';
+import { consoleCredential } from '@/lib/api';
 import { useShortcuts, type Shortcut } from '@/lib/shortcuts';
 
 import Header from '@/components/dashboard/header';
@@ -113,7 +114,7 @@ export default function DashboardPage() {
   }, [apiKey]);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('oya_project_credential') || localStorage.getItem('oya_api_key') || '';
+    const saved = consoleCredential();
     if (saved) setApiKey(saved);
     setSelected(new URLSearchParams(window.location.search).get('browser'));
   }, []);

@@ -204,8 +204,11 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`OpenAI API error: ${res.status} — ${err}`);
+      // The body is not echoed back: the base URL is tenant-configurable, and
+      // returning what the endpoint said would turn a misconfigured (or
+      // deliberately pointed) URL into a read primitive for the caller.
+      console.error(`[chat] LLM endpoint ${res.status}: ${(await res.text()).slice(0, 500)}`);
+      throw new Error(`LLM endpoint returned ${res.status}`);
     }
 
     const data = await res.json();

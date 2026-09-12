@@ -13,7 +13,7 @@ projectAccountRouter.get('/', wrap(async (req, res) => {
   const [owned, joined] = await control().store.load([{ kind: 'project', states: [req.user.id] }, { kind: 'membership', states: [req.user.id] }]);
   const ownedIds = new Set(owned.map(r => r.id)), memberships = joined.map(r => r.body).filter(m => !ownedIds.has(m.project));
   // A project you own is named after its API key's label, so the switcher and the project overview agree.
-  const labels = new Map((await listApiKeys(req.user.id)).filter(k => k.label).map(k => [projectId(k.key), k.label]));
+  const labels = new Map((await listApiKeys(req.user.id)).filter(k => k.label && k.project).map(k => [k.project, k.label]));
   const unnamed = owned.filter(r => labels.has(r.id) && AUTO_NAME.test(r.body.name)).map(r => r.id);
   if (unnamed.length) await control().store.transact(async tx => { for (const p of await tx.getMany('project', unnamed)) if (AUTO_NAME.test(p.name)) p.name = labels.get(p.id); });
   const names = new Map((await control().store.load(memberships.map(m => ({ kind: 'project', id: m.project })))).flat().map(r => [r.id, r.body.name]));

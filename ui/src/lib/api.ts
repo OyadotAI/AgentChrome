@@ -28,6 +28,7 @@ export function apiKeyHeaders(apiKey: string): HeadersInit {
 export async function login(email: string, password: string) {
   const res = await fetch(apiUrl('/auth/login'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
@@ -51,17 +52,27 @@ export async function signup(email: string, password: string, displayName?: stri
   return res.json();
 }
 
-export async function refreshToken(refreshToken: string) {
+/**
+ * With no argument this refreshes from the httpOnly cookie the server set at
+ * login. The explicit token is the fallback for a console served from a
+ * different origin than the API, where SameSite=Lax keeps the cookie at home.
+ */
+export async function refreshToken(refreshToken?: string) {
   const res = await fetch(apiUrl('/auth/refresh'), {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken }),
+    body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
   });
   if (!res.ok) {
     const data = await res.json();
     throw new Error(data.error || 'Refresh failed');
   }
   return res.json();
+}
+
+export async function logout() {
+  await fetch(apiUrl('/auth/logout'), { method: 'POST', credentials: 'include' }).catch(() => {});
 }
 
 export async function updateProfile(token: string, displayName: string) {
@@ -120,10 +131,30 @@ export async function importApiKey(token: string, key: string, label?: string) {
 }
 
 export async function deleteApiKey(token: string, key: string) {
-  const res = await fetch(apiUrl(`/auth/keys/${key}`), {
+  // A key is arbitrary user input (importApiKey takes whatever is pasted), so
+  // an unencoded one containing ../ sends this DELETE — with the user's own
+  // bearer token — to a path they did not choose.
+  const res = await fetch(apiUrl(`/auth/keys/${encodeURIComponent(key)}`), {
     method: 'DELETE',
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error('Failed to delete key');
   return res.json();
+}
+
+/**
+ * The credential the console drives the API with.
+ *
+ * sessionStorage, never localStorage: this is either a one-hour project
+ * credential or — for the key-only sign-in, where there is no account to mint
+ * one against — the API key itself. Either way it is an administrator
+ * credential for a browser fleet, and a tab is as long as it should outlive
+ * the person looking at it.
+ */
+export const CONSOLE_KEY = 'oya_console_key';
+
+export function consoleCredential(): string {
+  try {
+    return sessionStorage.getItem('oya_project_credential') || sessionStorage.getItem(CONSOLE_KEY) || '';
+  } catch { return ''; }
 }

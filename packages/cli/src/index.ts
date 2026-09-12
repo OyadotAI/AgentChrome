@@ -364,8 +364,12 @@ async function cmdPersonas(args: string[], flags: Flags): Promise<void> {
 async function cmdOpen(flags: Flags): Promise<void> {
   const browser = await targetBrowser(client(flags), flags);
   const url = browser.liveViewUrl();
-  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+  // `start` is a cmd builtin, not an executable: spawning it directly always
+  // fails with ENOENT, and the detached child swallows the error.
+  const [opener, args] = process.platform === 'darwin' ? ['open', [url]]
+    : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+    : ['xdg-open', [url]];
+  spawn(opener, args, { detached: true, stdio: 'ignore' }).unref();
   console.log(`Opening ${browser.id}`);
 }
 

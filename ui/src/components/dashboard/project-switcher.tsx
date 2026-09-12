@@ -1,82 +1,79 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, Folder, Import, Loader2, LogIn, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, Folder, Import, Loader2, LogIn, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { apiUrl, authHeaders, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
 import { useToast } from './toast';
 
-type OwnedProject = { key: string; label?: string };
-type SharedProject = { id: string; name: string; role: string; owner?: boolean };
+type Project = { id: string; name: string; role: string; owner?: boolean };
+/** Key metadata. `id` is the digest the server knows it by; the key itself is shown once, at creation. */
+type OwnedKey = { id: string; prefix?: string; project?: string; label?: string };
 const PROJECT_ID = 'oya_project_id', PROJECT_CREDENTIAL = 'oya_project_credential';
-const nameOf = (p: OwnedProject) => p.label || 'Untitled project';
 const field = 'w-full h-9 rounded-md border border-border bg-transparent px-3 text-sm text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50';
 
 /**
- * One switcher for every project. Each API key you own is a project and is opened with that key; a project shared
- * with you is opened with a one-hour credential for your role there, renewed while the tab stays open.
+ * One switcher for every project, opened the same way whether you own it or it
+ * was shared with you: a one-hour credential for your role there, renewed while
+ * the tab stays open, held in sessionStorage.
+ *
+ * Owned projects used to be opened with the raw API key, read back from
+ * /auth/keys and parked in localStorage. The server no longer stores the key —
+ * only its digest — and a permanent administrator credential sitting on disk
+ * was the thing any XSS in this console would have taken.
  */
 export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string; setApiKey: (key: string) => void }) {
   const { token } = useAuth();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const [owned, setOwned] = useState<OwnedProject[]>([]);
-  const [shared, setShared] = useState<SharedProject[]>([]);
-  const [sharedId, setSharedId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [keys, setKeys] = useState<OwnedKey[]>([]);
+  const [currentId, setCurrentId] = useState<string | null>(null);
   const [form, setForm] = useState<'new' | 'join' | 'import' | null>(null);
   const [name, setName] = useState('');
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  const selectKey = useCallback((key: string) => {
-    sessionStorage.removeItem(PROJECT_CREDENTIAL);
-    sessionStorage.removeItem(PROJECT_ID);
-    localStorage.setItem('oya_api_key', key);
-    setSharedId(null);
-    setApiKey(key);
-  }, [setApiKey]);
-
-  const openShared = useCallback(async (id: string, quiet = false) => {
+  const openProject = useCallback(async (id: string, quiet = false) => {
     if (!token) return;
     const res = await fetch(apiUrl(`/auth/projects/${encodeURIComponent(id)}/access`), { method: 'POST', headers: authHeaders(token), body: '{}' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not open that project');
     sessionStorage.setItem(PROJECT_CREDENTIAL, data.token);
     sessionStorage.setItem(PROJECT_ID, id);
-    setSharedId(id);
+    setCurrentId(id);
     setApiKey(data.token);
     if (!quiet) toast('Project opened', 'info');
   }, [token, setApiKey, toast]);
 
   const load = useCallback(async () => {
-    if (!token) return [] as OwnedProject[];
-    const [keys, projects] = await Promise.all([
-      listApiKeys(token).then(d => (Array.isArray(d) ? d : d?.keys ?? []) as OwnedProject[]).catch(() => [] as OwnedProject[]),
-      fetch(apiUrl('/auth/projects'), { headers: authHeaders(token) }).then(r => (r.ok ? r.json() : [])).catch(() => []) as Promise<SharedProject[]>,
+    if (!token) return [] as Project[];
+    const [list, owned] = await Promise.all([
+      fetch(apiUrl('/auth/projects'), { headers: authHeaders(token) }).then(r => (r.ok ? r.json() : [])).catch(() => []) as Promise<Project[]>,
+      listApiKeys(token).then(d => (Array.isArray(d) ? d : d?.keys ?? []) as OwnedKey[]).catch(() => [] as OwnedKey[]),
     ]);
-    setOwned(keys);
-    setShared(projects.filter(p => !p.owner));
-    return keys;
+    setProjects(list);
+    setKeys(owned);
+    return list;
   }, [token]);
 
-  // Keep the current selection while it is still valid; otherwise open the first project you own.
+  // Keep the open project across a reload; otherwise open the first one you own.
   useEffect(() => {
-    void load().then(keys => {
+    void load().then(list => {
       const id = sessionStorage.getItem(PROJECT_ID), credential = sessionStorage.getItem(PROJECT_CREDENTIAL);
-      if (id && credential) { setSharedId(id); setApiKey(credential); return; }
-      const current = localStorage.getItem('oya_api_key');
-      if (current && keys.some(k => k.key === current)) setApiKey(current);
-      else if (keys[0]) selectKey(keys[0].key);
+      if (id && credential && list.some(p => p.id === id)) { setCurrentId(id); setApiKey(credential); return; }
+      const first = list.find(p => p.owner) || list[0];
+      if (first) void openProject(first.id, true).catch(() => {});
     });
-  }, [load, setApiKey, selectKey]);
+  }, [load, setApiKey, openProject]);
 
+  // The credential expires in an hour; renew it well before that.
   useEffect(() => {
-    if (!sharedId) return;
-    const timer = setInterval(() => void openShared(sharedId, true).catch(() => {}), 45 * 60 * 1000);
+    if (!currentId) return;
+    const timer = setInterval(() => void openProject(currentId, true).catch(() => {}), 45 * 60 * 1000);
     return () => clearInterval(timer);
-  }, [sharedId, openShared]);
+  }, [currentId, openProject]);
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -91,47 +88,52 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
       if (form === 'new') {
         const data = await createApiKey(token, name.trim() || undefined);
         await load();
-        selectKey(data.key);
-        navigator.clipboard.writeText(data.key).catch(() => {});
-        toast('Project created; its API key is copied to your clipboard', 'success');
+        // The one and only time this key exists outside the database.
+        await navigator.clipboard.writeText(data.key).catch(() => {});
+        if (data.project) await openProject(data.project, true);
+        toast('Project created. Its API key is on your clipboard — it is not shown again.', 'success');
       } else if (form === 'import') {
         if (!secret.trim()) throw new Error('Paste the API key first');
-        await importApiKey(token, secret.trim(), name.trim() || undefined);
+        const data = await importApiKey(token, secret.trim(), name.trim() || undefined);
         await load();
-        selectKey(secret.trim());
+        if (data.project) await openProject(data.project, true);
         toast('Project added', 'success');
       } else if (form === 'join') {
         const res = await fetch(apiUrl('/auth/projects/join'), { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ code: secret.trim() }) });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'That invitation could not be used');
         await load();
-        await openShared(data.project);
+        await openProject(data.project);
       }
       setForm(null); setName(''); setSecret(''); setOpen(false);
     } catch (e) { toast(e instanceof Error ? e.message : 'Something went wrong', 'error'); }
     finally { setBusy(false); }
   }
 
-  async function remove(key: string) {
+  async function remove(project: Project) {
     if (!token) return;
+    const key = keys.find(k => k.project === project.id);
+    if (!key) return toast('That project has no key to delete', 'error');
     try {
-      await deleteApiKey(token, key);
+      await deleteApiKey(token, key.id);
       toast('API key deleted', 'success');
-      if (apiKey === key) { setApiKey(''); localStorage.removeItem('oya_api_key'); }
-      await load();
+      if (currentId === project.id) {
+        sessionStorage.removeItem(PROJECT_CREDENTIAL);
+        sessionStorage.removeItem(PROJECT_ID);
+        setCurrentId(null);
+        setApiKey('');
+      }
+      const list = await load();
+      const next = list.find(p => p.id !== project.id);
+      if (next && currentId === project.id) await openProject(next.id, true).catch(() => {});
     } catch (e) { toast(e instanceof Error ? e.message : 'Could not delete the key', 'error'); }
   }
 
-  function copy(key: string) {
-    navigator.clipboard.writeText(key).catch(() => {});
-    setCopied(key);
-    setTimeout(() => setCopied(null), 1500);
-  }
-
   if (!token) return null;
-  const selectedOwned = !sharedId && owned.find(k => k.key === apiKey);
-  const label = sharedId ? shared.find(p => p.id === sharedId)?.name || 'Shared project' : selectedOwned ? nameOf(selectedOwned) : 'Select project';
+  const owned = projects.filter(p => p.owner), shared = projects.filter(p => !p.owner);
+  const label = projects.find(p => p.id === currentId)?.name || (apiKey ? 'Project' : 'Select project');
   const row = (active: boolean) => `flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${active ? 'bg-text/10 text-text' : 'hover:bg-text/5'}`;
+  const prefixOf = (id: string) => keys.find(k => k.project === id)?.prefix;
 
   return (
     <div className="relative" ref={ref}>
@@ -146,26 +148,24 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
           <div className="max-h-80 overflow-y-auto p-1">
             <p className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wider text-text-dim">Your projects</p>
             {!owned.length && <p className="px-3 py-3 text-xs text-text-dim">No projects yet. Create one below.</p>}
-            {owned.map(k => (
-              <div key={k.key} className="group flex items-center gap-1">
-                <button className={row(!sharedId && apiKey === k.key)} aria-current={!sharedId && apiKey === k.key} onClick={() => { selectKey(k.key); setOpen(false); }}>
+            {owned.map(p => (
+              <div key={p.id} className="group flex items-center gap-1">
+                <button className={row(currentId === p.id)} aria-current={currentId === p.id}
+                  onClick={() => void openProject(p.id).then(() => setOpen(false)).catch(e => toast(e instanceof Error ? e.message : 'Could not open that project', 'error'))}>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-text">{nameOf(k)}</span>
-                    <span className="block truncate font-mono text-xs text-text-dim">{k.key.slice(0, 12)}…</span>
+                    <span className="block truncate text-sm text-text">{p.name}</span>
+                    <span className="block truncate font-mono text-xs text-text-dim">{prefixOf(p.id) ? `${prefixOf(p.id)}…` : p.id}</span>
                   </span>
                 </button>
-                <button aria-label={`Copy API key for ${nameOf(k)}`} title="Copy API key" onClick={() => copy(k.key)} className="rounded p-1 opacity-0 transition-colors hover:bg-text/5 focus:opacity-100 group-hover:opacity-100">
-                  {copied === k.key ? <Check className="h-3.5 w-3.5 text-accent" /> : <Copy className="h-3.5 w-3.5 text-text-dim" />}
-                </button>
-                <button aria-label={`Delete API key for ${nameOf(k)}`} title="Delete API key" onClick={() => void remove(k.key)} className="rounded p-1 opacity-0 transition-colors hover:bg-red-500/10 focus:opacity-100 group-hover:opacity-100">
+                <button aria-label={`Delete API key for ${p.name}`} title="Delete API key" onClick={() => void remove(p)} className="rounded p-1 opacity-0 transition-colors hover:bg-red-500/10 focus:opacity-100 group-hover:opacity-100">
                   <Trash2 className="h-3.5 w-3.5 text-red-400" />
                 </button>
               </div>
             ))}
             {!!shared.length && <p className="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-text-dim">Shared with you</p>}
             {shared.map(p => (
-              <button key={p.id} className={row(sharedId === p.id)} aria-current={sharedId === p.id}
-                onClick={() => void openShared(p.id).then(() => setOpen(false)).catch(e => toast(e instanceof Error ? e.message : 'Could not open that project', 'error'))}>
+              <button key={p.id} className={row(currentId === p.id)} aria-current={currentId === p.id}
+                onClick={() => void openProject(p.id).then(() => setOpen(false)).catch(e => toast(e instanceof Error ? e.message : 'Could not open that project', 'error'))}>
                 <span className="min-w-0 flex-1 truncate text-sm text-text">{p.name}</span>
                 <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-text-dim">{p.role}</span>
               </button>

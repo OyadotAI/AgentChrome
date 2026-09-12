@@ -418,7 +418,10 @@ async function preflight(root: string, a: Answers): Promise<Check[]> {
     checks.push({ ok: !!daemon, label: 'docker daemon reachable', detail: daemon ? 'ok' : 'not running', fatal: true });
     const compose = await capture('docker', ['compose', 'version', '--short']);
     // The compose file uses the `env_file: [{path, required}]` form, added in 2.24.
-    checks.push({ ok: atLeast(compose, 2, 24), label: 'docker compose ≥ 2.24', detail: compose || 'not found', fatal: !compose });
+    // fatal regardless of whether it is missing or merely old: 2.20 cannot parse
+  // the `env_file: [{path, required}]` form in docker-compose.yml, and finding
+  // that out at `docker compose up` is far from the check that knew about it.
+  checks.push({ ok: atLeast(compose, 2, 24), label: 'docker compose ≥ 2.24', detail: compose || 'not found', fatal: true });
   }
   if (a.host !== 'docker') {
     checks.push({ ok: atLeast(process.versions.node, 22, 13), label: 'node ≥ 22.13 (node:sqlite)', detail: process.versions.node, fatal: true });
@@ -514,6 +517,14 @@ function buildEnv(a: Answers, secrets: Secrets, existing: Record<string, string>
 }
 
 /**
+ * Pinned by digest. priorState() pulls this image and runs it with a volume of
+ * sealed credentials mounted, so a mutable `alpine:latest` would mean running
+ * whatever that tag points at today against the operator's data. This is the
+ * multi-arch index digest of alpine:3.22.
+ */
+const PROBE_IMAGE = 'alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce';
+
+/**
  * Encrypted state left behind by a previous install, keyed to a secret we no
  * longer have. Generating a fresh KEK on top of it does not fail at install
  * time — the server crash-loops later on "unable to authenticate data", which is
@@ -522,7 +533,7 @@ function buildEnv(a: Answers, secrets: Secrets, existing: Record<string, string>
 async function priorState(): Promise<string | null> {
   const volumes = (await capture('docker', ['volume', 'ls', '-q', '--filter', 'name=oya-data'])) || '';
   for (const name of volumes.split('\n').map((v) => v.trim()).filter(Boolean)) {
-    const listing = await capture('docker', ['run', '--rm', '-v', `${name}:/d`, 'alpine', 'ls', '/d']);
+    const listing = await capture('docker', ['run', '--rm', '-v', `${name}:/d`, PROBE_IMAGE, 'ls', '/d']);
     // If the probe cannot run, treat a volume that exists as suspect rather than
     // assuming it is empty — the failure mode of guessing wrong is a crash loop.
     if (listing === null || /cookies\.json|personas\.json|profiles|\.secret/.test(listing)) return name;
@@ -531,7 +542,7 @@ async function priorState(): Promise<string | null> {
 }
 
 /** Returns the secret to use, or null to keep generating a fresh one. */
-async function resolveKekConflict(volume: string): Promise<string | null> {
+async function resolveKekConflict(volume: string, root: string): Promise<string | null> {
   warn(`${volume} already holds encrypted data from an earlier install.`);
   note('Cookies, proxy credentials and TOTP seeds in it were sealed with that');
   note('install\'s OYA_PROFILE_SECRET. A new secret cannot open them, and the');
@@ -550,8 +561,15 @@ async function resolveKekConflict(volume: string): Promise<string | null> {
   if (!(await confirm(`Delete ${volume} and everything stored in it?`, false))) {
     throw new InputError('Stopped without changing anything.');
   }
-  await run('docker', ['compose', 'down', '-v'], { cwd: process.cwd(), quiet: true }).catch(() => {});
-  await run('docker', ['volume', 'rm', '-f', volume], { cwd: process.cwd(), quiet: true }).catch(() => {});
+  // cwd: root, not process.cwd() — findRepoRoot walks up, so running the
+  // wizard from a subdirectory leaves `docker compose` with no compose file and
+  // nothing stopped. `docker volume rm -f` does not force a volume that is
+  // still attached, so that failure must not be swallowed either: the whole
+  // point of this branch is that the next step mints a fresh KEK, and doing
+  // that over surviving sealed data is the crash loop this function exists to
+  // prevent.
+  await run('docker', ['compose', 'down', '-v'], { cwd: root, quiet: true }).catch(() => {});
+  await run('docker', ['volume', 'rm', '-f', volume], { cwd: root, quiet: true });
   success(`removed ${volume}`);
   return null;
 }
@@ -707,7 +725,7 @@ export async function cmdInstall(flags: Record<string, string | boolean>): Promi
   if (!existing.OYA_PROFILE_SECRET && answers.host === 'docker' && !dryRun) {
     const volume = await priorState();
     if (volume) {
-      const reused = await resolveKekConflict(volume);
+      const reused = await resolveKekConflict(volume, root);
       if (reused) existing.OYA_PROFILE_SECRET = reused;
     }
   }

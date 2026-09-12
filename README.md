@@ -74,7 +74,7 @@ Cursor, Windsurf, Claude Desktop or any other MCP client:
 { "mcpServers": { "oya": { "url": "https://browser.getoya.ai/mcp/pool", "headers": { "Authorization": "Bearer YOUR_API_KEY" } } } }
 ```
 
-Then ask it: *"Start a browser, open Hacker News and summarize the top 3 stories."* It calls `start_browser`, `navigate`, `analyze_page` and `stop_browser` on its own — **15 MCP tools**, all described at [llms.txt](https://browser.getoya.ai/llms.txt).
+Then ask it: *"Start a browser, open Hacker News and summarize the top 3 stories."* It calls `start_browser`, `navigate`, `analyze_page` and `stop_browser` on its own — **16 MCP tools**, all described at [llms.txt](https://browser.getoya.ai/llms.txt).
 
 <a id="stealth-0-headless-0-lies"></a>
 

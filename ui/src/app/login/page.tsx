@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
-import { apiUrl, apiKeyHeaders } from '@/lib/api';
+import { apiUrl, apiKeyHeaders, CONSOLE_KEY } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,7 +41,8 @@ export default function LoginPage() {
       // here rather than as an empty dashboard.
       const res = await fetch(apiUrl('/config'), { headers: apiKeyHeaders(key) });
       if (!res.ok) throw new Error(res.status === 401 ? 'That key was rejected' : `Could not verify the key (${res.status})`);
-      localStorage.setItem('oya_api_key', key);
+      // sessionStorage: a fleet administrator credential should not outlive the tab.
+      sessionStorage.setItem(CONSOLE_KEY, key);
       router.replace('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not verify the key');

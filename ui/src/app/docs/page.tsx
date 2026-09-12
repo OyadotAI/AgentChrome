@@ -1099,9 +1099,10 @@ const browser = await chromium.connectOverCDP(
           <h3 id="live-view" className="text-base font-semibold mt-6 mb-2 text-text">Live View</h3>
           <p className="mb-3 text-[15px] leading-relaxed">
             Select a browser on the Browsers tab to watch it work. Frames stream as JPEG over SSE at
-            ~2fps. <InlineCode>browser.liveViewUrl()</InlineCode> gives you the same stream from the SDK —
-            it carries the key as a query parameter, because EventSource cannot set headers, so treat the
-            URL itself as a credential.
+            ~2fps. <InlineCode>browser.liveViewUrl()</InlineCode> is the console deep link for a person to
+            open; <InlineCode>await browser.liveStreamUrl()</InlineCode> gives you the same frames to embed,
+            with a single-use ticket that expires in 60 seconds — EventSource cannot set headers, and a URL
+            that ends up in browser history should not be a permanent credential.
           </p>
 
           <h3 id="settings" className="text-base font-semibold mt-6 mb-2 text-text">Settings</h3>
@@ -1138,7 +1139,7 @@ const browser = await chromium.connectOverCDP(
               [<InlineCode key="mf">GET</InlineCode>, <InlineCode key="ef">/fleet</InlineCode>, 'Totals by health, provider and persona; usage and limits'],
               [<InlineCode key="m4">POST</InlineCode>, <InlineCode key="e4">/browsers/:id/command</InlineCode>, <span key="d4">Send command (<InlineCode>{`{ "action": "...", "params": {} }`}</InlineCode>)</span>],
               [<InlineCode key="m5">POST</InlineCode>, <InlineCode key="e5">/browsers/:id/chat</InlineCode>, <span key="d5">Chat (<InlineCode>{`{ "messages": [...] }`}</InlineCode>)</span>],
-              [<InlineCode key="m6">GET</InlineCode>, <InlineCode key="e6">/live/:id?key=...</InlineCode>, 'SSE live view frame stream'],
+              [<InlineCode key="m6">GET</InlineCode>, <InlineCode key="e6">/live/:id?ticket=...</InlineCode>, 'SSE live view frame stream (single-use ticket)'],
               [<InlineCode key="m7">GET/POST</InlineCode>, <InlineCode key="e7">/mcp/:id</InlineCode>, 'MCP Streamable HTTP endpoint'],
               [<InlineCode key="mp1">GET/POST</InlineCode>, <InlineCode key="ep1">/personas</InlineCode>, 'List or create personas'],
               [<InlineCode key="mp2">DELETE</InlineCode>, <InlineCode key="ep2">/personas/:id</InlineCode>, 'Delete a persona (409 while in use)'],

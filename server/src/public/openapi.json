@@ -1563,7 +1563,7 @@
     "/live/{browserId}": {
       "get": {
         "summary": "Live view stream",
-        "description": "Server-Sent Events stream of JPEG frames from the browser. Supports auth via Authorization header or ?key= query parameter (for EventSource which cannot set headers).",
+        "description": "Server-Sent Events stream of JPEG frames from the browser. Authorization header, or a single-use ?ticket= from POST /api/control/sessions/{id}/ticket for EventSource, which cannot set headers.",
         "operationId": "liveView",
         "parameters": [
           { "$ref": "#/components/parameters/browserId" },

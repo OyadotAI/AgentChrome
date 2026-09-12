@@ -98,32 +98,36 @@ try {
   const serverKey = runtimeConfig.getOpenAIKey();
   const serverBase = runtimeConfig.getOpenAIBase();
 
+  // The base URLs below are TEST-NET-3 literals (RFC 5737): validateBaseUrl
+  // resolves whatever it is handed, so a made-up hostname would now be refused
+  // for not resolving, and this suite has to pass with no network.
+  //
   // A key that sets a base URL but has no LLM credential of its own must NOT
   // get the deployment-wide key pointed at its endpoint -- that would ship the
   // deployment's credential to an address the tenant controls.
-  keyConfig.set('k-no-key', { openai_base_url: 'https://exfil.test/v1' });
+  await keyConfig.set('k-no-key', { openai_base_url: 'https://203.0.113.10/v1' });
   const exfil = keyConfig.resolve('k-no-key');
-  assert(exfil.baseUrl !== 'https://exfil.test/v1', 'a keyless tenant cannot redirect the deployment key');
+  assert(exfil.baseUrl !== 'https://203.0.113.10/v1', 'a keyless tenant cannot redirect the deployment key');
   assert(exfil.baseUrl === serverBase, 'it falls back to the deployment-wide base URL');
   assert(exfil.openaiKey === serverKey, 'it still resolves the deployment-wide key');
 
   // With its own credential, the key's own endpoint is honoured.
-  keyConfig.set('k-own', { openai_api_key: 'sk-own', openai_base_url: 'https://own.test/v1' });
+  await keyConfig.set('k-own', { openai_api_key: 'sk-own', openai_base_url: 'https://203.0.113.20/v1' });
   const own = keyConfig.resolve('k-own');
   assert(own.openaiKey === 'sk-own', "a key's own LLM credential is used");
-  assert(own.baseUrl === 'https://own.test/v1', "a key's own base URL is honoured with its own credential");
+  assert(own.baseUrl === 'https://203.0.113.20/v1', "a key's own base URL is honoured with its own credential");
 
   // A blank own base URL must be ignored by BOTH layers. Before the fix get()
   // used ?? and resolve() used ||, so the dashboard showed blank while requests
   // used the server-wide value.
-  keyConfig.set('k-blank', { openai_base_url: '' });
+  await keyConfig.set('k-blank', { openai_base_url: '' });
   assert(keyConfig.get('k-blank').openai_base_url === 'https://server-wide.test/v1',
     'a blank own base URL is ignored by get()');
   assert(keyConfig.resolve('k-blank').baseUrl === 'https://server-wide.test/v1',
     'a blank own base URL is ignored by resolve()');
 
   // Credentials are sealed at rest and never handed back in the clear.
-  keyConfig.set('k-secret', { openai_api_key: 'sk-supersecret-tail' });
+  await keyConfig.set('k-secret', { openai_api_key: 'sk-supersecret-tail' });
   const shownSecret = keyConfig.get('k-secret').openai_api_key;
   assert(!shownSecret.includes('supersecret') && shownSecret.endsWith('tail'),
     'a stored LLM credential reads back masked');
@@ -133,7 +137,7 @@ try {
     'envFor layers the key\'s credential over the environment');
 
   // Re-saving the masked value the dashboard displays must not destroy the key.
-  keyConfig.set('k-secret', { openai_api_key: shownSecret });
+  await keyConfig.set('k-secret', { openai_api_key: shownSecret });
   assert(keyConfig.resolve('k-secret').openaiKey === 'sk-supersecret-tail',
     'saving the masked placeholder leaves the real credential intact');
 
@@ -153,14 +157,16 @@ try {
   ];
   let blockedCount = 0;
   for (const bad of blocked) {
-    try { keyConfig.set('k-ssrf', { openai_base_url: bad }); }
+    try { await keyConfig.set('k-ssrf', { openai_base_url: bad }); }
     catch (e) { if (e.status === 400) blockedCount++; else console.log('    unexpected:', bad, e.message); }
   }
   assert(blockedCount === blocked.length, `all ${blocked.length} hostile base URLs rejected (got ${blockedCount})`);
 
-  keyConfig.set('k-ok', { openai_api_key: 'sk-x', openai_base_url: 'https://api.groq.com/openai/v1' });
+  // An IP literal, not a hostname: validateBaseUrl resolves what it is given,
+  // and this suite has to pass with no network.
+  await keyConfig.set('k-ok', { openai_api_key: 'sk-x', openai_base_url: 'https://203.0.113.30/openai/v1' });
   const good = keyConfig.resolve('k-ok');
-  assert(good.baseUrl === 'https://api.groq.com/openai/v1', 'a legitimate https endpoint is still accepted');
+  assert(good.baseUrl === 'https://203.0.113.30/openai/v1', 'a legitimate https endpoint is still accepted');
 
   const src = (await import('fs')).readFileSync('./src/chat-service.js', 'utf8');
   assert(/redirect:\s*'error'/.test(src), "the chat fetch refuses redirects (no 30x bypass)");

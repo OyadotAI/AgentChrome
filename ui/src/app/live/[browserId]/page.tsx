@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import LiveView from '@/components/dashboard/live-view';
 import { api, errorMessage } from '@/lib/api-client';
+import { consoleCredential } from '@/lib/api';
 import { subscribeFrames } from '@/lib/live-stream';
 
 export default function LiveBrowserPage() {
@@ -19,7 +20,7 @@ export default function LiveBrowserPage() {
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState('agent');
 
-  useEffect(() => { setApiKey(sessionStorage.getItem('oya_project_credential') || localStorage.getItem('oya_api_key') || ''); }, []);
+  useEffect(() => { setApiKey(consoleCredential()); }, []);
   useEffect(() => {
     if (!apiKey) return;
     let cancelled = false;

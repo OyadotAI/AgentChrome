@@ -181,8 +181,14 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput, int
     return () => { disposed = true; clearTimeout(timer); node.removeEventListener('wheel', wheel); };
   }, [enqueue, onInput, toPage, interactive]);
 
-  // Control handed back mid-capture: release the keyboard with it.
-  useEffect(() => { if (!interactive) setCaptured(false); }, [interactive]);
+  // Control handed back mid-capture: release the keyboard with it. Adjusted
+  // during render rather than in an effect — the release lands in the same
+  // pass that loses control, instead of one cascading render later.
+  const [hadControl, setHadControl] = useState(interactive);
+  if (hadControl !== interactive) {
+    setHadControl(interactive);
+    if (!interactive) setCaptured(false);
+  }
 
   useEffect(() => {
     mounted.current = true;
