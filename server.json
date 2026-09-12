@@ -8,7 +8,7 @@
     "source": "github"
   },
   "websiteUrl": "https://browser.getoya.ai",
-  "version": "1.0.58",
+  "version": "1.0.59",
   "remotes": [
     {
       "type": "streamable-http",
@@ -21,7 +21,11 @@
           "isRequired": true,
           "isSecret": true,
           "variables": {
-            "api_key": { "description": "Oya API key", "isRequired": true, "isSecret": true }
+            "api_key": {
+              "description": "Oya API key",
+              "isRequired": true,
+              "isSecret": true
+            }
           }
         }
       ]

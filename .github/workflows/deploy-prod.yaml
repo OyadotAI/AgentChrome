@@ -290,3 +290,39 @@ jobs:
     - name: Show status
       if: always()
       run: kubectl get pods,svc,ingress -n ${{ env.NAMESPACE }}
+
+  publish-registry:
+    name: Publish to MCP Registry
+    # After the deploy, so the listing never points at tools that are not live
+    # yet: the registry entry advertises this server to every MCP client.
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      # OIDC proves the workflow belongs to this repo, and the repo's owner is
+      # what grants the io.github.OyadotAI/* namespace. No secret to rotate.
+      id-token: write
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install mcp-publisher
+      run: |
+        curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+          | tar xz mcp-publisher
+
+    - name: Publish this release
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        # The registry keys a listing by version, so it follows the tag rather
+        # than whatever server.json happened to be committed with.
+        node -e 'const f="server.json",j=require("./"+f);j.version=process.argv[1];require("fs").writeFileSync(f,JSON.stringify(j,null,2)+"\n")' "$VERSION"
+        ./mcp-publisher login github-oidc
+        set +e
+        out=$(./mcp-publisher publish 2>&1); code=$?
+        echo "$out"
+        if [ $code -ne 0 ]; then
+          # Re-running a tag must not fail the release over a listing that is
+          # already there; anything else is a real failure.
+          echo "$out" | grep -q 'duplicate version' || exit $code
+          echo "::notice::io.github.OyadotAI/oya-browser ${VERSION} was already published"
+        fi
