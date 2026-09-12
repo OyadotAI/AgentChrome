@@ -1,8 +1,8 @@
 /**
  * Oya Browser: a live walkthrough to run in front of a customer.
  *
- *   npx tsx --env-file=.env demo.ts              # press Enter between steps
- *   npx tsx --env-file=.env demo.ts --no-pause   # run straight through
+ *   npx tsx --env-file=.env sdk/demo.ts              # press Enter between steps
+ *   npx tsx --env-file=.env sdk/demo.ts --no-pause   # run straight through
  *
  * Every step runs on your account. A step that needs something your key
  * hasn't configured (a vendor key, a CAPTCHA solver, an LLM) says what's

@@ -5,7 +5,7 @@
   "engines": { "node": ">=20.6" },
   "scripts": {
     "postinstall": "npm install --prefix .. --no-audit --no-fund && npm run build:sdk --prefix ..",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p playwright/reddit"
   },
   "dependencies": {
     "@oya-ai/browser": "file:../packages/sdk",

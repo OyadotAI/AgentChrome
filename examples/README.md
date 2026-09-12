@@ -8,16 +8,30 @@
 
 ## 📂 Example Catalog
 
-Every script needs `OYA_API_KEY`. The multi-vendor, CAPTCHA and MFA scripts also need the settings listed under [Lighting up every step](#️-lighting-up-every-step-in-settings):
+Every script needs `OYA_API_KEY`, and runs from this `examples/` folder. The multi-vendor, CAPTCHA and MFA scripts also need the settings listed under [Lighting up every step](#️-lighting-up-every-step-in-settings).
+
+### 🧰 [`sdk/`](sdk/): the Oya SDK on its own
 
 | File | Feature Demonstrated | Run Command |
 |:---|:---|:---|
-| [`01-quickstart.ts`](01-quickstart.ts) | Spin up an orchestrated browser and drive it with natural language AI | `npx tsx --env-file=.env 01-quickstart.ts` |
-| [`02-multi-vendor.ts`](02-multi-vendor.ts) | Execute identical automation across **Oya Cloud, Browserbase, Steel, Anchor, and Browser Use** in parallel | `npx tsx --env-file=.env 02-multi-vendor.ts` |
-| [`03-captcha.ts`](03-captcha.ts) | Automated reCAPTCHA detection and resolution | `npx tsx --env-file=.env 03-captcha.ts` |
-| [`04-mfa.ts`](04-mfa.ts) | Two-factor authentication with sealed TOTP seeds and human live view fallback | `npx tsx --env-file=.env 04-mfa.ts` |
-| [`05-personas.ts`](05-personas.ts) | Stable device identities: create, reuse, rotate, and clone fingerprints | `npx tsx --env-file=.env 05-personas.ts` |
-| [`06-playwright.ts`](06-playwright.ts) | Connect standard Playwright directly over Oya's universal CDP gateway | `npx tsx --env-file=.env 06-playwright.ts` |
+| [`01-quickstart.ts`](sdk/01-quickstart.ts) | Spin up an orchestrated browser and drive it with natural language AI | `npx tsx --env-file=.env sdk/01-quickstart.ts` |
+| [`02-captcha.ts`](sdk/02-captcha.ts) | Automated reCAPTCHA detection and resolution | `npx tsx --env-file=.env sdk/02-captcha.ts` |
+| [`03-mfa.ts`](sdk/03-mfa.ts) | Two-factor authentication with sealed TOTP seeds and human live view fallback | `npx tsx --env-file=.env sdk/03-mfa.ts` |
+| [`04-personas.ts`](sdk/04-personas.ts) | Stable device identities: create, reuse, rotate, and clone fingerprints | `npx tsx --env-file=.env sdk/04-personas.ts` |
+| [`demo.ts`](sdk/demo.ts) | 🎬 Interactive tour of every capability | `npx tsx --env-file=.env sdk/demo.ts` |
+
+### 🎭 [`playwright/`](playwright/): bring your own tools
+
+| File | Feature Demonstrated | Run Command |
+|:---|:---|:---|
+| [`01-connect.ts`](playwright/01-connect.ts) | Connect standard Playwright directly over Oya's universal CDP gateway | `npx tsx --env-file=.env playwright/01-connect.ts` |
+| [`reddit/`](playwright/reddit/) | 🔎 Scrape Reddit with 10 parallel browsers through a residential-proxy profile | `npx tsx --env-file=.env playwright/reddit/scrape.ts` |
+
+### 🌐 [`multi-vendor/`](multi-vendor/): one API, many clouds
+
+| File | Feature Demonstrated | Run Command |
+|:---|:---|:---|
+| [`01-multi-vendor.ts`](multi-vendor/01-multi-vendor.ts) | Execute identical automation across **Oya Cloud, Browserbase, Steel, Anchor, and Browser Use** in parallel | `npx tsx --env-file=.env multi-vendor/01-multi-vendor.ts` |
 
 ---
 
@@ -45,19 +59,19 @@ cp .env.example .env
 
 ---
 
-## 🎬 The Grand Interactive Tour: `demo.ts`
+## 🎬 The Grand Interactive Tour: `sdk/demo.ts`
 
-`demo.ts` is an end-to-end interactive showcase that guides you through every capability, pausing for `Enter` between each step:
+[`sdk/demo.ts`](sdk/demo.ts) is an end-to-end interactive showcase that guides you through every capability, pausing for `Enter` between each step:
 
 ```bash
 # Interactive mode (pauses between steps)
-npx tsx --env-file=.env demo.ts
+npx tsx --env-file=.env sdk/demo.ts
 
 # Non-stop mode (runs straight through)
-npx tsx --env-file=.env demo.ts --no-pause
+npx tsx --env-file=.env sdk/demo.ts --no-pause
 ```
 
-### What `demo.ts` Executes:
+### What the Tour Executes:
 
 1. **Multi-Vendor Orchestration:** Tests starting browsers across configured providers.
 2. **Deterministic Persona Creation:** Seeds a stable hardware profile and residential exit IP.
