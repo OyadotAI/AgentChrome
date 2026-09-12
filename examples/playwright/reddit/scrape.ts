@@ -21,6 +21,7 @@ async function search(page: Page, query: string) {
   await page.waitForSelector('a[data-testid="post-title"]', { timeout: 30_000 }).catch(async () => {
     throw new Error(`no results (${await page.title() || 'untitled page'}): ${(await page.innerText('body')).slice(0, 120)}`);
   });
+  
   const hits = await page.$$eval('a[data-testid="post-title"]', (links, max) =>
     links.slice(0, max).map((a) => ({ title: a.textContent!.trim(), url: (a as HTMLAnchorElement).href })), HITS);
 
