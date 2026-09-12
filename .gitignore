@@ -12,4 +12,6 @@ server/downloads/
 server/ui-static/
 qa/
 supabase/.temp/
+# CLI link state: project ref and pooler URL, not for a public repo
+server/supabase/.temp/
 recorded-video/
