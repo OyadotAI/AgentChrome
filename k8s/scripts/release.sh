@@ -94,12 +94,15 @@ npm version "$VERSION" --no-git-tag-version --allow-same-version \
 # release. (The prod workflow overwrites server.json's version from the tag when
 # it publishes, but the committed file is what a reader sees.)
 log_info "Updating .claude-plugin/plugin.json and server.json to $VERSION"
+# A string replace, not parse-and-reserialize: these are hand-formatted files
+# and JSON.stringify would reflow every array in them on each release.
 node -e '
   const fs = require("fs");
   for (const f of [".claude-plugin/plugin.json", "server.json"]) {
-    const j = JSON.parse(fs.readFileSync(f, "utf8"));
-    j.version = process.argv[1];
-    fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n");
+    const before = fs.readFileSync(f, "utf8");
+    const after = before.replace(/"version": "[^"]*"/, `"version": "${process.argv[1]}"`);
+    if (after === before) { console.error(`${f}: no version field to update`); process.exit(1); }
+    fs.writeFileSync(f, after);
   }
 ' "$VERSION"
 

@@ -246,7 +246,16 @@ try {
   chrome.kill('SIGTERM');
   await exited;
   await new Promise((r) => site.close(r));
-  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  // Chrome's children — zygote, renderers, the crashpad handler — are not in
+  // this process's tree and keep writing to the profile for a moment after the
+  // parent exits, so the directory can refill under rmSync and throw ENOTEMPTY.
+  // A leftover temp directory must not turn a green suite red: retry for a
+  // while, then say so and move on.
+  try {
+    rmSync(profile, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
+  } catch (e) {
+    console.warn(`  ⚠️  left ${profile} behind (${e.code}); Chrome was still writing to it`);
+  }
 }
 
 console.log('\n──────────────────────────────────────────────────');
