@@ -1,4 +1,5 @@
 import { control, projectId, instanceId } from './control/service.js';
+import { openRelay } from './cdp-relay.js';
 import { forwardGateway } from './control/cluster.js';
 /**
  * CDP gateway.
@@ -280,8 +281,9 @@ export async function handleUpgrade(req, socket, head) {
   //
   // "Connect Playwright to *this* browser" from the console. The registry
   // browser stays where it is; this is a second CDP client on the same
-  // upstream, which Chrome allows. Only CDP-backed browsers have an endpoint —
-  // an Oya client is driven over its own socket and has nothing to hand out.
+  // upstream, which Chrome allows. An Oya client has no endpoint to dial, so its
+  // CDP is relayed over the socket it dialled us on (cdp-relay.js) — if it
+  // enrolled with its front door on.
   const attachId = url.searchParams.get('browser');
   if (attachId) {
     const target = registry.get(attachId);
@@ -289,18 +291,21 @@ export async function handleUpgrade(req, socket, head) {
       metrics.gatewayConnects.inc({ outcome: 'unknown_browser' });
       return deny(404, 'Not Found');
     }
-    if (!target.driver?.wsUrl) {
+    if (!target.driver?.wsUrl && !target.cdp) {
       metrics.gatewayConnects.inc({ outcome: 'not_attachable' });
       return deny(409, 'Not Attachable');
     }
     let upstream;
     try {
-      upstream = new WebSocket(target.driver.wsUrl, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: 20_000 });
-      await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('upstream connect timed out')), 20_000);
-        upstream.once('open', () => { clearTimeout(t); resolve(); });
-        upstream.once('error', (e) => { clearTimeout(t); reject(e); });
-      });
+      if (!target.driver?.wsUrl) upstream = await openRelay(target, attachId);
+      else {
+        upstream = new WebSocket(target.driver.wsUrl, { maxPayload: 256 * 1024 * 1024, handshakeTimeout: 20_000 });
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error('upstream connect timed out')), 20_000);
+          upstream.once('open', () => { clearTimeout(t); resolve(); });
+          upstream.once('error', (e) => { clearTimeout(t); reject(e); });
+        });
+      }
     } catch (err) {
       metrics.gatewayConnects.inc({ outcome: 'attach_failed' });
       audit({ action: 'gateway.connect', actorKey: token, outcome: 'error', targetType: 'browser', targetId: attachId, meta: { error: err.message }, req });
@@ -312,7 +317,7 @@ export async function handleUpgrade(req, socket, head) {
       // Nothing to release: the browser belongs to the registry, and stays.
       release: () => {},
     });
-    session.upstreamUrl = target.driver.wsUrl;
+    session.upstreamUrl = target.driver?.wsUrl || `relay:${attachId}`;
     session.attachedTo = attachId;
     await control().store.transact(async tx => { tx.put('attachment', session.id, { id: session.id, project: projectId(token), instance: instanceId, leaseUntil: Date.now() + 120000, browserId: attachId }); });
     session.authToken = authToken || token;

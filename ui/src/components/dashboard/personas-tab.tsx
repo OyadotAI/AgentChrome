@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, ShieldCheck, Users } from 'lucide-react';
+import { Globe, Plus, ShieldCheck, Users } from 'lucide-react';
 import { ago } from '@/lib/api-client';
 import type { Persona, BrowserRow } from './types';
 import { platformLabel } from './types';
 import PersonaForm from './persona-form';
 import PersonaDrawer from './persona-drawer';
+import ProxiesDialog from './proxies-dialog';
 
 interface Props {
   apiKey: string;
@@ -25,6 +26,7 @@ interface Props {
  */
 export default function PersonasTab({ apiKey, browsers, personas, refresh, openId, onOpen, onShowBrowsers, now }: Props) {
   const [creating, setCreating] = useState(false);
+  const [proxies, setProxies] = useState(false);
   const open = personas.find((p) => p.id === openId) || null;
 
   return (
@@ -34,6 +36,7 @@ export default function PersonasTab({ apiKey, browsers, personas, refresh, openI
           <h2 className="text-[22px] font-medium tracking-tight text-text">Profiles <span className="ml-2 text-[14px] text-text-dim">{personas.length}</span></h2>
           <p className="text-[12px] text-text-muted">Saved account sessions, a consistent device, and an optional second factor.</p>
         </div>
+        <button className="btn-ghost h-9" onClick={() => setProxies(true)}><Globe className="h-3.5 w-3.5" /> Proxies</button>
         <button className="btn-primary h-9" onClick={() => setCreating(true)}><Plus className="h-3.5 w-3.5" /> New profile</button>
       </div>
 
@@ -94,6 +97,7 @@ export default function PersonasTab({ apiKey, browsers, personas, refresh, openI
         )}
       </div>
 
+      <ProxiesDialog open={proxies} onClose={() => setProxies(false)} apiKey={apiKey} onChanged={refresh} />
       <PersonaForm open={creating} onClose={() => setCreating(false)} apiKey={apiKey} onCreated={() => refresh()} />
       <PersonaDrawer persona={open} onClose={() => onOpen(null)} apiKey={apiKey} browsers={browsers} onChanged={refresh} onShowBrowsers={onShowBrowsers} now={now} />
     </div>

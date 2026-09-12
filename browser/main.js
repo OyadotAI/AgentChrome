@@ -17,7 +17,7 @@ const { applyTelemetryFlags, applyDomainBlocking } = require('./anonymity/teleme
 const { buildInjectionScript } = require('./anonymity/inject');
 const { createPersonaApplier } = require('./anonymity/apply');
 const { LoginState } = require('./login-state');
-const { configureProxy, applyDNSLeakPrevention } = require('./anonymity/proxy');
+const { configureProxy, takeProxyBytes, applyDNSLeakPrevention } = require('./anonymity/proxy');
 const { ProfileStore } = require('./anonymity/profile-store');
 
 // Default to light mode
@@ -924,7 +924,7 @@ app.whenReady().then(async () => {
   createWindow();
   if (CDP_PORT) require('./cdp-front-door').start({
     port: CDP_PORT, upstream: CDP_PORT + 1,
-    host: process.env.OYA_DOCKER === 'true' ? '0.0.0.0' : '127.0.0.1',
+    host: process.env.OYA_REMOTE_DEBUGGING_HOST || (process.env.OYA_DOCKER === 'true' ? '0.0.0.0' : '127.0.0.1'),
     tabs: () => tabs,
     // Outside browsing mode a tab is never laid out, and a page with a 0x0
     // viewport is both broken and an obvious bot.
@@ -1577,6 +1577,8 @@ function connect() {
         persona: config.persona,
         provider: config.provider || (process.env.OYA_DOCKER ? 'oya-selfhosted' : 'oya-desktop'),
         enrollment_token: process.env.OYA_ENROLLMENT_TOKEN,
+        // The server may relay CDP to our front door over this socket.
+        cdp: !!CDP_PORT,
       }));
     });
 
@@ -1597,6 +1599,7 @@ function connect() {
 
     socket.on('close', (code) => {
       wsReady = false;
+      closeCdpRelays();
       clearInterval(pingInterval);
       sendStatus();
       // Don't reconnect on fatal/intentional close codes
@@ -1616,6 +1619,7 @@ function connect() {
 }
 
 function disconnect() {
+  closeCdpRelays();
   flushCookieChanges();
   stopStream();
   clearTimeout(reconnectTimer); clearInterval(pingInterval);
@@ -1679,8 +1683,37 @@ async function handleServerMessage(msg) {
     case 'stream_start': startStream(msg.fps || 2); break;
     case 'stream_stop': stopStream(); break;
     case 'cmd': handleCommand(msg); break;
+    case 'cdp_open': openCdpRelay(msg.sid); break;
+    case 'cdp': cdpRelays.get(msg.sid)?.send(String(msg.data)); break;
+    case 'cdp_close': { const sock = cdpRelays.get(msg.sid); cdpRelays.delete(msg.sid); sock?.close(); break; }
   }
 }
+
+// ─── CDP relay ───
+// The server's gateway reaches our CDP front door through the control socket,
+// so a sandbox or a desktop behind NAT needs no inbound port. sid → local socket.
+const cdpRelays = new Map();
+
+async function openCdpRelay(sid) {
+  const fail = (error) => { cdpRelays.delete(sid); wsSend({ type: 'cdp_closed', sid, error }); };
+  if (!CDP_PORT) return fail('CDP is off in this browser. Start it with OYA_REMOTE_DEBUGGING_PORT set.');
+  try {
+    const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).json();
+    const sock = new WebSocket(`ws://127.0.0.1:${CDP_PORT}${new URL(webSocketDebuggerUrl).pathname}`, { perMessageDeflate: false, maxPayload: 256 * 1024 * 1024 });
+    cdpRelays.set(sid, sock);
+    sock.on('open', () => wsSend({ type: 'cdp_opened', sid }));
+    sock.on('message', (data) => wsSend({ type: 'cdp', sid, data: data.toString() }));
+    sock.on('close', () => { if (cdpRelays.delete(sid)) wsSend({ type: 'cdp_closed', sid }); });
+    sock.on('error', (e) => { if (cdpRelays.has(sid)) fail(e.message); });
+  } catch (e) { fail(e.message); }
+}
+
+function closeCdpRelays() {
+  for (const sock of cdpRelays.values()) try { sock.close(); } catch {}
+  cdpRelays.clear();
+}
+
+let proxyBytesUnsent = 0;
 
 function startPingLoop() {
   clearInterval(pingInterval); missedPongs = 0;
@@ -1688,6 +1721,10 @@ function startPingLoop() {
     missedPongs++;
     if (missedPongs > 4) { clearInterval(pingInterval); if (ws) try { ws.close(); } catch {} return; }
     wsSend({ type: 'ping' });
+    // Residential proxy traffic since the last beat; kept for the next one if the send fails.
+    const proxyBytes = takeProxyBytes();
+    if (proxyBytes && !wsSend({ type: 'proxy_bytes', bytes: proxyBytes })) proxyBytesUnsent += proxyBytes;
+    else if (proxyBytesUnsent && wsSend({ type: 'proxy_bytes', bytes: proxyBytesUnsent })) proxyBytesUnsent = 0;
   }, 20000);
 }
 

@@ -145,4 +145,32 @@ for (const [host, want] of [['127.0.0.1:9222', true], ['localhost:9222', true], 
   assert.strictEqual(localHost({ headers: { host } }), want, `localHost(${JSON.stringify(host)})`);
 }
 
-console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup, shm, persona isolation and the CDP front door guarded');
+// The server sends a proxy as a URL. A config without a host used to mean
+// "direct", so every persona proxy was silently ignored.
+const { normalizeProxy } = require('./anonymity/proxy');
+const fromServer = normalizeProxy({ url: 'http://gate.example.com:7000', username: 'u-session-1', password: 'pw' });
+assert.deepStrictEqual([fromServer.type, fromServer.host, fromServer.port, fromServer.username], ['http', 'gate.example.com', 7000, 'u-session-1'],
+  'a server proxy URL must become host/port/type or the browser goes direct');
+assert.strictEqual(normalizeProxy({ host: 'h', port: 1 }).host, 'h', 'a host/port proxy passes through');
+assert.strictEqual(normalizeProxy(null), null, 'no proxy stays no proxy');
+
+// Residential proxy bytes are billed per GB, so every byte both ways must be counted.
+(async () => {
+  const net = require('net');
+  const { meter, takeProxyBytes } = require('./anonymity/proxy');
+  const echo = net.createServer((s) => s.pipe(s));
+  await new Promise((r) => echo.listen(0, '127.0.0.1', r));
+  const port = await meter('127.0.0.1', echo.address().port);
+  assert.strictEqual(await meter('127.0.0.1', echo.address().port), port, 'one meter per gateway');
+  const got = await new Promise((resolve) => {
+    const c = net.connect(port, '127.0.0.1', () => c.write('hello'));
+    c.once('data', (d) => { c.destroy(); resolve(d.toString()); });
+  });
+  assert.strictEqual(got, 'hello', 'the meter passes traffic through untouched');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.strictEqual(takeProxyBytes(), 10, 'bytes are counted in both directions');
+  assert.strictEqual(takeProxyBytes(), 0, 'and reset once reported');
+  echo.close();
+  console.log('ok — tabs, cookies, sends, updates, renderer, tab waits, CDP setup, shm, persona isolation, the CDP front door guarded, proxies applied and metered');
+  process.exit(0);
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -140,6 +140,10 @@ export async function createSandbox({ apiKey, name, persona, browserId } = {}) {
       ...(persona ? { OYA_PERSONA: persona } : {}),
       // So the control plane knows a Stop must destroy this sandbox.
       OYA_PROVIDER: 'oya-cloud',
+      // CDP front door for Playwright and friends, reached only through the
+      // control socket relay (cdp-relay.js). Loopback: no port leaves the sandbox.
+      OYA_REMOTE_DEBUGGING_PORT: '9222',
+      OYA_REMOTE_DEBUGGING_HOST: '127.0.0.1',
     },
     autoStopInterval: config.ttlMinutes,
     autoDeleteInterval: 0,

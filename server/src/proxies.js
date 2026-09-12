@@ -12,7 +12,10 @@
  * health) rather than inventing a second shape for the same problem.
  */
 
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
+import http from 'http';
+import https from 'https';
+import tls from 'tls';
 import { sealText, openText, haveSecret } from './secrets.js';
 import { metrics } from './metrics.js';
 import { assertSafeTarget } from './net-guard.js';
@@ -192,20 +195,54 @@ export function assigned(personaId) {
  */
 export async function check(proxy) {
   const { url, username, password } = credentials(proxy);
-  const target = process.env.OYA_PROXY_CHECK_URL || 'https://api.ipify.org?format=json';
+  const target = new URL(process.env.OYA_PROXY_CHECK_URL || 'https://api.ipify.org?format=json');
   try {
-    const { ProxyAgent } = await import('undici');
-    const auth = username ? `${encodeURIComponent(username)}:${encodeURIComponent(password || '')}@` : '';
-    const dispatcher = new ProxyAgent(url.replace('://', `://${auth}`));
-    const res = await fetch(target, { dispatcher, signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`check returned ${res.status}`);
-    const body = await res.json();
+    const body = JSON.parse(await getVia(new URL(url), username, password, target));
     proxy.succeed(body.ip || body.origin || null);
     return { ok: true, exitIp: proxy.exitIp };
   } catch (e) {
     proxy.fail();
     return { ok: false, error: e.message };
   }
+}
+
+/**
+ * GET `target` through an http(s) proxy with the standard library: CONNECT to
+ * the target, then TLS inside the tunnel when the target is https. (This used
+ * to import undici, which the server does not depend on, so every check
+ * failed and put a working proxy into cooldown.)
+ */
+function getVia(proxyUrl, username, password, target) {
+  const secureTarget = target.protocol === 'https:';
+  const port = Number(target.port) || (secureTarget ? 443 : 80);
+  const auth = username ? { 'Proxy-Authorization': `Basic ${Buffer.from(`${username}:${password || ''}`).toString('base64')}` } : {};
+  return new Promise((resolve, reject) => {
+    let tunnel;
+    const req = (proxyUrl.protocol === 'https:' ? https : http).request({
+      host: proxyUrl.hostname, port: Number(proxyUrl.port) || (proxyUrl.protocol === 'https:' ? 443 : 80),
+      method: 'CONNECT', path: `${target.hostname}:${port}`, headers: { host: `${target.hostname}:${port}`, ...auth },
+    });
+    const timer = setTimeout(() => { req.destroy(); tunnel?.destroy(); reject(new Error('proxy check timed out')); }, CHECK_TIMEOUT_MS);
+    const finish = (err, body) => { clearTimeout(timer); tunnel?.destroy(); err ? reject(err) : resolve(body); };
+    req.on('error', (e) => finish(e));
+    req.on('connect', (res, socket) => {
+      tunnel = socket;
+      if (res.statusCode !== 200) return finish(new Error(`proxy answered ${res.statusCode}`));
+      const get = (secureTarget ? https : http).request({
+        host: target.hostname, port, path: target.pathname + target.search, method: 'GET', agent: false,
+        headers: { host: target.host, connection: 'close' },
+        createConnection: () => (secureTarget ? tls.connect({ socket, servername: target.hostname }) : socket),
+      }, (r) => {
+        let data = '';
+        r.setEncoding('utf8');
+        r.on('data', (c) => { data += c; });
+        r.on('end', () => (r.statusCode === 200 ? finish(null, data) : finish(new Error(`check returned ${r.statusCode}`))));
+      });
+      get.on('error', (e) => finish(e));
+      get.end();
+    });
+    req.end();
+  });
 }
 
 export async function checkAll(owner) {
@@ -233,6 +270,30 @@ export function coherence(persona, fingerprint, proxy) {
   return {
     checked: true, ok, country, timezone: zone,
     detail: ok ? null : `persona ${persona.id} reports ${zone} but exits in ${country}`,
+  };
+}
+
+/**
+ * A residential exit out of the box, from one vendor gateway the operator pays
+ * for (OYA_RESIDENTIAL_PROXY_URL). Used only when a persona has no proxy of its
+ * own. `{session}` becomes a sticky id derived from the persona, so an identity
+ * keeps its exit IP across connects; `{geo}` becomes its two-letter country.
+ * Vendors spell these inside the username, e.g.
+ *   http://user-country-{geo}-session-{session}:pass@gate.vendor.com:7000
+ * ponytail: sticky for as long as the vendor holds a session (often 30 min to
+ * 24 h); a per-persona vendor sub-user is the upgrade if IPs must never move.
+ */
+export function residential(persona, env = process.env) {
+  const template = env.OYA_RESIDENTIAL_PROXY_URL;
+  if (!template || !persona?.id) return null;
+  const geo = String(persona.proxy?.geo || env.OYA_RESIDENTIAL_PROXY_GEO || 'US').slice(0, 2).toLowerCase();
+  const session = createHash('sha256').update(`residential:${persona.id}`).digest('hex').slice(0, 16);
+  const u = new URL(template.replaceAll('{session}', session).replaceAll('{geo}', geo));
+  return {
+    url: `${u.protocol}//${u.host}`,
+    username: decodeURIComponent(u.username) || null,
+    password: decodeURIComponent(u.password) || null,
+    geo: geo.toUpperCase(),
   };
 }
 

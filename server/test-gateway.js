@@ -319,15 +319,39 @@ try {
     });
     assert(foreignResult === 404, `another key cannot attach to it (got ${foreignResult})`);
 
-    registry.add('oya-1', { apiKey: 'tenant-key', name: 'Oya 1', clientType: 'oya', provider: 'oya-desktop', ws: { close() {} } });
+    registry.add('oya-1', { apiKey: 'tenant-key', name: 'Oya 1', clientType: 'oya', provider: 'oya-desktop', ws: { close() {}, send() {} } });
     const notCdp = new WebSocket(`ws://${origin}/connect?token=tenant-key&browser=oya-1`);
     const notCdpResult = await new Promise((resolve) => {
       notCdp.once('unexpected-response', (_req, res) => resolve(res.statusCode));
       notCdp.once('error', () => resolve('error'));
       notCdp.once('open', () => resolve('open'));
     });
-    assert(notCdpResult === 409, `an Oya-client browser has no CDP endpoint to attach to (got ${notCdpResult})`);
-    registry.remove('fleet-1'); registry.remove('oya-1');
+    assert(notCdpResult === 409, `an Oya client with its front door off has nothing to attach to (got ${notCdpResult})`);
+
+    // An Oya client with its front door on: CDP rides its control socket. This
+    // stands in for main.js's relay, bridging to the real Chrome.
+    const { onBrowserMessage } = await import('./src/cdp-relay.js');
+    const local = new Map(), told = [];
+    const control = { close() {}, send(text) {
+      const m = JSON.parse(text); told.push(m.type);
+      if (m.type === 'cdp_open') {
+        const sock = new WebSocket(chromeWs); local.set(m.sid, sock);
+        sock.on('open', () => onBrowserMessage('oya-2', { type: 'cdp_opened', sid: m.sid }));
+        sock.on('message', (d) => onBrowserMessage('oya-2', { type: 'cdp', sid: m.sid, data: d.toString() }));
+      }
+      if (m.type === 'cdp') local.get(m.sid).send(m.data);
+      if (m.type === 'cdp_close') local.get(m.sid).close();
+    } };
+    registry.add('oya-2', { apiKey: 'tenant-key', name: 'Oya 2', clientType: 'oya', provider: 'oya-cloud', cdp: true, ws: control });
+    const relayed = await client('&browser=oya-2');
+    const relayedWhere = await evaluate(relayed, 'location.search');
+    assert(relayedWhere === '?fleet=one', `a CDP client drives an Oya client through the relay (at "${relayedWhere}")`);
+    relayed.conn.close();
+    // The session outlives its client for the grace period, so end it the way expiry would.
+    await [...sessions.values()].find((x) => x.attachedTo === 'oya-2').destroy('grace expired');
+    assert(told.includes('cdp_close'), 'ending the session closes the relay in the browser');
+    assert(registry.isConnected('oya-2'), 'and the Oya browser stays in the fleet');
+    registry.remove('fleet-1'); registry.remove('oya-1'); registry.remove('oya-2');
   }
 } catch (e) {
   console.log(`  ❌ threw: ${e.message}\n${e.stack?.split('\n').slice(0, 4).join('\n')}`);

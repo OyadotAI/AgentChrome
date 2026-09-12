@@ -14,6 +14,7 @@ import * as personas from './personas.js';
 import * as proxies from './proxies.js';
 import * as keyConfig from './key-config.js';
 import { isProvisioned } from './sandbox.js';
+import { onBrowserMessage as onRelayMessage, closeRelays } from './cdp-relay.js';
 import { fingerprint as personaOwner } from './audit.js';
 
 /** One place both client types report through, so the numbers are comparable. */
@@ -40,6 +41,7 @@ export function handleConnection(ws, req) {
   let apiKey = null;
   let persona = null;
   let authenticated = false;
+  let residentialProxy = false;
   let pingTimer = null;
   let lastPong = Date.now();
 
@@ -154,6 +156,7 @@ export function handleConnection(ws, req) {
       if (ws.readyState !== 1) { personas.release(persona, browserId); return; }
       registry.add(browserId, {
         ws, apiKey: msg.api_key, name: msg.browser_name || 'Browser', clientType: 'oya', persona, provider,
+        cdp: msg.cdp === true,
       });
       registry.get(browserId).authToken = presentedKey;
       if (provider === 'oya-desktop') await keyConfig.set(apiKey, { desktop_seen_at: new Date().toISOString() });
@@ -164,11 +167,16 @@ export function handleConnection(ws, req) {
 
       // The proxy is part of the identity, so it travels with the fingerprint.
       const proxy = proxies.forPersona(personaOwner(apiKey), persona);
-      if (proxy) {
-        fingerprint.proxy = proxies.credentials(proxy);
-        const coherent = proxies.coherence(persona, fingerprint, proxy);
+      // Only in sandboxes we run: the gateway credentials are the operator's
+      // account, and a desktop the customer controls could lift them.
+      const residential = provider === 'oya-cloud' && !proxy && !fingerprint.proxy?.host && proxies.residential(persona);
+      if (proxy || residential) {
+        // metered: the browser counts bytes through it, since the vendor bills per GB.
+        fingerprint.proxy = proxy ? proxies.credentials(proxy) : { ...residential, metered: true };
+        const coherent = proxies.coherence(persona, fingerprint, proxy || residential);
         if (coherent.checked && !coherent.ok) console.warn(`[proxies] ${coherent.detail}`);
       }
+      residentialProxy = !!residential;
 
       ws.send(JSON.stringify({
         type: 'auth_ok',
@@ -194,6 +202,20 @@ export function handleConnection(ws, req) {
     }
 
     if (!authenticated) return;
+
+    // ── Residential proxy bytes, counted in the sandbox (billed per GB) ──
+    if (msg.type === 'proxy_bytes') {
+      const bytes = Math.round(Number(msg.bytes));
+      // Only sandboxes we run are given the proxy, so their count is trusted; the cap bounds a bad report.
+      if (residentialProxy && registry.get(browserId)?.ws === ws && bytes > 0) usage.record(apiKey, 'residential_proxy_bytes', Math.min(bytes, 2 ** 34));
+      return;
+    }
+
+    // ── CDP relayed for a gateway client (cdp-relay.js) ──
+    if (msg.type === 'cdp' || msg.type === 'cdp_opened' || msg.type === 'cdp_closed') {
+      if (registry.get(browserId)?.ws === ws) onRelayMessage(browserId, msg);
+      return;
+    }
 
     // ── Ping from browser — respond with pong ──
     if (msg.type === 'ping') {
@@ -329,6 +351,7 @@ export function handleConnection(ws, req) {
           }
         }
 
+        closeRelays(browserId);
         registry.remove(browserId);
         destroyMcpServer(browserId);
         usage.browserDisconnected(apiKey, browserId);

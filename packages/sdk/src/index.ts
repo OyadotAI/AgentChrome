@@ -18,7 +18,7 @@ import {
   OyaError,
   type ControlOverview, type ControlSession, type ControlRole, type ControlCredential, type HumanInputAction, type ProjectSettings, type ControlEvent,
   type BrowserInfo, type Fingerprint, type MfaConfig, type OyaOptions,
-  type PersonaInfo, type PersonaPrefs, type StartOptions, type StartResult, type StopResult,
+  type PersonaInfo, type PersonaPrefs, type ProxyInfo, type ProxyCreate, type StartOptions, type StartResult, type StopResult,
 } from './types.js';
 
 export { Browser, OyaError };
@@ -103,6 +103,20 @@ export class Oya {
     createWebhook: (url: string, types: string[] = []): Promise<{ id: string; secret: string }> => this.http.request('POST', '/api/control/webhooks', { url, types }),
     removeWebhook: (id: string): Promise<{ ok: boolean }> => this.http.request('DELETE', `/api/control/webhooks/${encodeURIComponent(id)}`),
     replayDelivery: (id: string): Promise<{ ok: boolean }> => this.http.request('POST', `/api/control/deliveries/${encodeURIComponent(id)}/replay`, {}),
+  };
+
+  /**
+   * Proxy exits for your personas. A persona takes one at first connect (by its
+   * geo hint) or by `personas.pinProxy`, and keeps it.
+   */
+  readonly proxies = {
+    list: async (): Promise<ProxyInfo[]> =>
+      (await this.http.request<{ proxies: ProxyInfo[] }>('GET', '/api/proxies')).proxies,
+    create: (proxy: ProxyCreate): Promise<ProxyInfo> => this.http.request<ProxyInfo>('POST', '/api/proxies', proxy),
+    remove: async (id: string): Promise<void> => { await this.http.request('DELETE', `/api/proxies/${encodeURIComponent(id)}`); },
+    /** Dial each proxy and learn its real exit IP. Failing ones cool down and are skipped. */
+    check: async (): Promise<Array<{ id: string; ok: boolean; exitIp?: string | null; error?: string }>> =>
+      (await this.http.request<{ results: Array<{ id: string; ok: boolean; exitIp?: string | null; error?: string }> }>('POST', '/api/proxies/check', {})).results,
   };
 
   readonly personas = {

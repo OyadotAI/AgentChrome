@@ -63,9 +63,10 @@ class ConnectionRegistry extends EventEmitter {
    * @param {string}    [opts.provider]  which vendor supplied a hosted browser
    * @param {object}    [opts.persona]   the identity it is running as
    */
-  add(browserId, { ws, apiKey, name, driver = null, clientType = 'oya', provider = null, release = null, persona = null }) {
+  add(browserId, { ws, apiKey, name, driver = null, clientType = 'oya', provider = null, release = null, persona = null, cdp = false }) {
     this.browsers.set(browserId, {
       ws,
+      cdp,
       driver,
       clientType,
       provider,

@@ -288,6 +288,45 @@ try {
   const good = X.coherence(persona, { ...fp, timezone: 'America/Denver' }, { ...px, geo: 'US' });
   assert(good.checked && good.ok === true, 'a Denver timezone behind a US exit is fine');
 
+  // Out of the box: the operator's residential gateway, one sticky session per persona.
+  process.env.OYA_RESIDENTIAL_PROXY_URL = 'http://cust-country-{geo}-session-{session}:pw@gate.example.com:7000';
+  const r1 = X.residential(persona), r2 = X.residential(persona), r3 = X.residential(second);
+  assert(r1.url === 'http://gate.example.com:7000' && r1.password === 'pw', 'the residential gateway is used with no proxy registered');
+  assert(r1.username === r2.username && r1.username !== r3.username, 'each persona keeps its own sticky session');
+  assert(/^cust-country-us-session-[0-9a-f]{16}$/.test(r1.username), `and exits in its country, US by default (got ${r1.username})`);
+  const de = P.create('tenant-key', { name: 'berlin', proxy: { geo: 'DE' } });
+  assert(X.residential(de).username.includes('country-de-'), 'a persona geo hint picks the country');
+  delete process.env.OYA_RESIDENTIAL_PROXY_URL;
+  assert(X.residential(persona) === null, 'unset, browsers go direct as before');
+
+  // The check tunnels through the proxy with the standard library and learns the exit IP.
+  // It once imported a package the server does not ship, so every check failed and
+  // put working proxies into cooldown.
+  {
+    const net = await import('net');
+    const http = await import('http');
+    const ipSite = http.createServer((_q, s) => s.end(JSON.stringify({ ip: '203.0.113.9' })));
+    await new Promise((r) => ipSite.listen(0, '127.0.0.1', r));
+    let sawAuth = '';
+    const tunnel = http.createServer();
+    tunnel.on('connect', (req, sock) => {
+      sawAuth = req.headers['proxy-authorization'] || '';
+      const [host, port] = req.url.split(':');
+      const up = net.connect(Number(port), host, () => { sock.write('HTTP/1.1 200 Connection Established\r\n\r\n'); up.pipe(sock); sock.pipe(up); });
+      up.on('error', () => sock.destroy());
+    });
+    await new Promise((r) => tunnel.listen(0, '127.0.0.1', r));
+    process.env.OYA_ALLOW_PRIVATE_TARGETS = 'true';
+    process.env.OYA_PROXY_CHECK_URL = `http://127.0.0.1:${ipSite.address().port}/`;
+    const local = await X.register({ owner: ownerFp, label: 'local', url: `http://cu:cp@127.0.0.1:${tunnel.address().port}` });
+    const checked = await X.check(local);
+    assert(checked.ok && checked.exitIp === '203.0.113.9', `a proxy check learns the exit IP through the tunnel (got ${JSON.stringify(checked)})`);
+    assert(sawAuth === `Basic ${Buffer.from('cu:cp').toString('base64')}`, 'and authenticates to the proxy');
+    X.remove(ownerFp, local.id);
+    tunnel.close(); ipSite.close();
+    delete process.env.OYA_ALLOW_PRIVATE_TARGETS; delete process.env.OYA_PROXY_CHECK_URL;
+  }
+
   console.log('\n14. Proxies over the API...');
   const proxyViaApi = await call('/api/proxies', { method: 'POST', key: 'tenant-key',
     body: { label: 'api', url: 'http://a:b@example.com:3128', geo: 'DE' } });

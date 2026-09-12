@@ -244,6 +244,23 @@ const oya = new Oya({
 | `setMfa(id, config)` | Store TOTP secret (sealed at rest with AES-256-GCM) |
 | `clearMfa(id)` | Remove MFA secret from persona |
 
+### Proxies (`oya.proxies`)
+
+| Method | Description |
+|:---|:---|
+| `create({ url, label?, geo?, kind?, maxPersonas? })` | Add a proxy from your vendor. Credentials are encrypted and never returned |
+| `list()` | Your proxies and shared ones, with exit IP, health and how many personas use each |
+| `check()` | Dial every proxy and record its real exit IP |
+| `remove(id)` | Delete a proxy and unpin the personas on it |
+
+```ts
+const proxy = await oya.proxies.create({
+  url: "http://user:pass_session-shopper1@gate.vendor.com:7000", // one sticky session per persona
+  label: "us-shopper-1", geo: "US", kind: "residential", maxPersonas: 1,
+});
+await oya.personas.pinProxy(persona.id, proxy.id);
+```
+
 ### Durable Governance & Control (`oya.control`)
 
 | Method | Description |

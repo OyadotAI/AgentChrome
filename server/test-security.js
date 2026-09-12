@@ -475,6 +475,23 @@ try {
     assert(withHeader.status === 404, `the Authorization header still authenticates (got ${withHeader.status})`);
   }
 
+  console.log('\n1️⃣3️⃣  The operator residential proxy stays in sandboxes we run');
+  {
+    process.env.OYA_RESIDENTIAL_PROXY_URL = 'http://op-country-{geo}-session-{session}:operator-secret@gate.example.com:7000';
+    const usage = await import('./src/usage.js');
+    const desktop = await connectBrowser('Desktop', 'admin-key-security-test');
+    const auth = desktop.messages.find((m) => m.type === 'auth_ok');
+    assert(!JSON.stringify(auth?.fingerprint?.proxy || null).includes('operator-secret'),
+      'a desktop browser is never handed the operator gateway credentials');
+    const before = usage.current('admin-key-security-test').residential_proxy_bytes;
+    desktop.ws.send(JSON.stringify({ type: 'proxy_bytes', bytes: 5_000_000 }));
+    await wait(200);
+    assert(usage.current('admin-key-security-test').residential_proxy_bytes === before,
+      'and cannot put proxy bytes on the bill');
+    desktop.ws.close();
+    delete process.env.OYA_RESIDENTIAL_PROXY_URL;
+  }
+
   // ── Summary ──
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`  ${passed} passed, ${failed} failed`);

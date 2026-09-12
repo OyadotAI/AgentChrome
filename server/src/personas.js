@@ -74,6 +74,13 @@ const shape = (p) => ({
 });
 
 /** Public view: fingerprint included, seed and raw proxy credentials not. */
+/** The operator's residential gateway, when this persona would fall back to it. */
+function residentialExit(p) {
+  if (p.proxy?.host) return null;
+  const r = proxies.residential(p);
+  return r ? { id: 'residential', label: 'Oya residential', geo: r.geo, healthy: true } : null;
+}
+
 export function describe(p) {
   const exit = proxies.assigned(p.id);
   return {
@@ -86,7 +93,7 @@ export function describe(p) {
     maxConcurrent: p.maxConcurrent === null ? Infinity : (p.maxConcurrent ?? DEFAULT_MAX_CONCURRENT),
     proxy: p.proxy ? { host: p.proxy.host, port: p.proxy.port, geo: p.proxy.geo || null } : null,
     // The proxy it is actually on, when one has been assigned or pinned.
-    exit: exit ? { id: exit.id, label: exit.label, geo: exit.geo, healthy: exit.available } : null,
+    exit: exit ? { id: exit.id, label: exit.label, geo: exit.geo, healthy: exit.available } : residentialExit(p),
     prefs: publicPrefs(p.prefs),
     fingerprint: describeProfile(fingerprintFor(p)),
     mfa: mfa.describe(p.id),

@@ -460,3 +460,51 @@ test('durable operations renders members, filters sessions, and fits a mobile vi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('operations-mobile.png'), fullPage: true });
 });
+
+test('profiles manage proxies: add, check, and remove after confirming', async ({ page }) => {
+  await dashboard(page);
+  type Row = { id: string; label: string; kind: string; geo: string | null; shared: boolean; healthy: boolean; available: boolean; exitIp: string | null; lastCheckedAt: string | null; assigned: number; maxPersonas: number; cooldownMsRemaining: number };
+  let proxies: Row[] = [];
+  let posted: Record<string, unknown> | null = null;
+  await page.route('**/api/proxies**', async route => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    if (path.endsWith('/check')) {
+      proxies = proxies.map(p => ({ ...p, exitIp: '203.0.113.9', lastCheckedAt: new Date().toISOString() }));
+      return route.fulfill({ json: { results: proxies.map(p => ({ id: p.id, ok: true, exitIp: p.exitIp })) } });
+    }
+    if (req.method() === 'POST') {
+      posted = req.postDataJSON();
+      const row = { id: 'px-test', label: String(posted!.label), kind: String(posted!.kind), geo: String(posted!.geo), shared: false, healthy: true, available: true, exitIp: null, lastCheckedAt: null, assigned: 0, maxPersonas: Number(posted!.maxPersonas), cooldownMsRemaining: 0 };
+      proxies.push(row);
+      return route.fulfill({ status: 201, json: row });
+    }
+    if (req.method() === 'DELETE') { proxies = proxies.filter(p => !path.endsWith(p.id)); return route.fulfill({ json: { ok: true } }); }
+    return route.fulfill({ json: { proxies } });
+  });
+
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('button', { name: 'Proxies' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Proxies' });
+  await expect(dialog.getByText('No proxies yet')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Add proxy' })).toBeDisabled();
+
+  await dialog.getByLabel('Proxy URL').fill('http://user:pass_session-a1@gate.example.com:7000');
+  await dialog.getByLabel('Label').fill('us-home-1');
+  await dialog.getByLabel('Country').fill('us');
+  await dialog.getByRole('button', { name: 'Add proxy' }).click();
+  const table = dialog.getByRole('table', { name: 'Proxies' });
+  await expect(table.getByText('us-home-1')).toBeVisible();
+  expect(posted).toMatchObject({ url: 'http://user:pass_session-a1@gate.example.com:7000', label: 'us-home-1', geo: 'US', kind: 'residential', maxPersonas: 1 });
+  await expect(dialog.getByLabel('Proxy URL')).toHaveValue('');
+
+  await dialog.getByRole('button', { name: 'Check all' }).click();
+  await expect(table.getByText('203.0.113.9')).toBeVisible();
+
+  const remove = dialog.getByRole('button', { name: 'Remove us-home-1' });
+  await remove.click();
+  await expect(remove).toHaveText('Remove?');
+  expect(proxies).toHaveLength(1);
+  await remove.click();
+  await expect(dialog.getByText('No proxies yet')).toBeVisible();
+});

@@ -112,6 +112,37 @@ export interface Fingerprint {
 /** Device choices made at creation. Fixed for the persona's life. */
 export interface PersonaPrefs { platform?: 'Win32' | 'MacIntel' | 'Linux x86_64'; timezone?: string; locale?: string }
 
+/** A proxy exit. Credentials go in on create and never come back out. */
+export interface ProxyInfo {
+  id: string;
+  label: string;
+  kind: 'residential' | 'datacenter';
+  /** Two-letter country, optionally a region: "US", "US-CA". */
+  geo: string | null;
+  /** Provided by the host rather than this key. Cannot be removed. */
+  shared: boolean;
+  healthy: boolean;
+  /** Healthy and not cooling down after a failure. */
+  available: boolean;
+  /** Where traffic actually leaves, as of the last check. */
+  exitIp: string | null;
+  lastCheckedAt: string | null;
+  /** Personas on it now, out of `maxPersonas`. */
+  assigned: number;
+  maxPersonas: number;
+  cooldownMsRemaining: number;
+}
+
+export interface ProxyCreate {
+  /** http(s)://user:pass@host:port from your vendor. Chromium cannot use SOCKS5 with a password. */
+  url: string;
+  label?: string;
+  geo?: string;
+  kind?: 'residential' | 'datacenter';
+  /** Personas that may share it. Keep 1 for a sticky-session URL so each keeps its own IP. */
+  maxPersonas?: number;
+}
+
 export interface PersonaInfo {
   id: string;
   name: string;

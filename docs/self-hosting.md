@@ -101,6 +101,7 @@ Everything is optional except the secrets you want to survive a restart.
 | `OYA_FLEET_RUNTIME` | `docker` or `k8s` — what starts a governed browser. |
 | `OYA_MANAGED_*` | The governed runtime: network or NetworkPolicy, image, control URL, egress proxy. On Kubernetes the image must be digest-pinned; a tag can move between verification and scheduling. |
 | `OYA_CLOUD_API_KEY` / `OYA_CLOUD_SNAPSHOT` / `OYA_PUBLIC_WS_URL` | Oya Cloud sandboxes, and the public URL they dial back to. |
+| `OYA_RESIDENTIAL_PROXY_URL` | A residential vendor gateway every Oya Cloud browser uses unless its persona has its own proxy. Never sent to desktop browsers, which could extract the credentials. `{session}` and `{geo}` in the username become a sticky per-persona session and its country. Traffic is counted in the sandbox, both directions, and metered per key as `residential_proxy_bytes`. |
 
 Health: `/livez` is liveness, `/readyz` is readiness. `/api/health` answers `ok`
 unconditionally and is not a readiness probe.

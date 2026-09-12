@@ -25,7 +25,7 @@ const USAGE_PATH = process.env.OYA_DATA_DIR
 export const FIELDS = [
   'commands', 'command_errors', 'chat_requests', 'chat_input_tokens', 'chat_output_tokens',
   'browser_seconds', 'browsers_started', 'cookie_pulls', 'frames', 'sandboxes_created',
-  'rate_limited', 'quota_denied', 'bytes_out',
+  'rate_limited', 'quota_denied', 'bytes_out', 'residential_proxy_bytes',
 ];
 
 const hourOf = (d = new Date()) => new Date(Date.UTC(

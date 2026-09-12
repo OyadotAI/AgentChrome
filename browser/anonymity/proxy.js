@@ -8,7 +8,54 @@
  * @param {{ type: string, host: string, port: number, username?: string, password?: string }} proxyConfig
  */
 const authHandlers = new WeakMap();
+/**
+ * The server sends a proxy as { url, username, password }; older profiles and
+ * governance send { host, port, type }. One shape from here on.
+ */
+function normalizeProxy(proxyConfig) {
+  if (!proxyConfig?.url || proxyConfig.host) return proxyConfig;
+  const u = new URL(proxyConfig.url);
+  const type = u.protocol.replace(':', '');
+  return { ...proxyConfig, type, host: u.hostname, port: Number(u.port) || (type === 'https' ? 443 : 80) };
+}
+
+/**
+ * Bytes through the operator's residential proxy, which is billed per GB.
+ * Chromium talks to a local pass-through that pipes to the vendor gateway, so
+ * every byte either way is counted, TLS and headers included — the same thing
+ * the vendor bills. Proxy auth passes through untouched.
+ */
+const net = require('net');
+let meteredBytes = 0;
+const meters = new Map();
+
+function meter(host, port) {
+  const key = `${host}:${port}`;
+  if (!meters.has(key)) {
+    meters.set(key, new Promise((resolve, reject) => {
+      const server = net.createServer((client) => {
+        const upstream = net.connect({ host, port });
+        client.on('data', (d) => { meteredBytes += d.length; });
+        upstream.on('data', (d) => { meteredBytes += d.length; });
+        client.pipe(upstream).pipe(client);
+        const end = () => { client.destroy(); upstream.destroy(); };
+        client.on('error', end); upstream.on('error', end); client.on('close', end); upstream.on('close', end);
+      });
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => resolve(server.address().port));
+    }));
+  }
+  return meters.get(key);
+}
+
+/** Bytes counted since the last call. */
+function takeProxyBytes() { const n = meteredBytes; meteredBytes = 0; return n; }
+
 async function configureProxy(ses, proxyConfig) {
+  proxyConfig = normalizeProxy(proxyConfig);
+  if (proxyConfig?.metered && proxyConfig.host) {
+    proxyConfig = { ...proxyConfig, type: 'http', host: '127.0.0.1', port: await meter(proxyConfig.host, proxyConfig.port) };
+  }
   const { app } = require('electron');
   const previous = authHandlers.get(ses);
   if (previous) { app.removeListener('login', previous); authHandlers.delete(ses); }
@@ -54,4 +101,4 @@ function applyDNSLeakPrevention(app) {
   app.commandLine.appendSwitch('disable-async-dns');
 }
 
-module.exports = { configureProxy, applyDNSLeakPrevention };
+module.exports = { configureProxy, normalizeProxy, meter, takeProxyBytes, applyDNSLeakPrevention };

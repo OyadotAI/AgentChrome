@@ -521,7 +521,7 @@ router.get('/browsers/:browserId', authMiddleware, async (req, res) => {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
   const detail = registry.describe(browserId);
-  if (detail.clientType === 'cdp' && req.principal?.role !== 'viewer') detail.cdpUrl = await browserCdpUrl(req, browserId);
+  if ((detail.clientType === 'cdp' || registry.get(browserId)?.cdp) && req.principal?.role !== 'viewer') detail.cdpUrl = await browserCdpUrl(req, browserId);
   res.json(detail);
 });
 
