@@ -1,0 +1,128 @@
+{
+  "name": "oya-browser",
+  "version": "1.0.64",
+  "description": "AI-controlled browser — your real browser as an MCP server",
+  "main": "main.js",
+  "author": "Oya <hello@oya.ai>",
+  "scripts": {
+    "start": "electron . 2>/dev/null",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:linux": "electron-builder --linux --publish never",
+    "test": "node test-regressions.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "electron": "^35.1.2",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "ai.oya.browser",
+    "productName": "Oya Browser",
+    "artifactName": "Oya.Browser-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "login-state.js",
+      "governance.js",
+      "cdp-front-door.js",
+      "renderer/**/*",
+      "scripts/**/*",
+      "anonymity/**/*"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "Oya Browser",
+            "CFBundleURLSchemes": [
+              "oya"
+            ]
+          }
+        ]
+      }
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Oya.Browser-${version}-x64.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network",
+      "artifactName": "Oya.Browser-${version}-x64.${ext}"
+    },
+    "dmg": {
+      "title": "Oya Browser",
+      "iconSize": 80,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "protocols": [
+      {
+        "name": "Oya Browser",
+        "schemes": [
+          "oya"
+        ]
+      }
+    ],
+    "publish": {
+      "provider": "generic",
+      "url": "https://browser.getoya.ai/downloads",
+      "channel": "latest"
+    }
+  }
+}

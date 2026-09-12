@@ -1,0 +1,63 @@
+name: CI
+
+# Called as a gate by deploy-dev (push to main) and deploy-prod (release tag),
+# so it deliberately does NOT trigger on push itself: that would run the same
+# suite twice on every main push, and the copy that gates nothing is the one
+# people learn to ignore.
+on:
+  pull_request:
+  workflow_call:
+
+# Read-only: this workflow runs code from forks. Nothing here needs a token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix server
+      # No secrets are passed on purpose: the suite must stay hermetic. A test
+      # that only passes with a live Supabase or Daytona key fails here.
+      - run: npm test
+      # The desktop regression suite reads source and needs no Electron binary,
+      # which is the only reason installing browser/ here is cheap.
+      - run: npm ci --prefix browser
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test --prefix browser
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --prefix ui
+      - run: npm run lint --prefix ui
+
+  typecheck:
+    name: Typecheck SDK and CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:sdk
