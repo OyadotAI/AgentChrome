@@ -128,11 +128,13 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
     }).catch(e => toast(message(e, 'Could not load projects'), 'error'));
   }, [token, load, setApiKey, renew, openAny, toast]);
 
-  // The credential expires in an hour; renew it well before that.
+  // The credential expires in an hour; renew it well before that, and at once when the server refuses it (project deleted, access removed).
   useEffect(() => {
     if (!currentId) return;
     const timer = setInterval(() => void renew(currentId), 45 * 60 * 1000);
-    return () => clearInterval(timer);
+    const gone = () => void renew(currentId);
+    window.addEventListener('oya:credential-gone', gone);
+    return () => { clearInterval(timer); window.removeEventListener('oya:credential-gone', gone); };
   }, [currentId, renew]);
 
   useEffect(() => {

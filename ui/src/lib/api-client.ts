@@ -30,6 +30,8 @@ export async function api<T = unknown>(
   try { payload = text ? JSON.parse(text) : null; } catch { payload = text; }
   if (!res.ok) {
     const reason = (payload as { error?: string } | null)?.error || `${method} ${path} failed (${res.status})`;
+    // The credential itself was refused: the project switcher reopens or replaces it.
+    if ([401, 403, 410].includes(res.status)) window.dispatchEvent(new CustomEvent('oya:credential-gone'));
     throw new ApiError(reason, res.status, payload);
   }
   return payload as T;
