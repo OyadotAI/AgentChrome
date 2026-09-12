@@ -11,11 +11,12 @@
 import { createServer } from 'http';
 import express from 'express';
 import { spawn } from 'child_process';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { WebSocket } from 'ws';
 import { createHash } from 'crypto';
+import { removeScratch } from './test-support/scratch.js';
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -336,7 +337,7 @@ try {
   chrome.kill('SIGKILL');
   await new Promise((r) => server.close(r));
   await new Promise((r) => site.close(r));
-  rmSync(DATA, { recursive: true, force: true });
+  removeScratch(DATA);
 }
 
 console.log('\n──────────────────────────────────────────────────');

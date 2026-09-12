@@ -12,12 +12,13 @@
 import { spawn } from 'child_process';
 import { createServer } from 'http';
 import { createServer as createNetServer } from 'net';
-import { mkdtempSync, existsSync, rmSync } from 'fs';
+import { mkdtempSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { removeScratch } from './test-support/scratch.js';
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -121,7 +122,7 @@ try {
   chrome.kill('SIGKILL');
   site.close();
   await new Promise((r) => setTimeout(r, 300));
-  try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  removeScratch(dir);
 }
 
 console.log('\n' + '─'.repeat(50));

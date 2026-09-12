@@ -9,9 +9,10 @@
 
 import { createServer } from 'http';
 import { spawn } from 'child_process';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { removeScratch } from './test-support/scratch.js';
 
 process.env.OYA_PROFILE_SECRET = 'd'.repeat(64);
 delete process.env.OYA_CAPTCHA_API_KEY;
@@ -176,7 +177,7 @@ try {
   chrome.kill('SIGKILL');
   await new Promise((r) => setTimeout(r, 300));
   await new Promise((r) => site.close(r));
-  try { rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  removeScratch(userDataDir);
 }
 
 console.log('\n──────────────────────────────────────────────────');

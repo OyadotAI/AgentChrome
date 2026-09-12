@@ -12,11 +12,12 @@
 import { createServer } from 'http';
 import { spawn } from 'child_process';
 import { once } from 'events';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { CDPDriver } from './src/drivers/cdp.js';
 import { getFingerprintForPersona } from './src/fingerprint.js';
+import { removeScratch } from './test-support/scratch.js';
 
 const CHROME = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -246,16 +247,7 @@ try {
   chrome.kill('SIGTERM');
   await exited;
   await new Promise((r) => site.close(r));
-  // Chrome's children — zygote, renderers, the crashpad handler — are not in
-  // this process's tree and keep writing to the profile for a moment after the
-  // parent exits, so the directory can refill under rmSync and throw ENOTEMPTY.
-  // A leftover temp directory must not turn a green suite red: retry for a
-  // while, then say so and move on.
-  try {
-    rmSync(profile, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 });
-  } catch (e) {
-    console.warn(`  ⚠️  left ${profile} behind (${e.code}); Chrome was still writing to it`);
-  }
+  removeScratch(profile);
 }
 
 console.log('\n──────────────────────────────────────────────────');

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** The public SDK journey, against real Chrome and the real control plane. */
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { removeScratch } from './test-support/scratch.js';
 
 const chromePath = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium'].find(existsSync);
 assert(chromePath, 'Install Chrome to run the login journey test');
@@ -118,6 +119,6 @@ try {
   for (const child of children) if (child.exitCode == null) { const done = once(child, 'exit'); child.kill('SIGTERM'); await done; }
   await logins.drain();
   await new Promise((r) => server.close(r));
-  rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  removeScratch(scratch);
 }
 process.exit(0);

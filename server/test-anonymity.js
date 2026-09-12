@@ -10,11 +10,12 @@
  */
 
 import { spawn } from 'child_process';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createRequire } from 'module';
 import { CDPConnection } from './src/drivers/cdp.js';
+import { removeScratch } from './test-support/scratch.js';
 
 const require = createRequire(import.meta.url);
 const { buildInjectionScript } = require('../browser/anonymity/inject.js');
@@ -201,7 +202,7 @@ try {
   // Chrome holds the profile briefly after SIGKILL; retry rather than throw
   // over a temp directory and mask the test result.
   await new Promise((r) => setTimeout(r, 300));
-  try { rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  removeScratch(userDataDir);
 }
 
 console.log('\n──────────────────────────────────────────────────');

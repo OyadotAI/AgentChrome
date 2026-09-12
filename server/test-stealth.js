@@ -18,12 +18,13 @@
 
 import { spawn } from 'child_process';
 import { createServer } from 'http';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, existsSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createRequire } from 'module';
 import { CDPConnection } from './src/drivers/cdp.js';
 import { userAgentFor, metadataFor } from './src/ua.js';
+import { removeScratch } from './test-support/scratch.js';
 
 const require = createRequire(import.meta.url);
 const { createPersonaApplier } = require('../browser/anonymity/apply.js');
@@ -278,7 +279,7 @@ async function score({ protect }) {
     conn?.close();
     chrome.kill('SIGKILL');
     await new Promise((r) => setTimeout(r, 300));
-    try { rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+    removeScratch(userDataDir);
   }
   return results;
 }
