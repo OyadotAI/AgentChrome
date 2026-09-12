@@ -331,6 +331,24 @@ export async function authMiddleware(req, res, next) {
     const principal = await authenticateToken(token);
     req.authToken = token;
     req.principal = principal;
+    // A share credential is scoped to one session (sessionId set, not a managed
+    // browser). It may only reach its own browser's live view, stream ticket,
+    // status and — for an operator share — input and control. Everything else is
+    // refused, so a shareable link can never see or touch the rest of the project.
+    if (principal.sessionId && principal.role !== 'browser') {
+      const sid = principal.sessionId, full = decodeURIComponent(req.baseUrl + req.path), read = ['GET', 'HEAD'].includes(req.method);
+      // Read-only status/live endpoints, the POST that mints a stream ticket, and
+      // — for a control share only — the POSTs that act. Method is pinned so a
+      // view share can never reach a mutating verb that a whitelisted path grows.
+      const viewRead = [`/api/live/${sid}`, `/api/browsers/${sid}`, `/api/control/sessions/${sid}`];
+      const act = [`/api/control/sessions/${sid}/input`, `/api/control/sessions/${sid}/control`];
+      const allowed = (read && viewRead.includes(full))
+        || (req.method === 'POST' && full === `/api/control/sessions/${sid}/ticket`)
+        || (principal.role === 'operator' && req.method === 'POST' && act.includes(full));
+      if (!allowed) return res.status(403).json({ error: 'This link only grants access to its shared browser' });
+      req.headers.authorization = `Bearer ${principal.key}`;
+      return next();
+    }
     if (principal.role === 'viewer' && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Viewer credentials cannot change resources' });
     if (principal.role !== 'administrator' && /^\/(config|personas|proxies|gateway\/(providers|strategy|profiles))/i.test(req.path) && !['GET', 'HEAD'].includes(req.method)) return res.status(403).json({ error: 'Administrator permission required' });
     // Secrets and recordings are not part of the sanitized viewer surface.

@@ -15,6 +15,8 @@ interface Props {
   onInput?: (line: string) => void;
   /** False while the agent holds control: the view is watch-only, since human input is refused until taken. */
   interactive?: boolean;
+  /** Fill the viewport instead of the panel's bounded 420px window — for the dedicated full-page live route. */
+  large?: boolean;
 }
 
 const SPECIAL: Record<string, string> = {
@@ -30,7 +32,10 @@ const SPECIAL: Record<string, string> = {
  *
  * Bounded on purpose. The fleet is the page; this is a window into one row.
  */
-export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput, interactive = true }: Props) {
+export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput, interactive = true, large = false }: Props) {
+  // The bounded panel window versus the full-page route, which fills the viewport.
+  const fitCap = large ? 'max-h-[calc(100vh-9rem)]' : 'max-h-[420px]';
+  const actualCap = large ? 'max-h-[calc(100vh-9rem)]' : 'max-h-[70vh]';
   const img = useRef<HTMLImageElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [captured, setCaptured] = useState(false);
@@ -221,14 +226,14 @@ export default function LiveView({ frameSrc, fps, frameAgeMs, send, onInput, int
         onMouseUp={onMouseUp}
         onDoubleClick={onDoubleClick}
         onMouseMove={onMouseMove}
-        className={`relative select-none outline-none ${fit === 'fit' ? 'max-h-[420px]' : 'max-h-[70vh] overflow-auto'} ${captured ? 'ring-1 ring-inset ring-accent/60' : ''}`}
+        className={`relative select-none outline-none ${fit === 'fit' ? fitCap : `${actualCap} overflow-auto`} ${captured ? 'ring-1 ring-inset ring-accent/60' : ''}`}
         style={{ cursor: interactive ? 'crosshair' : 'default' }}
         aria-label={interactive ? 'Live view — click to control, Esc to release the keyboard' : 'Live view — watch only while the agent has control'}
       >
         {frameSrc ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img ref={img} src={frameSrc} alt="" draggable={false}
-            className={fit === 'fit' ? 'block h-auto max-h-[420px] w-full object-contain' : 'block max-w-none'} />
+            className={fit === 'fit' ? `block h-auto ${fitCap} w-full object-contain` : 'block max-w-none'} />
         ) : (
           <div className="flex h-[240px] items-center justify-center text-[13px] text-text-dim">Waiting for the first frame…</div>
         )}

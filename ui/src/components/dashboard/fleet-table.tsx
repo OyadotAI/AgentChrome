@@ -6,7 +6,7 @@ import ContextMenu, { type MenuItem } from '@/components/ui/context-menu';
 import type { BrowserRow, Health } from './types';
 import { providerLabel } from './types';
 import type { FleetFilter } from './fleet-strip';
-import { ago, shortId } from '@/lib/api-client';
+import { ago, shortId, api } from '@/lib/api-client';
 import Kbd from '@/components/ui/kbd';
 
 type SortKey = 'name' | 'health' | 'persona' | 'provider' | 'currentUrl' | 'commands' | 'errors' | 'lastSeen' | 'connectedAt';
@@ -71,11 +71,22 @@ export default function FleetTable({
     const http = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
     const ws = http.replace(/^http/, 'ws');
     const copy = (t: string) => navigator.clipboard.writeText(t);
+    // A new tab does not inherit this tab's credential (browsers force target=_blank
+    // to noopener), so carry a scoped token in the link. Open synchronously to stay
+    // within the click gesture, then point the tab once the token is minted.
+    const openStream = async () => {
+      const tab = window.open('', '_blank');
+      try {
+        const { token } = await api<{ token: string }>(`/control/sessions/${encodeURIComponent(r.id)}/share`, { key: apiKey, method: 'POST', body: { control: true } });
+        const url = `/live/${encodeURIComponent(r.id)}#t=${encodeURIComponent(token)}`;
+        if (tab) tab.location.href = url; else window.open(url, '_blank');
+      } catch { tab?.close(); }
+    };
     return [
       { label: 'Open', icon: <PanelRightOpen />, shortcut: '↵', onSelect: () => onSelect(r.id) },
       { label: 'Connect… (code, Playwright, MCP)', icon: <Plug />, onSelect: () => onConnect(r.id) },
       { label: 'Screenshot', icon: <Camera />, shortcut: 'S', onSelect: () => onScreenshot(r.id) },
-      { label: 'Open live stream in a tab', icon: <ExternalLink />, onSelect: () => window.open(`/live/${encodeURIComponent(r.id)}`, '_blank', 'noopener,noreferrer') },
+      { label: 'Open live stream in a tab', icon: <ExternalLink />, onSelect: () => void openStream() },
       { label: 'Copy browser id', icon: <Copy />, separator: true, onSelect: () => copy(r.id) },
       { label: 'Copy MCP URL', icon: <Copy />, onSelect: () => copy(`${http}/mcp/${r.id}`) },
       { label: r.clientType === 'cdp' ? 'Copy CDP attach URL (with key)' : 'Copy CDP attach URL — not a CDP browser', icon: <Copy />,

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import LiveView from '@/components/dashboard/live-view';
 import { api, errorMessage } from '@/lib/api-client';
@@ -20,7 +20,22 @@ export default function LiveBrowserPage() {
   const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState('agent');
 
-  useEffect(() => { setApiKey(consoleCredential()); }, []);
+  // A shared link carries its scoped token in the URL fragment (#t=…), which
+  // never reaches the server or a Referer header. It works with no dashboard
+  // session, so it is what makes a link sendable to someone else. Fall back to
+  // this tab's own console credential when there is no share token.
+  //
+  // Resolve exactly once: it reads the fragment and then strips it, so a second
+  // run (React StrictMode double-invokes effects in dev) would see no fragment
+  // and wrongly fall back to the empty console credential, blanking the token.
+  const resolved = useRef(false);
+  useEffect(() => {
+    if (resolved.current) return;
+    resolved.current = true;
+    const shared = new URLSearchParams(window.location.hash.slice(1)).get('t');
+    if (shared) history.replaceState(null, '', window.location.pathname + window.location.search);
+    setApiKey(shared || consoleCredential());
+  }, []);
   useEffect(() => {
     if (!apiKey) return;
     let cancelled = false;
@@ -53,7 +68,7 @@ export default function LiveBrowserPage() {
     </header>
     {apiKey === '' ? <p>Connect your Oya key in the <Link href="/dashboard" className="underline">dashboard</Link> to view this browser.</p> : <>
       {error && <p role="alert" className="mb-4 rounded-lg border border-red/20 bg-red/5 p-3 text-sm text-red">{error}</p>}
-      <LiveView frameSrc={frame} fps={fps} frameAgeMs={age} send={send} interactive={mode === 'human'} />
+      <LiveView frameSrc={frame} fps={fps} frameAgeMs={age} send={send} interactive={mode === 'human'} large />
     </>}
   </main>;
 }

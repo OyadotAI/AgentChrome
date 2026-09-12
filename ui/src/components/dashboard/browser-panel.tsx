@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Square, RotateCw, ArrowLeft, ArrowRight, Camera, ScanSearch, ExternalLink, Copy, Check, Plug } from 'lucide-react';
+import { X, Square, RotateCw, ArrowLeft, ArrowRight, Camera, ScanSearch, ExternalLink, Copy, Check, Plug, Share2 } from 'lucide-react';
 import { api, ago, errorMessage, shortId } from '@/lib/api-client';
 import { subscribeFrames } from '@/lib/live-stream';
 import { useToast } from './toast';
@@ -129,6 +129,36 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
     navigator.clipboard.writeText(browserId).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); });
   };
 
+  // Mint a token scoped to this one browser (the fragment keeps it out of logs).
+  const mintShare = (control: boolean) =>
+    api<{ token: string }>(`/control/sessions/${encodeURIComponent(browserId)}/share`, { key: apiKey, method: 'POST', body: { control } })
+      .then(r => `${window.location.origin}/live/${encodeURIComponent(browserId)}#t=${encodeURIComponent(r.token)}`);
+
+  // Copy a shareable link to hand to someone else.
+  const share = async (control: boolean) => {
+    setBusy(control ? 'share-control' : 'share-view');
+    try {
+      const url = await mintShare(control);
+      try { await navigator.clipboard.writeText(url); toast(control ? 'Control link copied — expires in 1h, anyone with it can act' : 'View link copied — expires in 1h', 'success'); }
+      catch { toast(url, 'info'); }
+    } catch (e) { toast(errorMessage(e), 'error'); }
+    setBusy(null);
+  };
+
+  // Open the live view in a new tab. A new tab does not inherit this tab's
+  // credential (browsers force target=_blank to noopener), so carry a scoped
+  // token in the link instead. Open the tab synchronously to keep the popup
+  // within the click gesture, then point it once the token is minted.
+  const openStream = async () => {
+    const tab = window.open('', '_blank');
+    setBusy('stream');
+    try {
+      const url = await mintShare(true);
+      if (tab) tab.location.href = url; else window.open(url, '_blank');
+    } catch (e) { tab?.close(); toast(errorMessage(e), 'error'); }
+    setBusy(null);
+  };
+
   const d = detail;
   const cloud = d?.provider === 'oya-cloud';
   // Console input is human input; the server refuses it unless a person holds control.
@@ -211,9 +241,9 @@ export default function BrowserPanel({ apiKey, browserId, onClose, onStop, onOpe
           <button className="btn-ghost" onClick={screenshot} disabled={busy === 'screenshot'}><Camera className="h-3.5 w-3.5" /> Screenshot <Kbd>S</Kbd></button>
           {/* Human-only: re-analyzing renumbers element ids under a running agent. */}
           <button className="btn-ghost" onClick={analyze} disabled={busy === 'analyze' || !human} title={needsControl}><ScanSearch className="h-3.5 w-3.5" /> Elements</button>
-          <a className="btn-ghost" href={`/live/${encodeURIComponent(browserId)}`} target="_blank" rel="noreferrer" title="Open live browser in a new tab">
-            <ExternalLink className="h-3.5 w-3.5" /> Stream
-          </a>
+          <button className="btn-ghost" onClick={openStream} disabled={busy === 'stream'} title="Open live browser in a new tab"><ExternalLink className="h-3.5 w-3.5" /> Stream</button>
+          <button className="btn-ghost" onClick={() => share(false)} disabled={busy === 'share-view'} title="Copy a view-only link to send to someone"><Share2 className="h-3.5 w-3.5" /> Share view</button>
+          <button className="btn-ghost" onClick={() => share(true)} disabled={busy === 'share-control'} title="Copy a link that lets the recipient take control"><Share2 className="h-3.5 w-3.5" /> Share control</button>
         </div>
 
         {/* Stats */}

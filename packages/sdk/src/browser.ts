@@ -169,6 +169,30 @@ export class Browser {
     return `${this.http.baseUrl}/api/live/${this.id}?ticket=${encodeURIComponent(ticket)}`;
   }
 
+  /**
+   * A shareable link to this browser's live view, for handing to a person or
+   * embedding in your own app. The token rides in the URL fragment, so it never
+   * reaches a server log or Referer header. `control: true` lets whoever opens
+   * it take over and act in the browser; otherwise it is view-only. The link
+   * expires (default one hour) and is revocable with `revokeShare(id)`.
+   *
+   * The credential is scoped to this one browser: it cannot see or touch the
+   * rest of your project. Anyone holding the link has that access until it
+   * expires or you revoke it, so treat it like a password.
+   */
+  async shareUrl(
+    { control = false, expiresInSeconds = 3600 }: { control?: boolean; expiresInSeconds?: number } = {},
+  ): Promise<{ url: string; id: string; expiresAt: number | null }> {
+    const c = await this.http.request<{ id: string; token: string; expiresAt: number | null }>(
+      'POST', `/api/control/sessions/${encodeURIComponent(this.id)}/share`, { control, expiresIn: expiresInSeconds });
+    return { url: `${this.http.baseUrl}/live/${encodeURIComponent(this.id)}#t=${encodeURIComponent(c.token)}`, id: c.id, expiresAt: c.expiresAt };
+  }
+
+  /** Revoke a link from `shareUrl()` before it expires, by the id it returned. */
+  async revokeShare(id: string): Promise<void> {
+    await this.http.request('DELETE', `/api/control/credentials/${encodeURIComponent(id)}`);
+  }
+
   /** Counters, health and the last 50 things this browser did. */
   status(): Promise<BrowserDetail> {
     return this.http.request<BrowserDetail>('GET', `/api/browsers/${this.id}`);

@@ -330,6 +330,24 @@ export class ControlService {
   }
   /** A managed browser's own credential: it can only register that session's browser, and it ends with the session. */
   enrollmentCredential(key, sessionId) { return this.#issue(key, { role: 'browser', label: 'Managed browser', expiresAt: null, memberUser: null, sessionId }); }
+  /**
+   * A shareable, expiring credential for one live browser — embed it in a link
+   * and hand it to a viewer, or to another app via the SDK. `control` decides
+   * whether the holder can only watch (viewer) or also take over and act
+   * (operator). The credential is bound to this one session and confined to its
+   * live-view, ticket, input and control endpoints by authMiddleware, so a share
+   * link never becomes project-wide access. Revoke it like any credential.
+   */
+  async share(key, { id, control = false, expiresIn = 3600 } = {}) {
+    const x = await this.findSession(key, id);
+    if (!x || terminal.has(x.state)) throw fault('not_found', 'Ready session not found', 404);
+    const seconds = Math.min(Math.max(Math.floor(Number(expiresIn) || 3600), 60), 30 * 86400);
+    return this.#issue(key, {
+      role: control ? 'operator' : 'viewer',
+      label: control ? 'Shared browser (control)' : 'Shared browser (view)',
+      expiresAt: stamp() + seconds * 1000, memberUser: null, sessionId: id,
+    });
+  }
   async #issue(key, { role, label, expiresAt, memberUser, sessionId = null }) {
     const token = `oya_${randomBytes(32).toString('base64url')}`, digest = hash(token), id = randomUUID();
     const credential = await this.store.transact(async tx => {

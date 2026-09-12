@@ -33,6 +33,9 @@ controlRouter.post('/members/invite', admin, wrap(async (req, res) => res.status
 controlRouter.delete('/members/:id', admin, wrap(async (req, res) => res.json(await removeMember(key(req), req.params.id))));
 controlRouter.post('/credentials', admin, wrap(async (req, res) => res.status(201).json(await control().credential(key(req), req.body))));
 controlRouter.delete('/credentials/:id', admin, wrap(async (req, res) => res.json(await control().revoke(key(req), req.params.id))));
+// A shareable, expiring, revocable credential scoped to one live browser. `control: true`
+// lets the holder take over and act; otherwise it is view-only. Revoke via DELETE /credentials/:id.
+controlRouter.post('/sessions/:id/share', admin, wrap(async (req, res) => res.status(201).json(await control().share(key(req), { id: req.params.id, control: req.body?.control === true, expiresIn: req.body?.expiresIn }))));
 controlRouter.post('/sessions/:id/ticket', wrap(async (req, res) => {
   const x = await control().findSession(key(req), req.params.id);
   if (x?.state !== 'ready') throw fault('not_found', 'Ready session not found', 404);
