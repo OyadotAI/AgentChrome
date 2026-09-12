@@ -771,6 +771,13 @@ async function applyDeepLink(rawUrl) {
     return false;
   }
 
+  // A deep link can retarget this browser at a different project (each project
+  // has its own key). The durable session id is scoped to a project, so reusing
+  // the previous browserId makes the new project reject the socket as a foreign
+  // id — close 4003, which the client treats as fatal and never retries, so the
+  // desktop sits offline until a full restart happens to mint a fresh id. Rebind
+  // to a new session on any key/server change; an unchanged target keeps its id.
+  if (config.apiKey !== apiKey || config.serverUrl !== parsed.href) browserId = null;
   disconnect();
   config.serverUrl = parsed.href;
   config.apiKey = apiKey;

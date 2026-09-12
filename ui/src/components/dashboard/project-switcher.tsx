@@ -108,9 +108,11 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
   }, [openProject, forget, toast]);
 
   const renew = useCallback(async (id: string) => {
+    const seq = opening.current;
     try { await openProject(id, true); }
     catch (e) {
-      if (!GONE.includes((e as Failure).status ?? 0) || sessionStorage.getItem(PROJECT_ID) !== id) return;
+      // A switch that started meanwhile decides what the console shows; a stale renewal must not forget it.
+      if (seq !== opening.current || !GONE.includes((e as Failure).status ?? 0) || sessionStorage.getItem(PROJECT_ID) !== id) return;
       toast('You no longer have access to that project', 'info');
       forget();
       await openAny((await load()).filter(p => p.id !== id));
