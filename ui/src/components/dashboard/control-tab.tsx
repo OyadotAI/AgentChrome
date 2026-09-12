@@ -197,7 +197,7 @@ export default function ControlTab({ apiKey }: { apiKey: string }) {
           <div><p className="eyebrow mb-3 text-text-dim">Workspace control</p><h2 className="text-[28px] font-medium tracking-tight">{views.find(item => item.key === view)?.label}</h2>
           <p className="mt-2 max-w-2xl text-[13px] leading-6 text-text-muted">{{ operations: 'Durable sessions, access controls, budgets, and event delivery.', health: 'A clear view of browser health, capacity, and usage.', sessions: 'Persistent CDP connections from clients such as Playwright and Puppeteer. Individual REST or curl commands do not create a session; find them in the browser’s Activity history.', providers: 'Route new Playwright and Puppeteer connections through your providers. The Start browser default is managed separately in Settings.', usage: 'Commands, browser time, and model usage for the current hour.', audit: 'A timeline of workspace changes and administrative actions.', recordings: 'Review recordings captured from your CDP sessions.' }[view]}</p></div>
         </div>
-        {view === 'operations' && <DurableControl key={apiKey} apiKey={apiKey} />}
+        {view === 'operations' && <DurableControl apiKey={apiKey} />}
         {view === 'health' && (
           !fleet ? (
             <p className="text-text-dim text-sm">Loading…</p>

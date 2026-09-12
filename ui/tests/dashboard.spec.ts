@@ -86,7 +86,8 @@ test('project actions rename, copy the API key, and delete the active project', 
   await page.route('**/api/auth/projects', route => route.fulfill({ json: projects }));
   await page.route('**/api/auth/projects/prj-own', async route => {
     if (route.request().method() === 'PATCH') projects[0].name = route.request().postDataJSON().name;
-    if (route.request().method() === 'DELETE') projects = projects.filter(p => p.id !== 'prj-own');
+    // Deleting stops the project's browsers; the confirmation says so.
+    if (route.request().method() === 'DELETE') { expect(route.request().postDataJSON()).toEqual({ stopBrowsers: true }); projects = projects.filter(p => p.id !== 'prj-own'); }
     await route.fulfill({ json: { ok: true } });
   });
   await page.route('**/api/auth/projects/prj-own/key', route => route.fulfill({ json: { key: 'actual-project-api-key' } }));
@@ -106,6 +107,27 @@ test('project actions rename, copy the API key, and delete the active project', 
   await expect(page.getByRole('button', { name: 'Delete Renamed agents', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Switch project' })).toContainText('Research');
   expect(await page.evaluate(() => sessionStorage.getItem('oya_project_id'))).toBe('prj-two');
+});
+
+test('a project whose key cannot be read falls back and offers restore', async ({ page }) => {
+  await dashboard(page, false, true);
+  // Registered after the catch-all so it wins; reload so startup meets it with no project remembered.
+  await page.context().route('**/api/auth/projects/prj-own/access', route => route.fulfill({ status: 503, json: { error: 'Project credentials could not be decrypted.', code: 'project_key_unavailable' } }));
+  await page.evaluate(() => sessionStorage.removeItem('oya_project_id'));
+  await page.reload();
+  const switcher = page.getByRole('button', { name: 'Switch project' });
+  // The unreadable project is skipped at startup instead of leaving the console empty.
+  await expect(switcher).toContainText('Research');
+  await switcher.click();
+  await page.getByRole('button', { name: /^Checkout agents/ }).click();
+  await expect(page.locator('#project-picker').getByRole('alert')).toContainText('different server secret');
+  await expect(switcher).toContainText('Research');
+  await page.getByRole('button', { name: 'Restore with API key' }).click();
+  await expect(page.getByRole('dialog', { name: 'Restore access' })).toBeVisible();
+  await page.getByLabel('API key').fill('x'.repeat(32));
+  await page.getByRole('button', { name: 'Restore access', exact: true }).click();
+  // A key for some other project would add a second project, not repair this one.
+  await expect(page.locator('#project-picker').getByRole('alert')).toContainText('doesn’t belong to Checkout agents');
 });
 
 test('one project switcher covers your projects and projects shared with you', async ({ page }) => {

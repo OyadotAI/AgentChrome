@@ -73,17 +73,35 @@ export default function DashboardPage() {
   const [rate, setRate] = useState<{ commandsPerMin: number; errorPct: number } | null>(null);
   const hidden = useRef(false);
 
+  // The project the credential opens. Credentials renew hourly; only a change of project resets the console.
+  const [project, setProject] = useState<string | null>(null);
+  const projectRef = useRef<string | null>(null);
+  // The credential in force now, so a response for a previous project is dropped instead of painted over the new one.
+  const keyRef = useRef('');
+  const openProject = useCallback((credential: string, id: string | null) => {
+    keyRef.current = credential;
+    setApiKey(credential);
+    if (projectRef.current === id) return;
+    projectRef.current = id;
+    setProject(id);
+    setBrowsers([]); setFleet(null); setPersonas([]); setConfig(null); setLoadError(null); setRate(null); rateRef.current = null;
+    setSelected(null); setChecked(new Set()); setFilter(NO_FILTER); setOpenPersona(null); setStopIds(null); setConnectId(null); setBannerDismissed(false);
+  }, []);
+
   // ── Data ──
   const fetchBrowsers = useCallback(async () => {
     if (!apiKey || hidden.current) return;
-    try { setBrowsers(await api<BrowserRow[]>('/browsers', { key: apiKey })); setLoadError(null); }
-    catch (err) { setLoadError(errorMessage(err)); }
+    try {
+      const rows = await api<BrowserRow[]>('/browsers', { key: apiKey });
+      if (keyRef.current === apiKey) { setBrowsers(rows); setLoadError(null); }
+    } catch (err) { if (keyRef.current === apiKey) setLoadError(errorMessage(err)); }
   }, [apiKey]);
 
   const fetchFleet = useCallback(async () => {
     if (!apiKey || hidden.current) return;
     try {
       const f = await api<Fleet>('/fleet', { key: apiKey });
+      if (keyRef.current !== apiKey) return;
       setFleet(f);
       const prev = rateRef.current;
       const cur = { at: Date.now(), commands: f.browsers.commands, errors: f.browsers.errors };
@@ -98,26 +116,33 @@ export default function DashboardPage() {
 
   const fetchPersonas = useCallback(async () => {
     if (!apiKey || hidden.current) return;
-    try { setPersonas((await api<{ personas: Persona[] }>('/personas', { key: apiKey })).personas || []); } catch { /* keep last */ }
+    try {
+      const { personas } = await api<{ personas: Persona[] }>('/personas', { key: apiKey });
+      if (keyRef.current === apiKey) setPersonas(personas || []);
+    } catch { /* keep last */ }
   }, [apiKey]);
 
-  // The wizard decision is made once per key, on first load. Later refreshes
-  // (after Settings, after Skip) must not re-open it.
+  // The wizard decision is made once per project, on first load. Later refreshes
+  // (after Settings, after Skip, after a credential renewal) must not re-open it.
   const decidedFor = useRef<string | null>(null);
   const fetchConfig = useCallback(async () => {
     if (!apiKey) { setConfig(null); return; }
     try {
       const cfg = await loadConfig(apiKey);
+      if (keyRef.current !== apiKey) return;
       setConfig(cfg);
-      if (decidedFor.current !== apiKey) { decidedFor.current = apiKey; setShowOnboarding(!cfg.onboarded); }
+      const scope = project || apiKey;
+      if (decidedFor.current !== scope) { decidedFor.current = scope; setShowOnboarding(!cfg.onboarded); }
     } catch { /* an invalid key already shows as an empty fleet */ }
-  }, [apiKey]);
+  }, [apiKey, project]);
 
   useEffect(() => {
     const saved = consoleCredential();
-    if (saved) setApiKey(saved);
+    let id: string | null = null;
+    try { id = sessionStorage.getItem('oya_project_id'); } catch { /* storage blocked */ }
+    if (saved) openProject(saved, id);
     setSelected(new URLSearchParams(window.location.search).get('browser'));
-  }, []);
+  }, [openProject]);
 
   useEffect(() => { fetchConfig(); }, [fetchConfig]);
 
@@ -217,7 +242,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg">
-      <Header apiKey={apiKey} setApiKey={setApiKey} onOpenSettings={() => setShowSettings(true)} />
+      <Header apiKey={apiKey} setApiKey={openProject}onOpenSettings={() => setShowSettings(true)} />
 
       {onboarding ? (
         <Onboarding apiKey={apiKey} config={config} personas={personas} browsers={browsers} onDone={() => { setShowOnboarding(false); fetchConfig(); }} />
@@ -254,12 +279,12 @@ export default function DashboardPage() {
                 <PersonasTab apiKey={apiKey} browsers={browsers} personas={personas} refresh={fetchPersonas}
                   openId={openPersona} onOpen={setOpenPersona} onShowBrowsers={showBrowsersFor} now={now} />
               )}
-              {tab === 'control' && <div className="h-full min-w-0 overflow-hidden"><ControlTab apiKey={apiKey} /></div>}
+              {tab === 'control' && <div className="h-full min-w-0 overflow-hidden"><ControlTab key={project ?? ''} apiKey={apiKey} /></div>}
             </div>
 
             {tab === 'browsers' && selected && (
               <div className="fixed inset-0 z-40 flex justify-end bg-black/50 lg:static lg:z-auto lg:bg-transparent" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
-                <BrowserPanel key={`${apiKey}:${selected}`} apiKey={apiKey} browserId={selected} onClose={() => setSelected(null)} onStop={requestStop}
+                <BrowserPanel key={`${project}:${selected}`} apiKey={apiKey} browserId={selected} onClose={() => setSelected(null)} onStop={requestStop}
                   onOpenPersona={setOpenPersona} onConnect={setConnectId} urlRef={urlRef} now={now} />
               </div>
             )}

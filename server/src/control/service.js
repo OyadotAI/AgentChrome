@@ -64,6 +64,12 @@ async function settleCosts(tx) {
     if (projects.has(x.project)) projects.get(x.project).costUsd = (projects.get(x.project).costUsd || 0) + cost;
   }
 }
+/** Stop a live session. Force is the operator's reconciliation: with no deletion descriptor and no creation in flight, they assert the resource is gone. */
+function stopSession(tx, x, { force = false, reason = 'cancelled' } = {}) {
+  const reconcile = force && x.state !== 'queued' && !x.cleanup && !(x.provisioningActive && x.leaseUntil > stamp());
+  x.state = x.state === 'queued' || reconcile ? 'stopped' : 'cleanup_pending';
+  tx.emit(x.project, `session.${x.state}`, x.id, { reason: reconcile ? 'reconciled' : reason });
+}
 async function ownSession(tx, key, id) {
   const x = await tx.get('session', id);
   if (!x || x.project !== projectId(key)) throw fault('not_found', 'Session not found', 404);
@@ -81,12 +87,16 @@ export class ControlService {
     try { return openText(`control:${project.id}`, project.key); }
     catch { throw fault('project_key_unavailable', 'Project credentials could not be decrypted. Restore the original OYA_PROFILE_SECRET and OYA_PROFILE_SALT on every server, or add the original API key again to repair project access.', 503); }
   }
-  async updateOwnedProject(userId, id, { name, remove = false } = {}) {
+  async updateOwnedProject(userId, id, { name, remove = false, stopBrowsers = false } = {}) {
     return this.store.transact(async tx => {
       const p = await tx.get('project', id);
       if (!p || p.ownerUser !== userId || p.deletedAt) throw fault('not_found', 'Project not found', 404);
       if (remove) {
-        if ((await tx.list('session', { project: id })).some(s => !terminal.has(s.state))) throw fault('project_active', 'Stop all browsers before deleting this project');
+        const open = (await tx.list('session', { project: id })).filter(s => !terminal.has(s.state));
+        if (open.length && !stopBrowsers) throw Object.assign(fault('project_active', `Stop ${open.length} browser${open.length === 1 ? '' : 's'} before deleting this project`), { active: open.length });
+        // Deleting is the owner's final word, so a session nothing can reach (disconnected, unknown outcome) ends here.
+        // Resources with a deletion descriptor keep cleaning up after the project is gone.
+        for (const x of open) stopSession(tx, x, { force: true, reason: 'project_deleted' });
         p.deletedAt = stamp();
         for (const c of await tx.list('credential', { project: id })) c.revokedAt = stamp();
         for (const m of await tx.list('membership', { project: id })) await tx.delete('membership', m.id);
@@ -237,10 +247,7 @@ export class ControlService {
     return this.store.transact(async tx => {
       const x = await ownSession(tx, key, id);
       if (terminal.has(x.state)) return publicSession(x);
-      // Force is the operator's reconciliation: with no deletion descriptor and no creation in flight, they assert the resource is gone.
-      const reconcile = force && x.state !== 'queued' && !x.cleanup && !(x.provisioningActive && x.leaseUntil > stamp());
-      x.state = x.state === 'queued' || reconcile ? 'stopped' : 'cleanup_pending';
-      tx.emit(x.project, `session.${x.state}`, id, { reason: reconcile ? 'reconciled' : 'cancelled' });
+      stopSession(tx, x, { force });
       return publicSession(x);
     });
   }

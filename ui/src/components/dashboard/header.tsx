@@ -11,7 +11,7 @@ import { apiUrl } from '@/lib/api';
 
 interface HeaderProps {
   apiKey: string;
-  setApiKey: (key: string) => void;
+  setApiKey: (credential: string, project: string | null) => void;
   onOpenSettings: () => void;
 }
 

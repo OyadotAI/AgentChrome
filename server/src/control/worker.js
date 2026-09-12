@@ -45,7 +45,9 @@ export async function tick(service = control()) {
     });
     const keys = new Map((await service.store.load([...new Set(jobs.map(x => x.project))].map(id => ({ kind: 'project', id })))).flat().map(r => [r.id, r.body.key]));
     for (const x of jobs) {
-      const key = openText(`control:${x.project}`, keys.get(x.project));
+      let key;
+      // One project sealed under another secret must not stall every other project's cleanup; its lease lapses and it retries.
+      try { key = openText(`control:${x.project}`, keys.get(x.project)); } catch { workerHealth.lastError = `Project ${x.project} key could not be decrypted`; continue; }
       try {
         if (x.cleanup?.kind === 'docker') await removeManaged(x.cleanup.container, key, x.id, x.cleanup.daemonId, x.cleanup.runtime, x.cleanup.namespace);
         else if (x.cleanup?.kind === 'sandbox') await removeSandbox(x.cleanup.browserId, key);

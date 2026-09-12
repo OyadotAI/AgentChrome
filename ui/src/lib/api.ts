@@ -113,7 +113,10 @@ export async function createApiKey(token: string, label?: string) {
     headers: authHeaders(token),
     body: JSON.stringify({ label }),
   });
-  if (!res.ok) throw new Error('Failed to create key');
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not create the project');
+  }
   return res.json();
 }
 

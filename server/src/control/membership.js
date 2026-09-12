@@ -48,7 +48,7 @@ projectAccountRouter.patch('/:id', wrap(async (req, res) => {
   res.json(await control().updateOwnedProject(req.user.id, req.params.id, { name: req.body?.name }));
 }));
 projectAccountRouter.delete('/:id', wrap(async (req, res) => {
-  res.json(await control().updateOwnedProject(req.user.id, req.params.id, { remove: true }));
+  res.json(await control().updateOwnedProject(req.user.id, req.params.id, { remove: true, stopBrowsers: req.body?.stopBrowsers === true }));
 }));
 projectAccountRouter.post('/:id/key', wrap(async (req, res) => {
   const p = await control().store.get('project', req.params.id);
@@ -56,7 +56,7 @@ projectAccountRouter.post('/:id/key', wrap(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ key: control().projectKey(p) });
 }));
-projectAccountRouter.use((e, req, res, next) => res.status(e.status || 503).json({ error: e.message }));
+projectAccountRouter.use((e, req, res, next) => res.status(e.status || 503).json({ error: e.message, code: e.code, ...(e.active ? { active: e.active } : {}) }));
 export async function inviteMember(key, role) {
   if (!['viewer', 'operator', 'administrator'].includes(role)) throw fault('invalid_role', 'Unknown role', 400);
   const code = randomBytes(24).toString('base64url');

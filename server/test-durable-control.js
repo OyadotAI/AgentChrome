@@ -22,9 +22,13 @@ try {
   assert.throws(() => service.projectKey(damaged), { code: 'project_key_unavailable', status: 503 });
   const credential = await service.credential(managedKey, { role: 'administrator' }, 'owner');
   const active = await service.reserve(managedKey, { provider: 'cdp', request: {} });
-  await assert.rejects(service.updateOwnedProject('owner', managed.id, { remove: true }), { code: 'project_active' });
+  // A desktop browser that went away stays `disconnected` forever; it must not make the project undeletable.
+  const lost = await service.reserve(managedKey, { provider: 'oya-desktop', request: {} });
+  await service.update(managedKey, lost.id, { state: 'disconnected', provisioningActive: false });
+  await assert.rejects(service.updateOwnedProject('owner', managed.id, { remove: true }), { code: 'project_active', active: 2 });
   await service.update(managedKey, active.id, { state: 'stopped' });
-  await service.updateOwnedProject('owner', managed.id, { remove: true });
+  await service.updateOwnedProject('owner', managed.id, { remove: true, stopBrowsers: true });
+  assert.equal((await store.get('session', lost.id)).state, 'stopped');
   await assert.rejects(service.authenticate(credential.token), { code: 'project_deleted' });
   await assert.rejects(service.project(managedKey), { code: 'project_deleted' });
   await assert.rejects(service.credential(managedKey), { code: 'project_deleted' });

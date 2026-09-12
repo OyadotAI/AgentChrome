@@ -173,6 +173,8 @@ export async function registerApiKey(key, userId, label) {
     // credentials to whoever imported it.
     if (p.ownerUser && p.ownerUser !== userId) throw Object.assign(new Error('Key belongs to another account'), { status: 403 });
     p.ownerUser = userId;
+    // Re-seal under this server's secret, which is what makes "add the original key" repair an unreadable project.
+    p.key = sealText(`control:${p.id}`, key);
     // A new project takes its key's label as its name, so every view calls it the same thing.
     if (label && /^Project [0-9a-f]{6}$/.test(p.name)) p.name = String(label).slice(0, 100);
   });
