@@ -77,6 +77,37 @@ async function dashboard(page: Page, cloudReady = false, signedIn = false) {
   return commands;
 }
 
+test('project actions rename, copy the API key, and delete the active project', async ({ page }) => {
+  await dashboard(page, false, true);
+  let projects = [
+    { id: 'prj-own', name: 'Checkout agents', role: 'administrator', owner: true },
+    { id: 'prj-two', name: 'Research', role: 'administrator', owner: true },
+  ];
+  await page.route('**/api/auth/projects', route => route.fulfill({ json: projects }));
+  await page.route('**/api/auth/projects/prj-own', async route => {
+    if (route.request().method() === 'PATCH') projects[0].name = route.request().postDataJSON().name;
+    if (route.request().method() === 'DELETE') projects = projects.filter(p => p.id !== 'prj-own');
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.route('**/api/auth/projects/prj-own/key', route => route.fulfill({ json: { key: 'actual-project-api-key' } }));
+  await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('Clipboard denied'); } } }); });
+  await page.getByRole('button', { name: 'Switch project' }).click();
+  await page.getByRole('button', { name: 'Options for Checkout agents', exact: true }).click();
+  await page.getByRole('button', { name: 'Rename Checkout agents', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project name' }).fill('Renamed agents');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Rename Renamed agents', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Copy API key for Renamed agents', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'API key', exact: true })).toHaveValue('actual-project-api-key');
+  await page.getByRole('button', { name: 'Back to projects' }).click();
+  await page.getByRole('button', { name: 'Options for Renamed agents', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete Renamed agents', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete project', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Delete Renamed agents', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Switch project' })).toContainText('Research');
+  expect(await page.evaluate(() => sessionStorage.getItem('oya_project_id'))).toBe('prj-two');
+});
+
 test('one project switcher covers your projects and projects shared with you', async ({ page }) => {
   await dashboard(page, false, true);
   const switcher = page.getByRole('button', { name: 'Switch project' });
@@ -95,8 +126,34 @@ test('one project switcher covers your projects and projects shared with you', a
   expect(await page.evaluate(() => [sessionStorage.getItem('oya_project_credential'), localStorage.getItem('oya_api_key')]))
     .toEqual(['oya_research-credential', null]);
   await switcher.click();
-  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(page.getByLabel('Project name')).toBeFocused();
+});
+
+test('project search, keyboard dismissal, and narrow screen layout', async ({ page }, testInfo) => {
+  await dashboard(page, false, true);
+  const trigger = page.getByRole('button', { name: 'Switch project' });
+  await trigger.click();
+  await page.getByRole('dialog', { name: 'Projects', exact: true }).screenshot({ path: testInfo.outputPath('projects-desktop.png') });
+  await page.getByRole('textbox', { name: 'Search projects' }).fill('research');
+  await expect(page.getByRole('button', { name: 'Options for Checkout agents' })).toHaveCount(0);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('button', { name: 'Research', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(trigger).toContainText('Research');
+  await trigger.click();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 375, height: 700 });
+  await trigger.click();
+  const panel = page.getByRole('dialog', { name: 'Projects', exact: true });
+  const bounds = await panel.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(375);
+  await panel.screenshot({ path: testInfo.outputPath('projects-mobile.png') });
+  await page.getByRole('button', { name: 'Options for Checkout agents' }).click();
+  await page.getByRole('dialog').screenshot({ path: testInfo.outputPath('project-actions.png') });
 });
 
 test('dialog preserves text focus through fleet refreshes and restores its opener', async ({ page }) => {

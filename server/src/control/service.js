@@ -22,6 +22,7 @@ async function ensure(tx, key) {
     p = tx.put('project', id, { id, name: `Project ${id.slice(-6)}`, createdAt: stamp(), legacyOwner: hash(key).slice(0, 16), key: sealText(`control:${id}`, key), costUsd: 0, settings: { recordingDays: 7, auditDays: 90, budgetUsd: null, maxConcurrent: null, rates: {}, policy: {} } });
     tx.emit(id, 'project.created');
   }
+  if (p.deletedAt) throw fault('project_deleted', 'Project has been deleted', 410);
   return p;
 }
 const publicProject = ({ key, alerts, recentCloud, ...rest }) => rest;
@@ -73,7 +74,30 @@ export class ControlService {
   constructor(store = controlStore()) { this.store = store; store.beforeCommit = settleCosts; }
   async project(key) {
     const p = await this.store.get('project', projectId(key));
+    if (p?.deletedAt) throw fault('project_deleted', 'Project has been deleted', 410);
     return publicProject(p || await this.store.transact(tx => ensure(tx, key)));
+  }
+  projectKey(project) {
+    try { return openText(`control:${project.id}`, project.key); }
+    catch { throw fault('project_key_unavailable', 'Project credentials could not be decrypted. Restore the original OYA_PROFILE_SECRET and OYA_PROFILE_SALT on every server, or add the original API key again to repair project access.', 503); }
+  }
+  async updateOwnedProject(userId, id, { name, remove = false } = {}) {
+    return this.store.transact(async tx => {
+      const p = await tx.get('project', id);
+      if (!p || p.ownerUser !== userId || p.deletedAt) throw fault('not_found', 'Project not found', 404);
+      if (remove) {
+        if ((await tx.list('session', { project: id })).some(s => !terminal.has(s.state))) throw fault('project_active', 'Stop all browsers before deleting this project');
+        p.deletedAt = stamp();
+        for (const c of await tx.list('credential', { project: id })) c.revokedAt = stamp();
+        for (const m of await tx.list('membership', { project: id })) await tx.delete('membership', m.id);
+        tx.emit(id, 'project.deleted');
+      } else {
+        if (typeof name !== 'string' || !name.trim() || name.trim().length > 100) throw fault('invalid_name', 'Project name must be 1–100 characters', 400);
+        p.name = name.trim();
+        tx.emit(id, 'project.renamed');
+      }
+      return { ok: true };
+    });
   }
   async read(key) {
     const project = await this.project(key), id = project.id;
@@ -314,10 +338,11 @@ export class ControlService {
     const c = await this.store.get('credential', hash(token));
     if (!c) return null;
     const [[project], [membership], [session]] = await this.store.load([{ kind: 'project', id: c.project }, { kind: 'membership', id: `${c.project}:${c.memberUser}` }, { kind: 'session', id: String(c.sessionId) }]);
+    if (!project || project.body.deletedAt) throw fault('project_deleted', 'Project has been deleted', 410);
     if (c.memberUser && (project.body.ownerUser === c.memberUser ? 'administrator' : membership?.body.role) !== c.role) throw fault('membership_removed', 'Project access was removed', 403);
     if (c.revokedAt || (c.expiresAt && c.expiresAt <= stamp())) throw fault('revoked_credential', 'Credential expired or revoked', 401);
     if (c.role === 'browser' && (!session || terminal.has(session.body.state))) throw fault('revoked_credential', 'Managed browser session has ended', 401);
-    return { key: openText(`control:${c.project}`, project.body.key), role: c.role, project: c.project, credentialId: c.id, sessionId: c.sessionId };
+    return { key: this.projectKey(project.body), role: c.role, project: c.project, credentialId: c.id, sessionId: c.sessionId };
   }
   async revoke(key, id) {
     return this.store.transact(async tx => {

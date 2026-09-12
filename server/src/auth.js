@@ -10,6 +10,7 @@
  */
 
 import { createHash, randomBytes } from 'crypto';
+import { sealText } from './secrets.js';
 import { control, projectId } from './control/service.js';
 import { db as supabase, dbAuth as supabaseAuth } from './db.js';
 
@@ -145,7 +146,16 @@ export async function registerApiKey(key, userId, label) {
     const { data: existing, error: lookupError } = await supabase.from('api_keys').select('user_id').eq('key_hash', digest).maybeSingle();
     if (lookupError) throw lookupError;
     if (existing && existing.user_id !== userId) throw Object.assign(new Error('Key cannot be imported'), { status: 403 });
-    if (existing) { keyCache.add(digest); ownerCache.set(key, userId); return; }
+    if (existing) {
+      await control().project(key);
+      await control().store.transact(async tx => {
+        const p = await tx.get('project', projectId(key));
+        if (p.ownerUser && p.ownerUser !== userId) throw Object.assign(new Error('Key belongs to another account'), { status: 403 });
+        p.ownerUser = userId;
+        p.key = sealText(`control:${p.id}`, key);
+      });
+      keyCache.add(digest); ownerCache.set(key, userId); return;
+    }
     const { error } = await supabase.from('api_keys').insert(
       { key_hash: digest, key_prefix: keyPrefix(key), project: projectId(key),
         user_id: userId, label: label || 'Default', created_at: new Date().toISOString() }
@@ -300,6 +310,8 @@ export async function authenticateToken(token, { allowBrowser = false } = {}) {
     if (principal?.role === 'browser' && !allowBrowser) throw Object.assign(new Error('Managed browser credentials cannot call this API'), { status: 403 });
     if (principal) return principal;
   }
+  const project = await control().store.get('project', projectId(token));
+  if (project?.deletedAt) throw Object.assign(new Error('Project has been deleted'), { status: 410 });
   if (envKeys.has(token) || isFleetToken(token)) return { key: token, role: 'administrator' };
   const digest = keyDigest(token);
   if (supabase) {

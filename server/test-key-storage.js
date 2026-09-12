@@ -28,6 +28,7 @@ import { join } from 'path';
 /** Every request the server made: { method, url, body }. */
 const seen = [];
 let rows = [];
+const controlRows = new Map();
 
 const stub = createServer((req, res) => {
   let body = '';
@@ -38,6 +39,16 @@ const stub = createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(payload));
     };
+    if (req.url.startsWith('/auth/v1/user')) return send({ id: req.headers.authorization === 'Bearer test-owner' ? USER : 'other-user' });
+    if (req.url.endsWith('/rpc/control_load')) {
+      const { queries } = JSON.parse(body);
+      return send(queries.map(q => [...controlRows.values()].filter(r => r.kind === q.kind && (q.id === undefined || r.id === q.id) && (q.project === undefined || r.project === q.project) && (!q.states || q.states.includes(r.state)))));
+    }
+    if (req.url.endsWith('/rpc/control_commit')) {
+      const { writes } = JSON.parse(body);
+      for (const w of writes) controlRows.set(`${w.kind}:${w.id}`, { ...w, version: (controlRows.get(`${w.kind}:${w.id}`)?.version || 0) + 1 });
+      return send({ ok: true });
+    }
     if (!req.url.startsWith('/rest/v1/api_keys')) return send([]);
     if (req.method === 'POST') {
       const written = JSON.parse(body || '[]');
@@ -80,10 +91,8 @@ const check = (label, fn) => { fn(); console.log(`  ✅ ${label}`); passed++; };
 
 console.log('\n1️⃣  Registering a key sends only its digest');
 const KEY = 'aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456';
-// registerApiKey writes the row and then claims the project in the control
-// store, which this stub is not pretending to be. The write is what is under
-// test here; the claim is covered by test-control-api and test-login-flow.
-await auth.registerApiKey(KEY, USER, 'Test project').catch(() => {});
+// Exercise the digest row and encrypted control-store project together.
+await auth.registerApiKey(KEY, USER, 'Test project');
 
 check('a row was written', () => assert.equal(rows.length, 1));
 check('it carries the digest, not the key', () => {
@@ -127,6 +136,37 @@ check('and no key in the payload at all', () => {
   assert.ok(!JSON.stringify(listed).includes(KEY));
   assert.equal(listed[0].key, undefined);
 });
+
+const { control, projectId } = await import('./src/control/service.js');
+const project = projectId(KEY);
+await control().store.transact(async tx => { (await tx.get('project', project)).key = 'broken'; });
+assert.throws(() => control().projectKey(controlRows.get(`project:${project}`).body), { code: 'project_key_unavailable' });
+await auth.registerApiKey(KEY, USER, 'Test project');
+check('reimporting the original key repairs the encrypted project credential', () => assert.equal(control().projectKey(controlRows.get(`project:${project}`).body), KEY));
+const express = (await import('express')).default;
+const { projectAccountRouter } = await import('./src/control/membership.js');
+const app = express();
+app.use(express.json()); app.use('/projects', projectAccountRouter);
+const apiServer = app.listen(0, '127.0.0.1');
+await new Promise(resolve => apiServer.once('listening', resolve));
+const endpoint = `http://127.0.0.1:${apiServer.address().port}/projects`;
+const request = (path, method = 'GET', body, token = 'test-owner') => fetch(endpoint + path, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+assert.equal((await request(`/${project}/key`, 'POST', {}, 'other')).status, 404);
+const copied = await request(`/${project}/key`, 'POST', {});
+assert.equal(copied.headers.get('cache-control'), 'no-store');
+assert.equal((await copied.json()).key, KEY);
+assert.equal((await request(`/${project}`, 'PATCH', { name: 'New name' })).status, 200);
+assert.equal((await (await request('')).json())[0].name, 'New name', 'old API key label must not override a rename');
+assert.equal((await request(`/${project}`, 'DELETE', undefined, 'other')).status, 404);
+assert.equal((await request(`/${project}`, 'DELETE')).status, 200);
+assert.deepEqual(await (await request('')).json(), [], 'deleted project must disappear from the account list');
+assert.equal((await request(`/${project}/key`, 'POST', {})).status, 404);
+assert.equal((await request(`/${project}/access`, 'POST', {})).status, 404);
+check('account endpoints enforce ownership, copy without caching, persist names, and remove deleted projects', () => {});
+apiServer.close();
+await assert.rejects(auth.authenticateToken(KEY), { status: 410 });
+await assert.rejects(auth.registerApiKey(KEY, USER), { status: 410 });
+check('deleted projects reject raw keys and cannot be resurrected by import', () => {});
 
 console.log('\n5️⃣  Deleting works by digest');
 await auth.deleteApiKey(listed[0].id, USER);

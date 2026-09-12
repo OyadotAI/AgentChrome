@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Folder, Import, Loader2, LogIn, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, Copy, Pencil, Folder, Import, KeyRound, Loader2, LogIn, MoreHorizontal, Plus, Search, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
-import { apiUrl, authHeaders, listApiKeys, createApiKey, deleteApiKey, importApiKey } from '@/lib/api';
+import { apiUrl, authHeaders, listApiKeys, createApiKey, importApiKey } from '@/lib/api';
 import { useToast } from './toast';
 
 type Project = { id: string; name: string; role: string; owner?: boolean };
-/** Key metadata. `id` is the digest the server knows it by; the key itself is shown once, at creation. */
+/** Key metadata; plaintext is fetched separately by an owner action. */
 type OwnedKey = { id: string; prefix?: string; project?: string; label?: string };
 const PROJECT_ID = 'oya_project_id', PROJECT_CREDENTIAL = 'oya_project_credential';
 const field = 'w-full h-9 rounded-md border border-border bg-transparent px-3 text-sm text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/50';
@@ -17,10 +17,9 @@ const field = 'w-full h-9 rounded-md border border-border bg-transparent px-3 te
  * was shared with you: a one-hour credential for your role there, renewed while
  * the tab stays open, held in sessionStorage.
  *
- * Owned projects used to be opened with the raw API key, read back from
- * /auth/keys and parked in localStorage. The server no longer stores the key —
- * only its digest — and a permanent administrator credential sitting on disk
- * was the thing any XSS in this console would have taken.
+ * API key listings contain only digests and prefixes. The owner's explicit
+ * copy action retrieves the encrypted project key; it stays in component
+ * memory instead of being persisted as the console's credential.
  */
 export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string; setApiKey: (key: string) => void }) {
   const { token } = useAuth();
@@ -29,9 +28,15 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
   const [projects, setProjects] = useState<Project[]>([]);
   const [keys, setKeys] = useState<OwnedKey[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
-  const [form, setForm] = useState<'new' | 'join' | 'import' | null>(null);
+  const [form, setForm] = useState<'new' | 'join' | 'import' | 'rename' | 'delete' | 'manage' | 'key' | null>(null);
+  const [target, setTarget] = useState<Project | null>(null);
+  const [revealedKey, setRevealedKey] = useState('');
   const [name, setName] = useState('');
   const [secret, setSecret] = useState('');
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -50,7 +55,7 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
   const load = useCallback(async () => {
     if (!token) return [] as Project[];
     const [list, owned] = await Promise.all([
-      fetch(apiUrl('/auth/projects'), { headers: authHeaders(token) }).then(r => (r.ok ? r.json() : [])).catch(() => []) as Promise<Project[]>,
+      fetch(apiUrl('/auth/projects'), { headers: authHeaders(token) }).then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error || 'Could not load projects'); return data; }) as Promise<Project[]>,
       listApiKeys(token).then(d => (Array.isArray(d) ? d : d?.keys ?? []) as OwnedKey[]).catch(() => [] as OwnedKey[]),
     ]);
     setProjects(list);
@@ -64,9 +69,9 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
       const id = sessionStorage.getItem(PROJECT_ID), credential = sessionStorage.getItem(PROJECT_CREDENTIAL);
       if (id && credential && list.some(p => p.id === id)) { setCurrentId(id); setApiKey(credential); return; }
       const first = list.find(p => p.owner) || list[0];
-      if (first) void openProject(first.id, true).catch(() => {});
-    });
-  }, [load, setApiKey, openProject]);
+      if (first) void openProject(first.id, true).catch(e => toast(e instanceof Error ? e.message : 'Could not open project', 'error'));
+    }).catch(e => toast(e instanceof Error ? e.message : 'Could not load projects', 'error'));
+  }, [load, setApiKey, openProject, toast]);
 
   // The credential expires in an hour; renew it well before that.
   useEffect(() => {
@@ -76,22 +81,33 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
   }, [currentId, openProject]);
 
   useEffect(() => {
-    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setRevealedKey(''); setSecret(''); } };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
 
+  useEffect(() => {
+    if (open && form === 'manage') ref.current?.querySelector<HTMLButtonElement>('[data-management-action]')?.focus();
+  }, [open, form]);
+
   async function submit() {
     if (!token) return;
     setBusy(true);
+    setError('');
     try {
-      if (form === 'new') {
+      if (form === 'rename' && target) {
+        await projectRequest(target.id, 'PATCH', { name: name.trim() });
+        await load();
+        setTarget({ ...target, name: name.trim() });
+        toast('Project renamed', 'success');
+      } else if (form === 'delete' && target) {
+        await remove(target);
+      } else if (form === 'new') {
         const data = await createApiKey(token, name.trim() || undefined);
         await load();
-        // The one and only time this key exists outside the database.
-        await navigator.clipboard.writeText(data.key).catch(() => {});
+        setRevealedKey(data.key);
         if (data.project) await openProject(data.project, true);
-        toast('Project created. Its API key is on your clipboard — it is not shown again.', 'success');
+        toast('Project created. Copy your API key below.', 'success');
       } else if (form === 'import') {
         if (!secret.trim()) throw new Error('Paste the API key first');
         const data = await importApiKey(token, secret.trim(), name.trim() || undefined);
@@ -105,93 +121,153 @@ export default function ProjectSwitcher({ apiKey, setApiKey }: { apiKey: string;
         await load();
         await openProject(data.project);
       }
-      setForm(null); setName(''); setSecret(''); setOpen(false);
-    } catch (e) { toast(e instanceof Error ? e.message : 'Something went wrong', 'error'); }
+      setForm(form === 'new' ? 'key' : form === 'rename' ? 'manage' : null); setName(''); setSecret('');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Something went wrong'); }
+    finally { setBusy(false); }
+  }
+
+  async function projectRequest(id: string, method: string, body?: object, suffix = '') {
+    const res = await fetch(apiUrl(`/auth/projects/${encodeURIComponent(id)}${suffix}`), {
+      method, headers: authHeaders(token!), ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Project action failed');
+    return data;
+  }
+
+  async function copyKey(project: Project) {
+    setBusy(true);
+    setError('');
+    try {
+      const data = await projectRequest(project.id, 'POST', {}, '/key');
+      setRevealedKey(data.key);
+      setForm('key');
+      try { await navigator.clipboard.writeText(data.key); setCopied(true); }
+      catch { toast('Select and copy the API key below.', 'info'); }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not copy API key'); }
     finally { setBusy(false); }
   }
 
   async function remove(project: Project) {
-    if (!token) return;
-    const key = keys.find(k => k.project === project.id);
-    if (!key) return toast('That project has no key to delete', 'error');
-    try {
-      await deleteApiKey(token, key.id);
-      toast('API key deleted', 'success');
-      if (currentId === project.id) {
-        sessionStorage.removeItem(PROJECT_CREDENTIAL);
-        sessionStorage.removeItem(PROJECT_ID);
-        setCurrentId(null);
-        setApiKey('');
-      }
-      const list = await load();
-      const next = list.find(p => p.id !== project.id);
-      if (next && currentId === project.id) await openProject(next.id, true).catch(() => {});
-    } catch (e) { toast(e instanceof Error ? e.message : 'Could not delete the key', 'error'); }
+    await projectRequest(project.id, 'DELETE');
+    setRevealedKey('');
+    if (currentId === project.id) {
+      sessionStorage.removeItem(PROJECT_CREDENTIAL);
+      sessionStorage.removeItem(PROJECT_ID);
+      setCurrentId(null);
+      setApiKey('');
+    }
+    const list = await load();
+    toast('Project deleted', 'success');
+    if (currentId === project.id && list[0]) await openProject(list[0].id, true);
+  }
+
+  function close() {
+    setOpen(false); setForm(null); setRevealedKey(''); setSecret(''); setError(''); setQuery('');
+    trigger.current?.focus();
+  }
+
+  function show(next: typeof form, project: Project | null = null) {
+    setForm(next); setTarget(project); setName(next === 'rename' ? project?.name || '' : '');
+    setSecret(''); setRevealedKey(''); setError(''); setCopied(false);
+  }
+
+  async function select(project: Project) {
+    setBusy(true); setError('');
+    try { await openProject(project.id, true); close(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not open project'); }
+    finally { setBusy(false); }
   }
 
   if (!token) return null;
-  const owned = projects.filter(p => p.owner), shared = projects.filter(p => !p.owner);
+  const matches = projects.filter(p => p.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const owned = matches.filter(p => p.owner), shared = matches.filter(p => !p.owner);
   const label = projects.find(p => p.id === currentId)?.name || (apiKey ? 'Project' : 'Select project');
-  const row = (active: boolean) => `flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors ${active ? 'bg-text/10 text-text' : 'hover:bg-text/5'}`;
-  const prefixOf = (id: string) => keys.find(k => k.project === id)?.prefix;
+  const titles = { new: 'Create a project', join: 'Join a project', import: 'Add an API key', rename: 'Rename project', delete: 'Delete project', manage: target?.name || 'Project options', key: 'Your API key' };
+  const action = 'flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm transition-colors hover:bg-text/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50';
+  const projectRow = (project: Project) => (
+    <div key={project.id} className={`flex items-center rounded-lg transition-colors ${currentId === project.id ? 'bg-accent/8' : 'hover:bg-text/4'}`}>
+      <button data-project-option disabled={busy} onClick={() => void select(project)} aria-current={currentId === project.id}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-3 pl-3 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50">
+        <span aria-hidden className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold ${currentId === project.id ? 'border-accent/20 bg-accent/10 text-accent' : 'border-border bg-text/3 text-text-muted'}`}>{project.name.slice(0, 2).toUpperCase()}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{project.name}</span>
+        {currentId === project.id && <Check aria-label="Selected" className="h-4 w-4 shrink-0 text-accent" />}
+        {!project.owner && <span className="text-[11px] text-text-dim">{project.role}</span>}
+      </button>
+      {project.owner && <button disabled={busy} aria-label={`Options for ${project.name}`} title="Project options" onClick={() => show('manage', project)} className="mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-text/8 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"><MoreHorizontal className="h-4 w-4" /></button>}
+    </div>
+  );
 
   return (
     <div className="relative" ref={ref}>
-      <button aria-label="Switch project" aria-expanded={open} onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:bg-text/5 hover:text-text">
+      <button ref={trigger} aria-label="Switch project" aria-haspopup="dialog" aria-expanded={open} aria-controls="project-picker" onClick={() => { if (open) close(); else { show(null); setQuery(''); setOpen(true); } }}
+        className={`flex h-8 items-center gap-2 rounded-lg border px-2.5 text-sm transition-colors ${open ? 'border-accent/30 bg-text/5 text-text' : 'border-border text-text-muted hover:bg-text/5 hover:text-text'}`}>
         <Folder className="h-3.5 w-3.5 shrink-0" />
         <span className="hidden max-w-[160px] truncate text-xs sm:inline">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 text-text-dim" />
+        <ChevronDown className={`h-3 w-3 text-text-dim transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-80 overflow-hidden rounded-lg border border-border bg-bg-card shadow-xl shadow-black/40">
-          <div className="max-h-80 overflow-y-auto p-1">
-            <p className="px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wider text-text-dim">Your projects</p>
-            {!owned.length && <p className="px-3 py-3 text-xs text-text-dim">No projects yet. Create one below.</p>}
-            {owned.map(p => (
-              <div key={p.id} className="group flex items-center gap-1">
-                <button className={row(currentId === p.id)} aria-current={currentId === p.id}
-                  onClick={() => void openProject(p.id).then(() => setOpen(false)).catch(e => toast(e instanceof Error ? e.message : 'Could not open that project', 'error'))}>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-text">{p.name}</span>
-                    <span className="block truncate font-mono text-xs text-text-dim">{prefixOf(p.id) ? `${prefixOf(p.id)}…` : p.id}</span>
-                  </span>
-                </button>
-                <button aria-label={`Delete API key for ${p.name}`} title="Delete API key" onClick={() => void remove(p)} className="rounded p-1 opacity-0 transition-colors hover:bg-red-500/10 focus:opacity-100 group-hover:opacity-100">
-                  <Trash2 className="h-3.5 w-3.5 text-red-400" />
-                </button>
+        <div id="project-picker" role="dialog" aria-label={form ? titles[form] : 'Projects'} aria-busy={busy}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+            if (!form && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              const options = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[data-project-option]'));
+              if (!options.length) return;
+              e.preventDefault();
+              const index = options.indexOf(document.activeElement as HTMLButtonElement);
+              options[(index + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length]?.focus();
+            }
+          }}
+          className="fixed left-3 right-3 top-[58px] z-50 max-h-[calc(100dvh-76px)] overflow-y-auto rounded-xl border border-border bg-bg-card shadow-[0_16px_48px_-12px_rgba(0,0,0,0.45)] sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[360px]">
+          <div className="flex min-h-14 items-center gap-2 border-b border-border px-4">
+            {form && <button disabled={busy} aria-label="Back to projects" onClick={() => show(null)} className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-text/5"><ArrowLeft className="h-4 w-4" /></button>}
+            <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{form ? titles[form] : 'Projects'}</h2>
+            {!form && <span className="font-mono text-xs text-text-dim">{projects.length}</span>}
+            <button aria-label="Close projects" onClick={close} className="-mr-1 flex h-8 w-8 items-center justify-center rounded-md text-text-dim hover:bg-text/5 hover:text-text"><X className="h-4 w-4" /></button>
+          </div>
+          {error && <div role="alert" className="mx-4 mt-3 rounded-lg bg-red-500/8 px-3 py-2.5 text-xs leading-relaxed text-red-400">{error.includes('decrypted') ? 'This project’s saved key could not be opened. Use “Add API key” with the original key to restore access.' : error}</div>}
+          {!form && <>
+            <div className="relative mx-3 mb-1 mt-3">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-text-dim" />
+              <input autoFocus aria-label="Search projects" placeholder="Find a project…" value={query} onChange={e => setQuery(e.target.value)} className={`${field} border-transparent bg-text/4 pl-9`} />
+            </div>
+            <div className="max-h-[min(340px,45dvh)] overflow-y-auto px-2 pb-2">
+              {!!owned.length && <><p className="px-3 pb-1 pt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-text-dim">Your projects</p>{owned.map(projectRow)}</>}
+              {!!shared.length && <><p className="px-3 pb-1 pt-3 text-[10px] font-medium uppercase tracking-[0.12em] text-text-dim">Shared with you</p>{shared.map(projectRow)}</>}
+              {!matches.length && <div className="px-4 py-8 text-center"><Folder className="mx-auto mb-3 h-6 w-6 text-text-dim" /><p className="text-sm text-text-muted">{query ? 'No matching projects' : 'Your first project starts here'}</p><p className="mt-1 text-xs text-text-dim">{query ? 'Try another name.' : 'Create a project to connect your browsers.'}</p></div>}
+            </div>
+            <div className="border-t border-border p-2">
+              <button disabled={busy} onClick={() => show('new')} className={`${action} font-medium text-accent`}><Plus className="h-4 w-4" />Create project<ChevronRight className="ml-auto h-3.5 w-3.5 opacity-50" /></button>
+              <div className="flex gap-1 px-1 pb-1">
+                <button disabled={busy} onClick={() => show('join')} className="flex flex-1 items-center justify-center gap-2 rounded-md py-2 text-xs text-text-muted hover:bg-text/5"><LogIn className="h-3.5 w-3.5" />Join with invite</button>
+                <span className="my-2 w-px bg-border" />
+                <button disabled={busy} onClick={() => show('import')} className="flex flex-1 items-center justify-center gap-2 rounded-md py-2 text-xs text-text-muted hover:bg-text/5"><Import className="h-3.5 w-3.5" />Add API key</button>
               </div>
-            ))}
-            {!!shared.length && <p className="px-3 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-text-dim">Shared with you</p>}
-            {shared.map(p => (
-              <button key={p.id} className={row(currentId === p.id)} aria-current={currentId === p.id}
-                onClick={() => void openProject(p.id).then(() => setOpen(false)).catch(e => toast(e instanceof Error ? e.message : 'Could not open that project', 'error'))}>
-                <span className="min-w-0 flex-1 truncate text-sm text-text">{p.name}</span>
-                <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-text-dim">{p.role}</span>
+            </div>
+          </>}
+          {form === 'manage' && target && <div className="p-2">
+            <p className="px-3 pb-3 pt-2 font-mono text-[11px] text-text-dim">{keys.find(k => k.project === target.id)?.prefix || target.id}{keys.some(k => k.project === target.id && k.prefix) && '…'}</p>
+            <button data-management-action disabled={busy} aria-label={`Copy API key for ${target.name}`} onClick={() => void copyKey(target)} className={`${action} text-text-muted hover:text-text`}><KeyRound className="h-4 w-4" /><span className="flex-1">Copy API key</span>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-3.5 w-3.5 text-text-dim" />}</button>
+            <button disabled={busy} aria-label={`Rename ${target.name}`} onClick={() => show('rename', target)} className={`${action} text-text-muted hover:text-text`}><Pencil className="h-4 w-4" />Rename project</button>
+            <div className="mx-3 my-2 border-t border-border" />
+            <button disabled={busy} aria-label={`Delete ${target.name}`} onClick={() => show('delete', target)} className={`${action} text-red-400 hover:bg-red-500/8 hover:text-red-400`}><Trash2 className="h-4 w-4" />Delete project</button>
+          </div>}
+          {form === 'key' && revealedKey && <div className="space-y-4 p-5">
+            <p className="text-xs leading-relaxed text-text-muted">Use this key to connect your tools and browsers. Keep it private.</p>
+            <label className="block space-y-2"><span className="text-xs font-medium text-text">API key</span><input autoFocus readOnly value={revealedKey} onFocus={e => e.target.select()} className={`${field} font-mono`} /></label>
+            <button className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent text-sm font-medium text-accent-foreground hover:bg-accent-hover" onClick={async () => { try { await navigator.clipboard.writeText(revealedKey); setCopied(true); } catch { setError('Select the key above and copy it manually.'); } }}>{copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? 'Copied to clipboard' : 'Copy API key'}</button>
+          </div>}
+          {form && form !== 'manage' && form !== 'key' && <form className="space-y-4 p-5" onSubmit={e => { e.preventDefault(); void submit(); }}>
+            <p className="text-xs leading-relaxed text-text-muted">{form === 'new' ? 'A home for your browsers, API key, and team.' : form === 'rename' ? 'Choose a name that’s easy to find.' : form === 'join' ? 'Paste the invitation code shared by your team.' : form === 'import' ? 'Connect an existing project or restore access with its original API key.' : <>Delete <strong className="font-medium text-text">{target?.name}</strong>? All project access and API keys will be revoked. Stop its browsers first.</>}</p>
+            {(form === 'new' || form === 'import' || form === 'rename') && <label className="block space-y-2"><span className="text-xs font-medium text-text">Project name {form === 'import' && <span className="font-normal text-text-dim">(optional)</span>}</span><input autoFocus maxLength={100} required={form === 'rename'} className={field} placeholder="e.g. Checkout agents" value={name} onChange={e => setName(e.target.value)} /></label>}
+            {(form === 'join' || form === 'import') && <label className="block space-y-2"><span className="text-xs font-medium text-text">{form === 'join' ? 'Invitation code' : 'API key'}</span><input autoFocus={form === 'join'} required type={form === 'import' ? 'password' : 'text'} className={`${field} font-mono`} placeholder={form === 'join' ? 'Paste invitation code' : 'Paste your API key'} value={secret} onChange={e => setSecret(e.target.value)} /></label>}
+            <div className="flex gap-2 pt-1">
+              <button type="button" disabled={busy} onClick={() => show(target ? 'manage' : null, target)} className="h-10 rounded-lg border border-border px-4 text-sm text-text-muted hover:bg-text/5">Cancel</button>
+              <button disabled={busy} className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium disabled:opacity-50 ${form === 'delete' ? 'bg-red-500/12 text-red-400 hover:bg-red-500/20' : 'bg-accent text-accent-foreground hover:bg-accent-hover'}`}>
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />}{form === 'rename' ? 'Save name' : form === 'delete' ? 'Delete project' : form === 'new' ? 'Create project' : form === 'join' ? 'Join project' : 'Add project'}
               </button>
-            ))}
-          </div>
-          <div className="space-y-2 border-t border-border p-2">
-            {form && (
-              <form className="space-y-2" onSubmit={e => { e.preventDefault(); void submit(); }}>
-                {form !== 'join' && <input autoFocus={form === 'new'} className={field} aria-label="Project name" placeholder="Project name (e.g. checkout agents)" value={name} onChange={e => setName(e.target.value)} />}
-                {form !== 'new' && <input autoFocus className={`${field} font-mono`} aria-label={form === 'join' ? 'Invitation code' : 'API key'} placeholder={form === 'join' ? 'Invitation code' : 'Paste an existing API key'} value={secret} onChange={e => setSecret(e.target.value)} />}
-                <div className="flex gap-2">
-                  <button disabled={busy} className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:bg-accent-hover disabled:opacity-50">
-                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}{form === 'new' ? 'Create project' : form === 'join' ? 'Join project' : 'Add project'}
-                  </button>
-                  <button type="button" onClick={() => { setForm(null); setName(''); setSecret(''); }} className="h-9 rounded-md border border-border px-3 text-sm text-text-muted hover:bg-text/5">Cancel</button>
-                </div>
-              </form>
-            )}
-            {!form && (
-              <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => setForm('new')} className="flex h-9 items-center justify-center gap-1 rounded-md bg-accent text-xs font-medium text-accent-foreground hover:bg-accent-hover"><Plus className="h-3.5 w-3.5" />New</button>
-                <button onClick={() => setForm('join')} className="flex h-9 items-center justify-center gap-1 rounded-md border border-border text-xs text-text-muted hover:bg-text/5 hover:text-text"><LogIn className="h-3.5 w-3.5" />Join</button>
-                <button onClick={() => setForm('import')} className="flex h-9 items-center justify-center gap-1 rounded-md border border-border text-xs text-text-muted hover:bg-text/5 hover:text-text"><Import className="h-3.5 w-3.5" />Add key</button>
-              </div>
-            )}
-          </div>
+            </div>
+          </form>}
         </div>
       )}
     </div>
