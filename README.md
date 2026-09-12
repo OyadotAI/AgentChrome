@@ -32,7 +32,7 @@
 </p>
 <p align="center"><sub>Three real browsers on a self-hosted stack: live view, a human takeover, numbered elements, and the hand-back. Nothing mocked (<a href="scripts/record-walkthrough.mjs"><code>scripts/record-walkthrough.mjs</code></a>).</sub></p>
 
-## Quickstart
+## ⚡ Quick start
 
 ```bash
 npm install @oya-ai/browser
@@ -41,49 +41,50 @@ npm install @oya-ai/browser
 ```ts
 import { Oya } from "@oya-ai/browser";
 
-const oya = new Oya(); // reads OYA_API_KEY
-
-// "auto": the least recently used persona that is under its concurrency cap
+const oya = new Oya();                        // reads OYA_API_KEY
 await using browser = await oya.browser.start({ persona: "auto", captcha: "auto" });
 
 await browser.goto("https://news.ycombinator.com");
 console.log(await browser.ask("What are the top 3 stories?"));
 ```
 
-`await using` stops the browser when the scope exits. It needs Node 24+ or TypeScript 5.2+ (`tsx` works); otherwise call `browser.stop()` in a `finally`.
+Which vendor runs that browser is a setting on your key, not a rewrite. `await using` needs Node 24+ or TypeScript 5.2+ (`tsx` works); otherwise call `browser.stop()` in a `finally`.
 
-Which vendor runs the browser is a setting on your API key. Your agent code stays the same when you switch.
+The snippets below continue from this one. Runnable versions of all of them are in [`examples/`](examples): CAPTCHA, MFA, personas, five vendors in parallel, Playwright.
 
-## Give it to your agent
+## 🧠 Give it to your agent
 
 Get a key at [browser.getoya.ai](https://browser.getoya.ai), `export OYA_API_KEY=...`, then pick one:
 
 ```bash
-# Claude Code: the MCP server and the skill, as one plugin
-claude plugin marketplace add OyadotAI/oya-browser
-claude plugin install oya-browser@oya
+# Claude Code — MCP server and skill, as one plugin
+claude plugin marketplace add OyadotAI/oya-browser && claude plugin install oya-browser@oya
 
-# The skill, for any agent that reads skills (Claude Code, Cursor, Codex, Copilot and more)
+# Any agent that reads skills — Claude Code, Cursor, Codex, Copilot
 npx skills add OyadotAI/oya-browser
 
-# Just the MCP server, in Claude Code
+# Just the MCP server
 claude mcp add --transport http oya https://browser.getoya.ai/mcp/pool \
   --header "Authorization: Bearer $OYA_API_KEY"
 ```
 
-For Cursor, Windsurf, Claude Desktop or any other MCP client:
+Cursor, Windsurf, Claude Desktop or any other MCP client:
 
 ```json
 { "mcpServers": { "oya": { "url": "https://browser.getoya.ai/mcp/pool", "headers": { "Authorization": "Bearer YOUR_API_KEY" } } } }
 ```
 
-Then ask your agent something like *"Start a browser, open Hacker News and summarize the top 3 stories."* It calls `start_browser`, `navigate`, `analyze_page` and `stop_browser` on its own. Agents that read the web find all of this at [browser.getoya.ai/llms.txt](https://browser.getoya.ai/llms.txt).
+Then ask it: *"Start a browser, open Hacker News and summarize the top 3 stories."* It calls `start_browser`, `navigate`, `analyze_page` and `stop_browser` on its own — **15 MCP tools**, all described at [llms.txt](https://browser.getoya.ai/llms.txt).
 
-## Stealth: 0% headless, 0 lies
+<a id="stealth-0-headless-0-lies"></a>
 
-Faking a fingerprint is easy. Faking one that CreepJS can't catch lying is the hard part.
+## 🕵️ Stealth: 0% headless, 0 lies
 
-[`server/test-stealth.js`](server/test-stealth.js) launches the same headless Chrome twice. The first run is bare. The second applies a persona exactly as production does. Both then face the public detectors. Headless Chrome 153 on macOS, 2026-09-11:
+> **"Zero detection" is neither measurable nor achievable** — the published leader sits near 77% bypass. This produces a number instead.
+>
+> — [`server/test-stealth.js`](server/test-stealth.js)
+
+The same headless Chrome, launched twice: once bare, once with a persona applied exactly as production does. Both then face the public detectors. Chrome 153 on macOS, 2026-09-11:
 
 | | Bare headless Chrome | With an Oya persona |
 |:---|:---:|:---:|
@@ -91,30 +92,74 @@ Faking a fingerprint is easy. Faking one that CreepJS can't catch lying is the h
 | **CreepJS lies detected** | 0 | **0** |
 | **CreepJS stealth-tampering score** (lower is better) | 0% | **0%** |
 | **Bot.Sannysoft** | 27 / 31 pass | **31 / 31 pass** |
-| **Oya probe suite** (weighted) | 55 / 64 | **64 / 64** |
+| **Oya probe suite** (29 probes, weighted, 64 points) | 55 / 64 | **64 / 64** |
 | CreepJS like-headless score (lower is better) | 38% | 31% |
 
-Every value Oya changes survives CreepJS's lie battery, and zero lies means it caught none. That covers the checks it runs from a second realm and the ones it runs from a service worker. Most stealth layers fail there. Here's why this one holds up:
+Zero lies means CreepJS caught none — including the checks it runs from a second realm and from a service worker, where most stealth layers fail. Why it holds:
 
-- **Native first.** Chrome emulates the webdriver flag, platform, core count, locale, timezone and screen itself, over CDP. There's no patched value to catch.
-- **Native-shaped patches.** Whatever emulation can't reach is patched to look native from every realm: not constructible, no `prototype`, `[native code]` in every frame, and "Illegal invocation" when read off the prototype. That includes the phantom iframe CreepJS runs its lie tests from.
-- **Workers and iframes too.** The persona reaches dedicated, shared and service workers and cross-site iframes, where CAPTCHA and Turnstile widgets live. Each one is held paused until it's covered, so the page and its workers report the same machine.
+- 🧩 **Native first.** Chrome emulates the webdriver flag, platform, core count, locale, timezone and screen itself over CDP. There is no patched value to catch.
+- 🎭 **Native-shaped patches.** What emulation can't reach is patched to look native from every realm: not constructible, no `prototype`, `[native code]` in every frame, "Illegal invocation" off the prototype — including CreepJS's phantom iframe.
+- 🧵 **Workers and iframes too.** Dedicated, shared and service workers plus cross-site iframes, where CAPTCHA widgets live. Each is held paused until covered, so page and workers report one machine.
 
-Of the remaining like-headless signals, two are headless-only rendering defaults (system colors and a light color scheme). The other three are Android-only APIs that real desktop Chrome lacks as well. Don't take our word for any of it:
+Of the remaining like-headless signals, two are headless-only rendering defaults; the other three are Android-only APIs real desktop Chrome lacks as well. Don't take our word for it:
 
 ```bash
 oya stealth-test --live    # from a checkout, or: node server/test-stealth.js --live
 ```
 
-## Why
+## 🧬 Personas
 
-Every cloud-browser vendor has its own API, its own session model and its own outages. If you couple your agents to one, you inherit all three. Oya sits between your agents and the vendors, the way OpenRouter sits between apps and LLM providers:
+Anti-bot systems watch device consistency over time, and there are two ways to fail it:
 
-- **One integration.** CDP, MCP, SDK and CLI all work the same way whichever vendor runs the browser.
-- **Failover at connect.** The `/connect` gateway tries your routes in priority order. A failed vendor handshake releases that allocation and moves on to the next route.
-- **An identity that lasts.** A persona binds a fingerprint, a cookie jar and a proxy for life, so a site sees the same device every time.
-- **Stealth you can verify.** The scores above come from a script you run yourself, not from a marketing page.
-- **A human on call.** When a challenge beats automation, an operator takes over in the live view and hands control back.
+1. **One account, many fingerprints** looks like a bot farm.
+2. **One fingerprint, many concurrent sessions** looks like a device farm.
+
+```
+persona = fingerprint + cookie jar + proxy    # one device
+API key = a fleet of personas
+```
+
+A fingerprint is derived from a stored seed, so it is identical on every restart, and a persona is never re-rolled. Need another device of the same kind? Clone it.
+
+```ts
+const persona = await oya.personas.create({
+  name: "us-shopper",
+  prefs: { platform: "MacIntel", timezone: "America/New_York", locale: "en-US" },
+  proxy: { geo: "US" },
+  maxConcurrent: 2,                           // one device shouldn't run 50 sessions
+});
+
+await using browser = await oya.browser.start({ persona: persona.id });
+console.log(persona.fingerprint.platform, persona.fingerprint.timezone);  // same next week
+```
+
+## 🙋 When automation hits a wall
+
+Scripted logins break on Google SSO, Okta, passkeys and Cloudflare. Skip them: sign in **once** in the [desktop app](https://browser.getoya.ai), and every remote browser for that persona starts already signed in, on the same fingerprint. Cookies are sealed with AES-256-GCM.
+
+```ts
+await browser.goto("https://www.google.com/recaptcha/api2/demo");
+
+const captcha = await browser.solveCaptcha();  // vendor's solver, else CapSolver / 2Captcha
+const mfa = await browser.completeMfa();       // TOTP from a seed sealed on the persona
+
+// A phone approval or biometric prompt: hand it to a person
+if (!mfa.completed && mfa.liveViewUrl) console.log("Needs a human:", mfa.liveViewUrl);
+```
+
+| | How Oya handles it |
+|:---|:---|
+| 🧩 **CAPTCHA** | The vendor's native solver on Anchor, Browserbase and Steel — so you aren't billed twice and two solvers never race. 2Captcha or CapSolver everywhere else. |
+| 🔑 **MFA** | TOTP seeds encrypted at rest with AES-256-GCM, never returned by the API. |
+| 🙋 **Takeover** | A JPEG stream over SSE that accepts clicks, drags, scrolls and typing. An operator takes control, clears the prompt, releases, and the agent resumes. |
+
+<p align="center">
+  <img src="assets/oya-console-panel.png" alt="Live view with human takeover: an operator drives the browser and hands control back" width="100%">
+</p>
+
+## 🔀 Why Oya
+
+Every cloud-browser vendor has its own API, session model and outages — couple your agents to one and you inherit all three.
 
 <p align="center">
   <img src="assets/architecture.svg" alt="Agents connect over CDP, MCP, REST or CLI to the Oya control plane, which routes to Oya Cloud, Browserbase, Steel, Anchor, Browser Use or private Chrome" width="100%">
@@ -126,98 +171,27 @@ Every cloud-browser vendor has its own API, its own session model and its own ou
 | **Vendor outage at connect** | Your agents are down | `/connect` falls through to the next route |
 | **Device identity** | Whatever the vendor offers per session | A persona: seeded fingerprint, cookie jar and proxy, stable across runs |
 | **Stealth** | The vendor's claims | [0% CreepJS headless, 0 lies, 31/31 Sannysoft](#stealth-0-headless-0-lies), reproducible with `oya stealth-test --live` |
-| **Logins** | Scripted login flows | Sign in once in the desktop app; remote personas inherit the cookies |
-| **CAPTCHA and MFA** | Vendor-specific, or build it yourself | The vendor's native solver where there is one, CapSolver or 2Captcha otherwise, sealed TOTP, live takeover |
+| **Logins** | Scripted login flows | Sign in once on the desktop; remote personas inherit the cookies |
+| **CAPTCHA and MFA** | Vendor-specific, or build it yourself | Native solver where there is one, CapSolver or 2Captcha otherwise, sealed TOTP, live takeover |
 | **Fleet operations** | One dashboard per vendor | One console, Prometheus `/metrics`, an audit log, spend per key, stop-all |
 
-## Personas
+**6 backends** — Oya Cloud, Browserbase, Steel, Anchor, Browser Use, your own Chrome — behind **4 surfaces**: CDP, MCP, REST and the SDK.
 
-Anti-bot systems watch device consistency over time. There are two ways to get flagged:
+## 🛠️ Bring your own tools
 
-1. **One account, many fingerprints** looks like a bot farm.
-2. **One fingerprint, many concurrent sessions** looks like a device farm.
-
-```
-persona = fingerprint + cookie jar + proxy    # one device
-API key = a fleet of personas
-```
-
-A persona's fingerprint is derived from a stored seed, so it's identical on every restart. A persona is never re-rolled. If you need another device of the same kind, clone it:
-
-```ts
-import { Oya } from "@oya-ai/browser";
-
-const oya = new Oya();
-
-const persona = await oya.personas.create({
-  name: "us-shopper",
-  prefs: { platform: "MacIntel", timezone: "America/New_York", locale: "en-US" },
-  proxy: { geo: "US" },
-  maxConcurrent: 2, // one device shouldn't run 50 sessions at once
-});
-
-await using browser = await oya.browser.start({ persona: persona.id });
-await browser.goto("https://www.amazon.com");
-
-console.log(persona.fingerprint.platform, persona.fingerprint.timezone); // same next week
-```
-
-## Sign in once
-
-Scripted logins break on Google SSO, Okta, passkeys and Cloudflare. Skip them:
-
-1. Open the Oya desktop app (macOS download on [browser.getoya.ai](https://browser.getoya.ai)) and pair it from the dashboard.
-2. Sign in to your sites normally: SSO, Okta, a hardware passkey.
-3. The session cookies are encrypted (AES-256-GCM) and synced to your persona.
-4. Remote browsers for that persona start already signed in, on the same fingerprint.
-
-## CAPTCHA, MFA and human takeover
-
-```ts
-import { Oya } from "@oya-ai/browser";
-
-const oya = new Oya();
-await using browser = await oya.browser.start();
-
-await browser.goto("https://www.google.com/recaptcha/api2/demo");
-
-// The vendor's native solver where there is one, CapSolver or 2Captcha otherwise
-const captcha = await browser.solveCaptcha();
-console.log(captcha.solved, captcha.method);
-
-// TOTP generated from a secret sealed on the persona
-const mfa = await browser.completeMfa();
-
-// A phone approval or biometric prompt: hand it to a person
-if (!mfa.completed && mfa.liveViewUrl) console.log("Needs a human:", mfa.liveViewUrl);
-```
-
-- **CAPTCHA:** Oya uses the vendor's native solver on Anchor, Browserbase and Steel, so you aren't billed twice and two solvers never race. Everywhere else it sends the challenge to 2Captcha or CapSolver.
-- **TOTP:** Seeds are encrypted with AES-256-GCM at rest and never returned by the API.
-- **Takeover:** The live view is a JPEG stream over SSE that takes clicks, drags, scrolls and typing. An operator acquires control, resolves the prompt, releases control, and the agent resumes.
-
-## Bring your own tools
-
-Every browser exposes a `cdpUrl` routed through Oya's gateway:
+Every browser exposes a `cdpUrl` routed through Oya's gateway, so Playwright, Puppeteer, Stagehand and browser-use all work unchanged:
 
 ```ts
 import { chromium } from "playwright-core";
-import { Oya } from "@oya-ai/browser";
 
-const oya = new Oya();
 await using browser = await oya.browser.start({ provider: "browserbase" });
 
 const context = (await chromium.connectOverCDP(browser.cdpUrl!)).contexts()[0];
 const page = context.pages()[0] ?? (await context.newPage());
-
 await page.goto("https://github.com/trending");
-console.log(await page.title());
 ```
 
-- **Over CDP:** Playwright, Puppeteer, Stagehand and browser-use (Python).
-- **Over MCP:** Claude Code and Cursor, at `/mcp/:id`.
-
-## CLI
+## 💻 CLI
 
 <p align="center">
   <img src="assets/cli-demo.svg" alt="oya start, goto, ask and ls in a terminal" width="100%">
@@ -226,30 +200,31 @@ console.log(await page.title());
 ```bash
 npm install -g @oya-ai/cli
 
-oya login                       # save an API key
-oya init                        # pick a model, browser provider and sign-ins
-oya start --persona auto        # start a browser
-oya goto https://example.com    # navigate the newest browser
-oya ask "Find the pricing tier" # drive it in plain language
-oya open                        # watch it in the live view
-oya ls                          # what's running
-oya rm --all                    # stop everything
+oya login                        # save an API key
+oya start --persona auto         # start a browser
+oya goto https://example.com     # navigate the newest one
+oya ask "Find the pricing tier"  # drive it in plain language
+oya open                         # watch it live
+oya ls                           # what's running
+oya rm --all                     # stop everything
 ```
 
-The full command list is in the [CLI README](packages/cli).
+Full command list in the [CLI README](packages/cli).
 
-## Console
+## 📺 Console
 
 <p align="center">
-  <img src="assets/oya-console-overview.png" alt="Oya fleet console: fleet table, health strip and browser inspector" width="100%">
+  <img src="assets/oya-fleet-browsers.png" alt="Oya fleet console: every connected browser, its persona, health and current URL" width="100%">
 </p>
 
-- **Health strip:** Healthy, stale, error and unresponsive counts. Click any count to filter the table.
-- **Live view:** Watch any browser; take control to drive it.
-- **Element tree:** Numbered element IDs (`[data-ac-id]`), so an agent can plan with fewer tokens.
-- **Governance:** An audit log, Prometheus `/metrics`, spend per API key, and stop-all (`POST /api/browsers/stop {"all": true}`).
+- 🩺 **Health strip** — healthy, stale, error and unresponsive counts. Click one to filter.
+- 👀 **Live view** — watch any browser, or take control and drive it.
+- 🔢 **Element tree** — numbered element IDs (`[data-ac-id]`), so an agent plans with fewer tokens.
+- 🛡️ **Governance** — audit log, Prometheus `/metrics`, spend per key, and stop-all.
 
-## Self-host
+<a id="self-host"></a>
+
+## 🚀 Self-host
 
 ```bash
 git clone https://github.com/OyadotAI/oya-browser.git
@@ -257,115 +232,36 @@ cd oya-browser
 make wizard
 ```
 
-Six questions, then it writes the config, builds the images, brings the stack up and
-waits for `/readyz` before telling you it worked. It ends by printing an API key.
+Six questions — where it runs, which database, where browsers run, which LLM, the public URL, optional services. It writes the config, builds the images, brings the stack up and waits for `/readyz` before telling you it worked.
 
 ```
-? Where should the control plane run?   › Docker on this machine
-? Which database?                       › SQLite      (zero config, one replica)
-? Where should browsers run?            › Docker browser workers here
-? Which LLM should agents use?          › Anthropic (Claude)
-? Public URL of this control plane?     › http://localhost:3100
-? Configure optional services now?      › No
-
-✔ wrote .env
-  waiting for /readyz… ready
-✔ http://localhost:3100 is up.
+◆ Database 2/6
+  ❯ SQLite          zero config, one replica
+    Supabase        adds email sign-in
+    Postgres        many replicas
 ```
 
-`make wizard ARGS="--dry-run"` shows the plan and writes nothing. Every answer is saved
-to `oya-install.json` — no secrets — so `make wizard ARGS="--config oya-install.json"`
-reproduces the same deployment without prompting, which is the CI path. Credentials come
-from the environment there.
+SQLite, Postgres or Supabase. Browsers on Docker, Kubernetes, Oya Cloud, a hosted vendor, or your own Chrome. **Full guide → [docs/self-hosting.md](docs/self-hosting.md)** · operations → [docs/control-plane.md](docs/control-plane.md)
 
-The manual route still works if you would rather write `.env` yourself: copy
-[`server/.env.example`](server/.env.example) and run `docker compose up`.
-
-### Try it
-
-```bash
-npm install -g @oya-ai/cli
-
-# The wizard printed a key. Your shell may export OYA_API_KEY for the hosted
-# service, and an exported value beats a saved one — so clear it for a local stack.
-unset OYA_API_KEY
-oya login --url http://localhost:3100 --key <the key it printed>
-
-oya ls                             # the browser workers that enrolled
-oya goto https://example.com       # drive one
-oya status                         # health, commands, what it has been doing
-```
-
-Or open `http://localhost:3100` and sign in with the same key. `docker compose down`
-stops everything; the `oya-data` volume holds your personas and cookies, so keep it.
-
-### What you can choose
-
-| | Options |
-|:---|:---|
-| Control plane | Docker. Kubernetes and ECS are not wired into the wizard yet — [`k8s/`](k8s) has manifests you can apply by hand. |
-| Database | SQLite, Supabase, or any Postgres (`DATABASE_URL`). |
-| Browsers | Docker workers, governed Docker (one container per session), a Kubernetes fleet (one pod per session), Oya Cloud, Browserbase, Steel, Anchor, Browser Use, or your own Chrome over CDP. |
-| LLM | Anthropic, OpenAI, any OpenAI-compatible endpoint, or a local model (Ollama, vLLM, LM Studio). |
-
-Options the wizard cannot yet finish are listed and dimmed rather than hidden, so the
-menu never promises something that does not work.
-
-### Databases
-
-SQLite needs no setup and is the default, but it takes a writer lock — one replica.
-Supabase or Postgres are what more than one replica requires. Pick Postgres in the
-wizard and it applies the schema for you; to run them by hand, or against Supabase:
-
-```bash
-DATABASE_URL=postgres://user:pass@host:5432/oya make migrate
-```
-
-Migrations are tracked in `public.schema_migrations`, applied one transaction per file
-together with their own bookkeeping, and safe to re-run. On plain Postgres the
-accounts tables are skipped — there is no Supabase Auth there, so
-authentication is `API_KEYS` and the dashboard takes an API key instead of an email.
-
-### Configuration
-
-Everything is optional except the secrets you want to survive a restart.
-[`server/.env.example`](server/.env.example) documents all of it; the ones that matter most:
-
-| Variable | Description |
-|:---|:---|
-| `OYA_PROFILE_SECRET` | Key for encrypting cookies, tokens and TOTP seeds at rest (AES-256-GCM). Left unset, the server generates one into the data volume — so keep that volume, or every stored credential becomes unreadable. |
-| `API_KEYS` | Comma-separated tenant keys. The whole control plane works with nothing but these. |
-| `OYA_OPERATOR_TOKEN` | Bearer token for `/metrics`, fleet drain and host config. |
-| `DATABASE_URL` | Postgres. Takes precedence over Supabase. |
-| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Supabase storage, and the only backend with email sign-in. |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `CHAT_MODEL` | The deployment-wide LLM default. Any API key that sets its own overrides it. A private or `http://` base URL works here but is rejected from the dashboard, because tenants can set that field too. |
-| `OYA_FLEET_RUNTIME` | `docker` or `k8s` — what starts a governed browser. |
-| `OYA_MANAGED_*` | The governed runtime: network or NetworkPolicy, image, control URL, egress proxy. On Kubernetes the image must be digest-pinned; a tag can move between verification and scheduling. |
-| `OYA_CLOUD_API_KEY` / `OYA_CLOUD_SNAPSHOT` / `OYA_PUBLIC_WS_URL` | Oya Cloud sandboxes, and the public URL they dial back to. |
-
-Health: `/livez` is liveness, `/readyz` is readiness. `/api/health` answers `ok`
-unconditionally and is not a readiness probe.
-
-## Packages
+## 📦 Packages
 
 | Package | Description |
 |:---|:---|
-| [`@oya-ai/browser`](packages/sdk) | TypeScript SDK. ESM and CJS, typed, no runtime dependencies. |
+| [`@oya-ai/browser`](packages/sdk) | TypeScript SDK. ESM and CJS, typed, **zero runtime dependencies**. |
 | [`@oya-ai/cli`](packages/cli) | CLI for the fleet, the live view and stealth tests. |
 | [`server`](server) | Control plane: gateway, admission, personas, challenges. |
 | [`ui`](ui) | Next.js console, live viewer and docs. |
 | [`browser`](browser) | Containerized and Electron desktop runtime. |
 | [`examples`](examples) | One runnable script per capability. |
 
-## Tests
+## 🧪 Tests
 
 ```bash
-npm test                   # gateway, providers, personas, security, challenges,
-                           # the install wizard and the Kubernetes fleet
-# Also the Postgres control-plane contract, against a migrated throwaway database:
-DATABASE_URL=postgres://... make migrate && DATABASE_URL=postgres://... npm test
+npm test                 # gateway, providers, personas, security, challenges,
+                         # the install wizard, the prompt layer and the k8s fleet
+oya stealth-test --live  # the stealth numbers above, on your machine
 ```
 
-## License
+## 📄 License
 
-The SDK ([`packages/sdk`](packages/sdk)) and the CLI ([`packages/cli`](packages/cli)) are MIT, so you can embed them in commercial agents. Everything else is source-available under the [Sustainable Use License](LICENSE.md): free for internal business use, research and non-commercial use.
+The SDK ([`packages/sdk`](packages/sdk)) and CLI ([`packages/cli`](packages/cli)) are MIT, so you can embed them in commercial agents. Everything else is source-available under the [Sustainable Use License](LICENSE.md): free for internal business use, research and non-commercial use.

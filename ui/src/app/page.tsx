@@ -33,8 +33,6 @@ import {
   Radio,
   MousePointer,
   CheckCheck,
-  Timer,
-  Coins,
   BarChart3,
   HelpCircle,
   Briefcase,
@@ -89,7 +87,7 @@ elements: 24
       latency: '14ms',
       memory: '48 MB',
       provider: 'Oya Cloud',
-      evasionScore: '99.8%',
+      creepJsHeadless: '0% (bare: 100%)',
       status: '200 OK',
     },
   },
@@ -130,7 +128,7 @@ await page.goto("https://github.com");`,
       latency: '18ms',
       memory: '64 MB',
       provider: 'Steel Runner',
-      evasionScore: '99.5%',
+      creepJsHeadless: '0% (bare: 100%)',
       status: 'CDP Attached',
     },
   },
@@ -153,21 +151,22 @@ oya ls`,
       { text: '$ oya personas new acme-ops (Seeded byte-identical MacIntel canvas profile)', time: '+40ms' },
       { text: '$ oya start --persona acme-ops (Spawning sandbox on provider priority 0)', time: '+90ms' },
       { text: '$ oya goto https://app.example.com (Page loaded in 190ms, 0 challenge blocks)', time: '+175ms' },
-      { text: '$ oya stealth-test --live -> CreepJS: 99.8% · Bot.Sannysoft: 0 leaks', time: '+265ms' },
+      { text: '$ oya stealth-test --live -> CreepJS headless 0% · 0 lies · Sannysoft 31/31', time: '+265ms' },
       { text: '$ oya ls -> 1 active browser, status: Healthy', time: '+310ms' },
     ],
     mockResult: `ID        PROVIDER    PERSONA    PAGE                    STATUS    UPTIME
 7f02a9    Oya Cloud   acme-ops   app.example.com/invoice Ready     42s
 
-Evasion report:
-  CreepJS Trust Score: 99.8% (A+)
-  Bot.Sannysoft: PASS (All 14 tests green)
-  Canvas Fingerprint: Deterministic (0x39a1fe)`,
+Evasion report (oya stealth-test --live):
+  CreepJS headless score: 0%   (bare headless Chrome: 100%)
+  CreepJS lies detected:  0
+  Bot.Sannysoft:          31 / 31 pass
+  Oya probe suite:        64 / 64 (29 probes, weighted)`,
     telemetry: {
       latency: '11ms',
       memory: '38 MB',
       provider: 'Oya Cloud',
-      evasionScore: '99.8%',
+      creepJsHeadless: '0% (bare: 100%)',
       status: 'CLI 0 OK',
     },
   },
@@ -208,7 +207,7 @@ Evasion report:
       latency: '9ms',
       memory: '24 MB',
       provider: 'Multi-Runner Pool',
-      evasionScore: '100%',
+      creepJsHeadless: '0% (bare: 100%)',
       status: 'MCP Active',
     },
   },
@@ -458,59 +457,18 @@ function ProductPreview() {
 ───────────────────────────────────────────────────────────────────────────── */
 const benchmarkCategories = [
   {
-    id: 'startup',
-    label: 'Startup & Connect Time',
-    icon: Timer,
-    headline: '12ms Gateway Connect vs. 4,100ms Cloud VM Provisioning',
-    highlight: '99.5% Faster',
-    summary: 'Oya maintains an active, warm gateway connection pool. Requests dispatch instantaneously to pre-initialized runners instead of blocking on cold VM or Docker bootup.',
-    metrics: [
-      { name: 'Oya Control Plane (Gateway Reuse)', time: '12ms', pct: 4, winner: true },
-      { name: 'Steel Runner (Direct API Cold Start)', time: '2,400ms', pct: 58, winner: false },
-      { name: 'Browserbase (Session Provisioning)', time: '2,650ms', pct: 64, winner: false },
-      { name: 'Traditional Docker / VM Provisioning', time: '4,100ms', pct: 100, winner: false },
-    ],
-  },
-  {
-    id: 'tokens',
-    label: 'LLM Token Economy',
-    icon: Coins,
-    headline: '85% Token Reduction: ~450 Tokens vs 18,500 Tokens per Snapshot',
-    highlight: '85% Savings',
-    summary: 'Standard agents dump bloated raw HTML or burn expensive multimodal vision tokens. Oya parses the active DOM in Chromium memory and returns lightweight markdown with numbered element IDs.',
-    metrics: [
-      { name: 'Oya Injected DOM Analyzer (Markdown + IDs)', time: '450 tokens', pct: 5, winner: true },
-      { name: 'Multimodal Vision Screenshot (per frame)', time: '1,600 tokens', pct: 15, winner: false },
-      { name: 'Cleaned Accessibility Tree (Playwright Dump)', time: '6,400 tokens', pct: 42, winner: false },
-      { name: 'Raw HTML DOM (Standard Headless Dump)', time: '18,500 tokens', pct: 100, winner: false },
-    ],
-  },
-  {
     id: 'stealth',
-    label: 'Bot Evasion & Stealth Score',
+    label: 'Bot evasion, measured',
     icon: ShieldCheck,
-    headline: '99.8% CreepJS Trust Score (Grade A+) vs 32.4% Vanilla Headless',
-    highlight: 'Grade A+',
-    summary: 'Randomized spoofing flags accounts as device farms. Oya uses mathematically seeded, byte-identical hardware profiles bound to pinned residential proxies, surviving deep fingerprint inspection.',
+    headline: '0% CreepJS headless, 0 lies, 31 / 31 Bot.Sannysoft',
+    highlight: 'Reproducible',
+    summary:
+      '"Zero detection" is neither measurable nor achievable — the published leader sits near 77% bypass. So this is a number instead: the same headless Chrome launched twice, once bare and once with a persona applied exactly as production does, both facing the public detectors. Chrome 153 on macOS. Run it yourself with `oya stealth-test --live`.',
     metrics: [
-      { name: 'Oya Deterministic Seeded Persona', time: '99.8% (A+)', pct: 100, winner: true },
-      { name: 'Randomized Spoofed Headless', time: '68.2% (C)', pct: 68, winner: false },
-      { name: 'Puppeteer-Stealth Plugin', time: '54.0% (D)', pct: 54, winner: false },
-      { name: 'Vanilla Headless Chromium', time: '32.4% (F)', pct: 32, winner: false },
-    ],
-  },
-  {
-    id: 'memory',
-    label: 'Fleet Concurrency & Memory',
-    icon: BarChart3,
-    headline: '42 MB Stream Driver vs. 420 MB VNC / WebRTC Overhead',
-    highlight: '10x Density',
-    summary: 'Run 1,000+ parallel browsers with minimal RAM consumption. Oya’s event-driven driver and selective screencasting eliminate heavy desktop window server loads.',
-    metrics: [
-      { name: 'Oya Stream Protocol Driver', time: '42 MB / session', pct: 10, winner: true },
-      { name: 'Headless Chrome CDP Connection', time: '145 MB / session', pct: 34, winner: false },
-      { name: 'Browserbase Remote Stream', time: '260 MB / session', pct: 62, winner: false },
-      { name: 'Traditional VNC / NoVNC WebRTC Container', time: '420 MB / session', pct: 100, winner: false },
+      { name: 'Oya persona — Oya probe suite (29 probes, weighted)', time: '64 / 64', pct: 100, winner: true },
+      { name: 'Oya persona — Bot.Sannysoft', time: '31 / 31', pct: 100, winner: false },
+      { name: 'Bare headless Chrome — Bot.Sannysoft', time: '27 / 31', pct: 87, winner: false },
+      { name: 'Bare headless Chrome — Oya probe suite', time: '55 / 64', pct: 86, winner: false },
     ],
   },
 ];
@@ -643,7 +601,7 @@ const useCases = [
     icon: Globe2,
     challenge: 'Target platforms track canvas noise, WebGL hashes, and IP reputation, banning bots after 20 requests.',
     solution: 'Personas bind deterministic hardware profiles to dedicated residential proxy exits with concurrency caps. Returning sessions look like recurring legitimate workstations.',
-    metrics: '99.8% CreepJS Trust Score · 500k+ requests with 0 bans',
+    metrics: '0% CreepJS headless · 31 / 31 Bot.Sannysoft · one pinned proxy exit per persona',
   },
   {
     id: 'coding-agents',
@@ -989,7 +947,7 @@ function VideoMotionStudio() {
 
                 <div className="font-mono text-[10px] sm:text-[11px] text-text-muted flex items-center justify-between gap-2">
                   <span className="truncate">Autonomous solver bypass</span>
-                  <span className="text-accent shrink-0">Score: 99.8%</span>
+                  <span className="text-accent shrink-0">Solver: provider</span>
                 </div>
               </div>
             ) : activeTab === 2 ? (
