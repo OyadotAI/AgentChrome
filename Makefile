@@ -1,4 +1,4 @@
-.PHONY: help server server-dev browser browser-dev browser-build browser-dist-mac browser-dist-linux ui ui-dev ui-build deploy-dev deploy-prod release logs-dev logs-prod pods-dev pods-prod restart-dev restart-prod k8s-dev k8s-prod docker-build docker-run docker-up docker-down docker-browser docker-scale
+.PHONY: help wizard migrate server server-dev browser browser-dev browser-build browser-dist-mac browser-dist-linux ui ui-dev ui-build deploy-dev deploy-prod release logs-dev logs-prod pods-dev pods-prod restart-dev restart-prod k8s-dev k8s-prod docker-build docker-run docker-up docker-down docker-browser docker-scale
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -118,6 +118,13 @@ setup: install ## First-time setup
 	cd server && cp -n .env.example .env 2>/dev/null || true
 	cd ui && cp -n .env.example .env.local 2>/dev/null || true
 	@echo "\n✓ Done. Edit server/.env and ui/.env.local then run: npm run dev"
+
+wizard: ## Interactive self-host installer (database, browsers, LLM)
+	@npm run build --workspace=@oya-ai/cli --silent
+	@node packages/cli/dist/index.js install $(ARGS)
+
+migrate: ## Apply SQL migrations (needs DATABASE_URL; SQLite needs none)
+	@node server/migrations/run.mjs $(ARGS)
 
 dev: ## Start API and Next.js on http://localhost:3100
 	npm run dev

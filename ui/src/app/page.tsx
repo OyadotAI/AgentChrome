@@ -757,7 +757,7 @@ const faqs = [
   },
   {
     q: 'Can I self-host Oya in my own VPC or air-gapped infrastructure?',
-    a: 'Yes. Oya is 100% self-hostable with `docker compose up`. You can bring your own bare-metal Chrome, private Kubernetes cluster, or Daytona runners. All session state, credentials, and settings are encrypted on your local storage volume using your own master key.',
+    a: 'Yes. Oya is 100% self-hostable with `docker compose up`. You can bring your own bare-metal Chrome, private Kubernetes cluster, or Oya Cloud runners. All session state, credentials, and settings are encrypted on your local storage volume using your own master key.',
   },
   {
     q: 'How does interactive live stream takeover work during autonomous runs?',
@@ -1673,7 +1673,7 @@ export default function Home() {
                   { name: 'Steel', note: 'CDP runner' },
                   { name: 'Anchor', note: 'CDP runner' },
                   { name: 'Browser Use', note: 'CDP runner' },
-                  { name: 'Private Chrome', note: 'Bare metal / Daytona' },
+                  { name: 'Private Chrome', note: 'Bare metal / Oya Cloud' },
                 ].map((item) => (
                   <div
                     key={item.name}

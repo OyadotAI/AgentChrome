@@ -1,7 +1,7 @@
 {
   "name": "oya-browser-server",
   "version": "1.0.0",
-  "description": "Oya Browser \u2014 MCP server for browser control",
+  "description": "Oya Browser — MCP server for browser control",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -15,10 +15,10 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "pg": "^8.23.0",
     "uuid": "^11.1.0",
     "ws": "^8.18.1"
   },
-  "devDependencies": {},
   "overrides": {
     "qs": "^6.16.0"
   }

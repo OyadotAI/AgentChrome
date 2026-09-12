@@ -331,13 +331,13 @@ router.get('/audit', authMiddleware, async (req, res) => {
 /**
  * Stop one browser, whatever it is. This is what the dashboard's Stop does.
  *
- *   oya-cloud   destroy the Daytona sandbox (or it redials and keeps billing),
+ *   oya-cloud   destroy the Oya Cloud sandbox (or it redials and keeps billing),
  *               then drop the socket and the registry entry
  *   cdp         registry.remove(), which closes the driver and releases the
  *               vendor session
  *   desktop     close the socket
  *
- * Returns what actually happened, so a Stop that could not reach Daytona is
+ * Returns what actually happened, so a Stop that could not reach Oya Cloud is
  * visible rather than reported as done.
  */
 export async function stopBrowser(req, browserId, { sandbox, force = false } = {}) {
@@ -376,7 +376,7 @@ export async function stopBrowser(req, browserId, { sandbox, force = false } = {
     }
   }
 
-  // Whether a sandbox exists is decided by asking Daytona, not by what the
+  // Whether a sandbox exists is decided by asking Oya Cloud, not by what the
   // browser said about itself: an older image sends no provider, and a stop
   // that trusts the claim leaves a sandbox running and billing. removeSandbox
   // looks the sandbox up by this browser's name and this key's owner label,
@@ -412,7 +412,7 @@ export async function stopBrowser(req, browserId, { sandbox, force = false } = {
   metrics.browsersConnected.set({}, registry.browsers.size);
   return {
     id: browserId, ok: true, sandboxRemoved,
-    // If Daytona had a sandbox for it, it was a cloud browser whatever it claimed.
+    // If Oya Cloud had a sandbox for it, it was a cloud browser whatever it claimed.
     provider: sandboxRemoved ? 'oya-cloud' : browser.provider,
   };
 }
@@ -432,7 +432,7 @@ router.post('/browsers/stop', authMiddleware, async (req, res) => {
     ? res.json({ ok: true, stopped: 0, results: [] })
     : res.status(400).json({ error: 'Pass ids: [...] or all: true' });
   // Sandboxes are deleted over the network; a few at a time keeps a 1k-browser
-  // "stop all" from opening a thousand connections to Daytona at once.
+  // "stop all" from opening a thousand connections to Oya Cloud at once.
   const results = [];
   for (let i = 0; i < ids.length; i += 8) {
     results.push(...await Promise.all(ids.slice(i, i + 8).map((id) => stopBrowser(req, id))));
@@ -496,7 +496,7 @@ router.post('/operator/drain', operatorOnly, async (req, res) => {
 // ─── Browser providers (CDP) ─────────────────────────────────────────────────
 
 router.get('/providers', authMiddleware, (req, res) => {
-  res.json({ providers: availableProviders(keyConfig.envFor(getKey(req))), daytona: sandboxConfigured() });
+  res.json({ providers: availableProviders(keyConfig.envFor(getKey(req))), oyaCloud: sandboxConfigured() });
 });
 
 /**
@@ -1052,7 +1052,7 @@ router.delete('/gateway/recordings/:id', authMiddleware, async (req, res) => {
   res.json({ ok: removed });
 });
 
-// ─── Cloud browser provisioning (Daytona) ───
+// ─── Oya Cloud browser provisioning ───
 //
 // Launches sandboxed browsers that enroll over the normal WebSocket with the
 // caller's own key, so they join that caller's pool as ordinary browsers.

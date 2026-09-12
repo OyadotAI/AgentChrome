@@ -117,7 +117,7 @@
     <g transform="translate(0, 0)">
       <rect width="165" height="75" rx="8" fill="url(#layer-bg)" stroke="rgba(255,255,255,0.12)"/>
       <text x="82" y="32" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="600" fill="#ffffff">Oya Cloud</text>
-      <text x="82" y="52" text-anchor="middle" font-family="monospace" font-size="10" fill="#a8a89e">Daytona / K8s</text>
+      <text x="82" y="52" text-anchor="middle" font-family="monospace" font-size="10" fill="#a8a89e">Oya Cloud / K8s</text>
     </g>
     <g transform="translate(183, 0)">
       <rect width="165" height="75" rx="8" fill="url(#layer-bg)" stroke="rgba(255,255,255,0.12)"/>

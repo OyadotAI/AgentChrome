@@ -8,9 +8,10 @@
  * transactions that decide from the same set of rows serialize on it.
  */
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, openSync, closeSync, unlinkSync, readFileSync, chmodSync, writeSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, unlinkSync, readFileSync, chmodSync, writeSync, ftruncateSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { db } from '../db.js';
+import { pgRemote } from './pg-client.js';
 
 const DAY = 86400000;
 const TERMINAL = ['stopped', 'failed'];
@@ -35,23 +36,47 @@ const matches = (kind, body, filter) => {
 };
 const eventOut = r => ({ id: Number(r.seq), project: r.project, type: r.type, sessionId: r.session_id, at: Number(r.at), detail: typeof r.detail === 'string' ? JSON.parse(r.detail) : r.detail });
 
+/**
+ * One SQLite control database allows exactly one writer, and the lock has to
+ * survive the holder being killed.
+ *
+ * A pid is not an identity here. In a container the server is pid 1, so after an
+ * unclean stop the lock names pid 1 and the *next* container — also pid 1 — finds
+ * that pid alive, concludes another server holds the lock, and refuses to start.
+ * The deployment then never recovers. So the holder proves it is alive by
+ * touching the lock instead: a lock nobody has refreshed is stale, whatever pid
+ * it names, while a second live replica keeps its own lock fresh and is still
+ * correctly turned away.
+ */
+const LOCK_HEARTBEAT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
+
 export class SqliteBackend {
   constructor(path, { lock = true } = {}) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     if (lock) {
       this.lockPath = `${path}.lock`;
-      try { this.lockFd = openSync(this.lockPath, 'wx', 0o600); }
+      const claim = () => {
+        this.lockFd = openSync(this.lockPath, 'wx', 0o600);
+        this.touchLock();
+      };
+      try { claim(); }
       catch (err) {
         if (err.code !== 'EEXIST') throw err;
-        const pid = Number(readFileSync(this.lockPath, 'utf8'));
-        if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Control database lock is invalid; verify no server is running before removing it');
-        try { process.kill(pid, 0); throw new Error('Local control database is already in use; use Postgres for multiple replicas'); }
-        catch (e) { if (e.code !== 'ESRCH') throw e; }
+        let held;
+        try { held = JSON.parse(readFileSync(this.lockPath, 'utf8')); } catch { held = null; }
+        const age = held?.at ? Date.now() - Number(held.at) : Infinity;
+        if (age < LOCK_STALE_MS) {
+          throw new Error('Local control database is already in use; use Postgres for multiple replicas'
+            + ` (lock refreshed ${Math.round(age / 1000)}s ago; it goes stale after ${LOCK_STALE_MS / 1000}s`
+            + ' if that server is gone)');
+        }
         unlinkSync(this.lockPath);
-        this.lockFd = openSync(this.lockPath, 'wx', 0o600);
+        claim();
       }
-      // An exclusive lock belongs to this process, not a request or transaction.
-      writeSync(this.lockFd, String(process.pid));
+      // Keep proving it: a lock that stops being refreshed is reclaimable.
+      this.lockTimer = setInterval(() => this.touchLock(), LOCK_HEARTBEAT_MS);
+      this.lockTimer.unref?.();
     }
     this.db = new DatabaseSync(path);
     chmodSync(path, 0o600);
@@ -138,9 +163,23 @@ export class SqliteBackend {
   finishCommand(id, fence) {
     if (fence !== null) this.db.prepare('UPDATE control_gates SET inFlight = max(0, inFlight - 1) WHERE id = ? AND fence = ?').run(id, fence);
   }
+  touchLock() {
+    if (this.lockFd === undefined) return;
+    try {
+      const record = `${JSON.stringify({ pid: process.pid, at: Date.now() })}\n`;
+      writeSync(this.lockFd, record, 0);
+      ftruncateSync(this.lockFd, Buffer.byteLength(record));
+    } catch { /* a lock we cannot refresh will be reclaimed; that is the intent */ }
+  }
+
   close() {
     this.db.close();
-    if (this.lockFd !== undefined) { closeSync(this.lockFd); unlinkSync(this.lockPath); this.lockFd = undefined; }
+    if (this.lockTimer) { clearInterval(this.lockTimer); this.lockTimer = undefined; }
+    if (this.lockFd !== undefined) {
+      closeSync(this.lockFd);
+      try { unlinkSync(this.lockPath); } catch { /* already gone */ }
+      this.lockFd = undefined;
+    }
   }
 }
 
@@ -322,6 +361,14 @@ export class ControlStore {
   }
 }
 let singleton;
+/**
+ * Three backends, one contract. DATABASE_URL wins over Supabase so a deployment
+ * can move off it by setting one variable; SQLite is what is left when neither is
+ * configured, and it allows exactly one writer.
+ */
 export function controlStore() {
-  return singleton ||= new ControlStore({ remote: db, path: join(process.env.OYA_DATA_DIR || new URL('../../data/', import.meta.url).pathname, 'control.sqlite') });
+  return singleton ||= new ControlStore({
+    remote: pgRemote() || db,
+    path: join(process.env.OYA_DATA_DIR || new URL('../../data/', import.meta.url).pathname, 'control.sqlite'),
+  });
 }

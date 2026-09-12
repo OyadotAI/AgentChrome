@@ -1,7 +1,11 @@
 import { control } from './control/service.js';
 import { QUOTAS } from './limits.js';
 /**
- * Daytona sandbox provisioning — launch cloud browsers on demand.
+ * Oya Cloud sandbox provisioning — launch cloud browsers on demand.
+ *
+ * Configured with OYA_CLOUD_*. The older DAYTONA_* names are still read so
+ * existing deployments and CI keep working, but they are not the documented
+ * spelling: the underlying runtime is an implementation detail.
  *
  * A provisioned sandbox enrolls into the normal registry over the normal
  * WebSocket, using the same OYA_SERVER_URL / OYA_API_KEY / OYA_BROWSER_ID
@@ -23,16 +27,21 @@ let sdkPromise;
 /** Stable, non-reversible tag for the owning API key. Never label with the key itself. */
 const ownerTag = (apiKey) => createHash('sha256').update(apiKey).digest('hex').slice(0, 32);
 
+/** Public name first, legacy name second. */
+const setting = (env, name) => env[`OYA_CLOUD_${name}`] || env[`DAYTONA_${name}`] || '';
+
 function settings(env = process.env) {
-  if (!env.DAYTONA_API_KEY || !env.DAYTONA_SNAPSHOT || !env.OYA_PUBLIC_WS_URL) return null;
+  const apiKey = setting(env, 'API_KEY');
+  const snapshot = setting(env, 'SNAPSHOT');
+  if (!apiKey || !snapshot || !env.OYA_PUBLIC_WS_URL) return null;
   return {
-    apiKey: env.DAYTONA_API_KEY,
-    snapshot: env.DAYTONA_SNAPSHOT,
+    apiKey,
+    snapshot,
     wsUrl: env.OYA_PUBLIC_WS_URL,
-    apiUrl: env.DAYTONA_API_URL || null,
-    target: env.DAYTONA_TARGET || 'us',
+    apiUrl: setting(env, 'API_URL') || null,
+    target: setting(env, 'TARGET') || 'us',
     // Abandoned sandboxes bill until something stops them. Tune per deployment.
-    ttlMinutes: Math.max(5, Number(env.DAYTONA_SANDBOX_TTL_MINUTES) || 60),
+    ttlMinutes: Math.max(5, Number(setting(env, 'SANDBOX_TTL_MINUTES')) || 60),
   };
 }
 
@@ -45,7 +54,7 @@ export function isConfigured(env = process.env) {
  * Browser ids this process created sandboxes for. The browser's own claim
  * about its provider is a courtesy, not a source of truth: an older image
  * does not send one, and a client could say anything. Not persisted — after a
- * restart the Daytona lookup by name in removeSandbox is the authority.
+ * restart the upstream lookup by name in removeSandbox is the authority.
  */
 const provisioned = new Set();
 export const isProvisioned = (browserId) => provisioned.has(browserId);
@@ -53,7 +62,12 @@ export const isProvisioned = (browserId) => provisioned.has(browserId);
 /** Name what is actually missing. Listing all three when two are set sends
  *  people to re-check settings that were never the problem. */
 export function missingSettings(env = process.env) {
-  return ['DAYTONA_API_KEY', 'DAYTONA_SNAPSHOT', 'OYA_PUBLIC_WS_URL'].filter((k) => !env[k]);
+  // Reported under the documented names, even when the legacy ones are in play.
+  return [
+    ['OYA_CLOUD_API_KEY', setting(env, 'API_KEY')],
+    ['OYA_CLOUD_SNAPSHOT', setting(env, 'SNAPSHOT')],
+    ['OYA_PUBLIC_WS_URL', env.OYA_PUBLIC_WS_URL],
+  ].filter(([, value]) => !value).map(([name]) => name);
 }
 
 function unconfigured(env = process.env) {
@@ -84,7 +98,7 @@ async function client() {
     .catch((err) => {
       sdkPromise = undefined;
       throw Object.assign(
-        new Error(`Daytona SDK unavailable: ${err.message}. Run \`npm i @daytona/sdk\` in server/.`),
+        new Error(`Oya Cloud runtime unavailable: ${err.message}. Run \`npm i @daytona/sdk\` in server/.`),
         { status: 409 },
       );
     });
@@ -142,8 +156,8 @@ export async function createSandbox({ apiKey, name, persona, browserId } = {}) {
   if (!/\bok\b/.test(probe?.result ?? probe?.output ?? '')) {
     await sandbox.delete().catch(() => {});
     throw Object.assign(new Error(
-      `DAYTONA_SNAPSHOT "${config.snapshot}" has no /docker-entrypoint.sh, so it is not an Oya browser image. `
-      + 'Build one from browser/Dockerfile, push it, and point DAYTONA_SNAPSHOT at that.'), { status: 409 });
+      `OYA_CLOUD_SNAPSHOT "${config.snapshot}" has no /docker-entrypoint.sh, so it is not an Oya browser image. `
+      + 'Build one from browser/Dockerfile, push it, and point OYA_CLOUD_SNAPSHOT at that.'), { status: 409 });
   }
 
   const entrypoint = await sandbox.process.getEntrypointSession();

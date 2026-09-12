@@ -1,6 +1,7 @@
 /**
  * oya — the command line for the Oya browser control plane.
  *
+ *   oya install                stand up a self-hosted control plane
  *   oya login                  save an API key
  *   oya init                   onboarding: model, provider, sign-in
  *   oya start                  start a browser
@@ -15,10 +16,13 @@
 import { spawn } from 'node:child_process';
 import { Oya, OyaError } from '@oya-ai/browser';
 import { load, save, resolved, configPath } from './config.js';
-import { ask, askSecret, choose } from './prompt.js';
+import { ask, askSecret, choose, closePrompts } from './prompt.js';
+import { cmdInstall } from './install.js';
 
 const HELP = `oya — thousands of browsers, one API
 
+  oya install                     Stand up a self-hosted control plane
+            [--dry-run] [--config oya-install.json]
   oya login                       Save an API key for this machine
   oya init                        Set your model, browser provider and sign-ins
   oya start [--persona auto]      Start a browser and print its id
@@ -274,7 +278,7 @@ async function cmdRm(args: string[], flags: Flags): Promise<void> {
   if (!flags.all && !args.length) throw new Error('Usage: oya rm <id>… | oya rm --all');
   const r = await oya.browser.stop(flags.all ? 'all' : args);
   for (const x of r.results) {
-    const note = x.sandboxRemoved === true ? ' (sandbox destroyed)' : x.sandboxRemoved === false ? ' — sandbox NOT removed, check Daytona' : '';
+    const note = x.sandboxRemoved === true ? ' (sandbox destroyed)' : x.sandboxRemoved === false ? ' — sandbox NOT removed, check Oya Cloud' : '';
     console.log(`${x.ok ? '✅' : '✗'} ${x.id}${note}${x.error ? ` ${x.error}` : ''}`);
   }
   console.log(`stopped ${r.stopped}`);
@@ -447,6 +451,7 @@ try {
     }
     console.log(JSON.stringify(result, null, 2));
   } else switch (command) {
+    case 'install':      await cmdInstall(flags); break;
     case 'login':        await cmdLogin(flags); break;
     case 'init':         await cmdInit(flags); break;
     case 'start':        await cmdStart(flags); break;
@@ -473,4 +478,7 @@ try {
   if (error.status === 401) console.error('  The API key was rejected. Run `oya login`.');
   if (error.status === 429) console.error('  A quota or a persona concurrency cap. `oya personas` shows what is running.');
   process.exit(1);
+} finally {
+  // An open readline holds the event loop open, so the process would never exit.
+  closePrompts();
 }

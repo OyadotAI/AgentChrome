@@ -65,14 +65,21 @@ try {
   console.log('\n1️⃣  Provisioning is gated, not crashing...');
   assert(isConfigured({}) === false, 'isConfigured false with no Daytona settings');
   assert(
-    isConfigured({ DAYTONA_API_KEY: 'a', DAYTONA_SNAPSHOT: 'b', OYA_PUBLIC_WS_URL: 'wss://x/ws' }) === true,
+    isConfigured({ OYA_CLOUD_API_KEY: 'a', OYA_CLOUD_SNAPSHOT: 'b', OYA_PUBLIC_WS_URL: 'wss://x/ws' }) === true,
     'isConfigured true once all three are set',
   );
-  assert(isConfigured({ DAYTONA_API_KEY: 'a', DAYTONA_SNAPSHOT: 'b' }) === false, 'partial config is not configured');
+  assert(isConfigured({ OYA_CLOUD_API_KEY: 'a', OYA_CLOUD_SNAPSHOT: 'b' }) === false, 'partial config is not configured');
+  // The runtime was renamed in public; deployments and CI still on the old
+  // variable names must keep working rather than silently losing cloud browsers.
+  assert(
+    isConfigured({ DAYTONA_API_KEY: 'a', DAYTONA_SNAPSHOT: 'b', OYA_PUBLIC_WS_URL: 'wss://x/ws' }) === true,
+    'the pre-rename variable names still configure Oya Cloud',
+  );
 
   const unconfigured = await call('/browsers/provision', 'POST', { count: 2 });
   assert(unconfigured.status === 409, `unconfigured provision returns 409, not 500 (got ${unconfigured.status})`);
-  assert(/DAYTONA_API_KEY/.test(unconfigured.body.error || ''), 'error names the missing settings');
+  assert(/OYA_CLOUD_API_KEY/.test(unconfigured.body.error || ''), 'error names the missing settings');
+  assert(!/DAYTONA/.test(unconfigured.body.error || ''), 'and does so without naming the underlying vendor');
 
   const unauth = await fetch(base + '/browsers/provision', { method: 'POST' });
   assert(unauth.status === 401 || unauth.status === 403, `provision requires auth (got ${unauth.status})`);
@@ -213,6 +220,13 @@ try {
       const keys = String(url).includes('/api_keys');
       await new Promise(resolve => setTimeout(resolve, keys ? 150 : 10));
       if (keys) keysLoaded = true;
+      // Each control RPC has its own return shape, and boot calls several. An
+      // empty control_load is [[]] (one result array per query), and a commit
+      // reports {ok}. Returning [] for everything made boot throw — which only
+      // went unnoticed while an unhandled rejection during boot was swallowed.
+      if (String(url).includes('/rpc/control_load')) return Response.json([[]]);
+      if (String(url).includes('/rpc/control_commit')) return Response.json({ ok: true, events: [] });
+      if (String(url).includes('/rpc/control_')) return Response.json([]);
       return Response.json(keys ? [{ key: 'registered-browser-key' }] : []);
     };
     Server.prototype.listen = function () { process.exit(keysLoaded ? 0 : 1); };

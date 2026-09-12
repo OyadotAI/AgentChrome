@@ -11,11 +11,23 @@ import { startWorkers, stopWorkers, workerHealth } from './control/worker.js';
 import 'dotenv/config';
 import { startFrontend } from './frontend.js';
 
-// Prevent crashes from unhandled errors
+// Prevent crashes from unhandled errors once we are serving. Before that, a
+// failure is a failed boot: every hard check below runs at top level, and a
+// top-level-await rejection arrives here rather than as a crash. Swallowing it
+// would exit 0 with nothing listening, which reads to an orchestrator (or to
+// `oya install`) as a successful start that then vanished.
+let booted = false;
+const onBootFailure = (label, err) => {
+  console.error(`[oya] ${label} during boot:`, err?.message || err);
+  console.error('[oya] refusing to start.');
+  process.exit(1);
+};
 process.on('uncaughtException', (err) => {
+  if (!booted) return onBootFailure('Uncaught exception', err);
   console.error('[oya] Uncaught exception:', err.message);
 });
 process.on('unhandledRejection', (reason) => {
+  if (!booted) return onBootFailure('Unhandled rejection', reason);
   console.error('[oya] Unhandled rejection:', reason?.message || reason);
 });
 
@@ -195,6 +207,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
 }
 
 server.listen(PORT, () => {
+  booted = true;
   console.log(`[oya] Oya Browser server listening on port ${PORT}`);
   console.log(`[oya] UI:           http://localhost:${PORT}/`);
   console.log(`[oya] API:          http://localhost:${PORT}/api/`);

@@ -17,5 +17,9 @@ export const dbAuth = (supabaseUrl && supabaseKey)
   ? createClient(supabaseUrl, supabaseKey)
   : null;
 
-if (db) console.log('[db] Supabase connected');
-else console.warn('[db] SUPABASE_URL / SUPABASE_SERVICE_KEY not set — running without database');
+// Naming what IS in use, not what is absent. "running without database" is
+// alarming and wrong when SQLite or Postgres was chosen deliberately — the
+// control plane always has durable storage, it just may not be this client.
+if (db) console.log('[db] storage: Supabase');
+else if (process.env.DATABASE_URL) console.log('[db] storage: Postgres (DATABASE_URL)');
+else console.log(`[db] storage: SQLite in ${process.env.OYA_DATA_DIR || 'server/data'} — single replica`);
