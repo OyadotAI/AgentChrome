@@ -1469,6 +1469,7 @@ router.post('/browsers/:browserId/runs', authMiddleware, enforce('chat'), async 
     if (pb) return playbooks.play(key, browserId, pb, data, { autoHeal: autoHeal !== false, checkpoint, requestHuman });
     const result = await runChat(browserId, [{ role: 'user', content: prompt }], { apiKey: key, data, checkpoint, requestHuman });
     if (result.limited) throw new Error('The agent hit its step limit without finishing');
+    if (/^\s*FAILED:/i.test(result.text)) throw new Error(result.text.trim());
     return { text: result.text };
   });
   res.status(202).json(run);

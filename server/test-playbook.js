@@ -81,5 +81,68 @@ await new Promise((r) => setImmediate(r));
 assert.equal(runs.get('owner', failing.id).status, 'failed');
 assert.equal(runs.get('owner', failing.id).error, 'form rejected');
 
+// The real agent loop: data reaches the page through placeholders, never reaches the model
+// (not even read back from the page), and is recorded as placeholders.
+const { runChat, lastRun } = await import('./src/chat-service.js');
+const { registry } = await import('./src/connection-registry.js');
+const { createServer } = await import('node:http');
+
+const secrets = { name: 'Ada Lovelace', phone: '555-0100' };
+const turns = [
+  { tool: 'analyze_page', args: {} },
+  { tool: 'type', args: { element_id: 1, text: '{{name}}' } },
+  { tool: 'keyboard_type', args: { text: '{{phone}}' } },
+  { tool: 'analyze_page', args: {} },
+  { text: 'DONE: filled the form' },
+];
+const llmBodies = [];
+const llm = createServer((req, res) => {
+  let body = '';
+  req.on('data', (c) => { body += c; });
+  req.on('end', () => {
+    llmBodies.push(body);
+    const next = turns[llmBodies.length - 1];
+    const message = next.text
+      ? { role: 'assistant', content: next.text }
+      : { role: 'assistant', content: null, tool_calls: [{ id: `call_${llmBodies.length}`, type: 'function', function: { name: next.tool, arguments: JSON.stringify(next.args) } }] };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+  });
+});
+await new Promise((r) => llm.listen(0, '127.0.0.1', r));
+process.env.OPENAI_API_KEY = 'sk-test';
+process.env.OPENAI_BASE_URL = `http://127.0.0.1:${llm.address().port}/v1`;
+
+const typed = [];
+let fieldValue = '';
+registry.add('loop-browser', {
+  ws: null, apiKey: 'loop-key', name: 'loop', clientType: 'cdp',
+  driver: {
+    send: async (action, params) => {
+      if (action === 'list_tabs') return { ok: true, data: { tabs: [{ id: 't1', url: 'https://example.com/form', title: 'Form', active: true }] } };
+      if (action === 'analyze') {
+        return { ok: true, data: { markdown: `[#1 input "Customer name"] value="${fieldValue}"`, elements: [{ id: 1, type: 'input', tag: 'input', text: 'Customer name', domId: 'custname', value: fieldValue, visible: true }] } };
+      }
+      if (action === 'type' || action === 'keyboard_type') {
+        typed.push([action, params.text]);
+        if (action === 'type') fieldValue = params.text;
+      }
+      return { ok: true, data: {} };
+    },
+  },
+});
+
+const chat = await runChat('loop-browser', [{ role: 'user', content: 'Fill the form for {{name}}, phone {{phone}}.' }], { apiKey: 'loop-key', data: secrets });
+llm.close();
+assert.equal(chat.text, 'DONE: filled the form');
+assert.deepEqual(typed, [['type', 'Ada Lovelace'], ['keyboard_type', '555-0100']], 'the page gets the real values');
+assert.equal(llmBodies.length, turns.length);
+assert.ok(llmBodies.every((b) => !b.includes('Ada Lovelace') && !b.includes('555-0100')), 'the model never sees the values, even read back from the page');
+assert.ok(JSON.parse(llmBodies[0]).messages[0].content.startsWith('You are a web automation agent'), 'the automation system prompt is sent');
+const recorded = lastRun('loop-browser').steps;
+assert.deepEqual(recorded.map((s) => s.action), ['navigate', 'type'], 'the start page and the replayable type; keyboard_type is not recorded');
+assert.equal(recorded[1].text, '{{name}}');
+assert.equal(recorded[1].el.domId, 'custname');
+
 console.log('playbook: ok');
 process.exit(0);

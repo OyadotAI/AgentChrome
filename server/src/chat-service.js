@@ -9,27 +9,28 @@ import { metrics } from './metrics.js';
 import * as usage from './usage.js';
 import { checkHourly } from './limits.js';
 
-const SYSTEM_PROMPT = `You control a real browser via tools. The browser belongs to the user — it has their cookies, logins, and sessions.
+const SYSTEM_PROMPT = `You are a web automation agent, not a chat assistant. You carry out one task end to end in a real browser that belongs to the user (their cookies, logins and sessions). Every action you take is recorded as a playbook that is later replayed without you, so act the way a careful operator would and in a way that can be repeated.
 
-CRITICAL RULES — follow these exactly:
-1. ALWAYS call analyze_page BEFORE click or type. Element IDs only exist after analysis. Never guess IDs.
-2. Element IDs reset on EVERY analyze_page call. Never reuse IDs from a previous analysis.
-3. After navigate or any click that changes the page, call analyze_page again — old IDs are gone.
-4. If you get "Element not found", call analyze_page and retry with the new IDs.
-5. To submit a search/form after typing, use press_key(key="Enter").
-6. When done, give a brief summary and stop. Don't keep calling tools.
+HOW TO ACT
+1. Call analyze_page before any click or type. Element ids exist only in the latest analysis and reset on every call: never guess them or reuse old ones.
+2. After navigate, or any click or key that may change the page, call analyze_page again.
+3. Use element tools (click, type, press_key). Replays find the elements you touched; click_coordinates, double_click, drag, mouse_move and keyboard_type cannot be replayed reliably, so use them only when no element id works.
+4. If a tool says "Element not found", analyze again and retry with the new id.
 
-AUTOCOMPLETE / SUGGESTIONS:
-- After type() returns, it tells you if suggestions are visible. If "AUTOCOMPLETE SUGGESTIONS ARE VISIBLE" appears in the response, you MUST call analyze_page to see and click a suggestion — do NOT press Enter blindly.
-- To select a suggestion: analyze_page → find the suggestion element → click(element_id).
-- Only press Enter if no suggestions appeared or you want to submit the typed text as-is.
+FORMS
+- Fill each field the task gives you, in page order, one at a time. Never invent a value the task does not provide; leave optional fields empty.
+- Dropdowns, radio groups and autocompletes: open or type, analyze, then click the option that matches. If type() reports AUTOCOMPLETE SUGGESTIONS ARE VISIBLE, analyze and click a suggestion instead of pressing Enter.
+- Before submitting, analyze and fix any validation message rather than resubmitting blindly.
+- Submit only if the task asks you to. After submitting, analyze the page and confirm success from what the site shows: a confirmation message, a reference number, or the next step of the flow.
 
-KEYBOARD SAFETY:
-- Only use press_key with: Enter, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Backspace, Delete, Space, Home, End, PageUp, PageDown.
-- NEVER press: F-keys, Meta, Control, Alt, Shift alone, or any key combos. These can zoom the page, open emoji pickers, or trigger OS shortcuts.
-- For form navigation: Tab to move between fields, Enter to submit, Escape to close dropdowns/modals.
+BLOCKERS
+- A CAPTCHA, an MFA prompt, a login you were not given, or a question only the user can answer: call request_human if you have it; otherwise stop and say exactly what blocked you. Never guess credentials or data.
 
-Workflow: analyze_page → read element IDs → act (click/type/press_key) → if page changed → analyze_page again → continue.`;
+KEYBOARD SAFETY
+- press_key only with Enter, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Backspace, Delete, Space, Home, End, PageUp or PageDown. Never F-keys, Meta, Control, Alt, Shift or key combos.
+
+FINISH
+- Stop calling tools once the task is done or cannot continue. Reply with a short report whose first line starts with "DONE:" or "FAILED:", followed by what you submitted and any confirmation or reference number the site showed.`;
 
 // The last run per browser as replayable steps, for playbook.js. Element ids die
 // with each analysis, so steps keep the analyzer's stable metadata instead.
@@ -176,6 +177,28 @@ async function executeTool(browserId, name, args) {
         const r = await sendCommand(browserId, 'switch_tab', { tab_id: args.tab_id });
         return r.ok ? `Switched to tab ${args.tab_id}` : `Error: ${r.error}`;
       }
+      // Offered in BROWSER_TOOLS for pages element ids cannot reach; not recorded, since replays cannot aim them.
+      case 'click_coordinates': {
+        const r = await sendCommand(browserId, 'click_coordinates', { x: args.x, y: args.y });
+        return r.ok ? `Clicked at ${args.x},${args.y}` : `Error: ${r.error}`;
+      }
+      case 'mouse_move': {
+        const r = await sendCommand(browserId, 'mouse_move', { x: args.x, y: args.y });
+        return r.ok ? `Moved the mouse to ${args.x},${args.y}` : `Error: ${r.error}`;
+      }
+      case 'double_click': {
+        const target = args.element_id != null ? { element_id: args.element_id, selector: `[data-ac-id="${args.element_id}"]` } : { x: args.x, y: args.y };
+        const r = await sendCommand(browserId, 'double_click', target);
+        return r.ok ? `Double-clicked ${args.element_id != null ? `element ${args.element_id}` : `at ${args.x},${args.y}`}` : `Error: ${r.error}`;
+      }
+      case 'keyboard_type': {
+        const r = await sendCommand(browserId, 'keyboard_type', { text: args.text });
+        return r.ok ? `Typed "${args.text}" into the focused element` : `Error: ${r.error}`;
+      }
+      case 'drag': {
+        const r = await sendCommand(browserId, 'drag', { from_x: args.from_x, from_y: args.from_y, to_x: args.to_x, to_y: args.to_y });
+        return r.ok ? `Dragged from ${args.from_x},${args.from_y} to ${args.to_x},${args.to_y}` : `Error: ${r.error}`;
+      }
       case 'close_tab': {
         const r = await sendCommand(browserId, 'close_tab', { tab_id: args.tab_id });
         return r.ok ? `Closed tab` : `Error: ${r.error}`;
@@ -233,7 +256,7 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
     {
       role: 'system',
       content: keys.length
-        ? `${SYSTEM_PROMPT}\n\nDATA: the task's values are hidden from you. Type them as these placeholders, exactly: ${keys.map((k) => `{{${k}}}`).join(', ')}. The real value is filled in when typed and reads back as the placeholder.`
+        ? `${SYSTEM_PROMPT}\n\nDATA: the task's values are hidden from you. Type each one as its placeholder, exactly and whole: ${keys.map((k) => `{{${k}}}`).join(', ')}. The real value is filled in when typed and reads back as the placeholder, so a field showing its placeholder is filled correctly. You cannot see, reformat or split these values. To pick a dropdown option for one, type the placeholder into the field or search box if it has one; otherwise use request_human or stop.`
         : SYSTEM_PROMPT,
     },
     ...messages.map((m) => ({ ...m, content: redact(m.content, data) })),
@@ -288,16 +311,17 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
       throw new Error(`LLM endpoint returned ${res.status}`);
     }
 
-    const data = await res.json();
+    // Not `data`: that name is the caller's hidden values, which fill() and redact() read below.
+    const completion = await res.json();
 
     // Every iteration of the agentic loop bills, so account per iteration
     // rather than once per request.
-    const input = data.usage?.prompt_tokens || 0;
-    const output = data.usage?.completion_tokens || 0;
+    const input = completion.usage?.prompt_tokens || 0;
+    const output = completion.usage?.completion_tokens || 0;
     if (input) { metrics.chatTokens.inc({ direction: 'input' }, input); usage.record(apiKey, 'chat_input_tokens', input); }
     if (output) { metrics.chatTokens.inc({ direction: 'output' }, output); usage.record(apiKey, 'chat_output_tokens', output); }
 
-    const choice = data.choices?.[0];
+    const choice = completion.choices?.[0];
     if (!choice) throw new Error('No completion in response');
 
     const msg = choice.message;
@@ -319,7 +343,7 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
         try {
           result = name === 'request_human' && requestHuman
             ? `The person replied: ${await requestHuman({ reason: 'agent', message: String(args.message || '') })}`
-            : await executeTool(browserId, name, name === 'type' ? { ...args, text: fill(args.text, data) } : args);
+            : await executeTool(browserId, name, name === 'type' || name === 'keyboard_type' ? { ...args, text: fill(args.text, data) } : args);
         } catch (err) {
           result = `Error: ${err.message}`;
         }

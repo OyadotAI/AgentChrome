@@ -246,6 +246,7 @@ async function heal(apiKey, browserId, pb, i, err, values, hooks) {
   try {
     result = await runChat(browserId, [{ role: 'user', content: task }], { apiKey, data: values, ...hooks });
     if (result.limited) throw new Error('the agent hit its step limit');
+    if (/^\s*FAILED:/i.test(result.text)) throw new Error(result.text.trim());
   } catch (healErr) {
     if (!hooks.requestHuman) throw healErr;
     await hooks.requestHuman({ reason: 'heal_failed', message: `Replay broke at step ${i + 1} and the agent could not finish (${healErr.message}). Finish it in the live view, then respond.` });
