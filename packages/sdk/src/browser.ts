@@ -138,13 +138,14 @@ export class Browser {
   }
 
   /**
-   * Natural-language control, using this key's configured model. Refer to `data`
-   * as `{{name}}` in the prompt: the agent types the placeholder, the page gets the
-   * value, and the model never sees it.
+   * Natural-language control, using this key's configured model. Refer to values as
+   * `{{name}}` in the prompt. `data` the agent can read, so it can split a name or pick
+   * the matching option; `secrets` it never sees. It types both through placeholders,
+   * with filters like `{{name|first}}`, so a playbook saved from the run stores no values.
    */
-  async ask(prompt: string, { data }: { data?: RunData } = {}): Promise<string> {
+  async ask(prompt: string, { data, secrets }: { data?: RunData; secrets?: RunData } = {}): Promise<string> {
     const res = await this.http.request<{ text: string; error?: string }>(
-      'POST', `/api/browsers/${this.id}/chat`, { messages: [{ role: 'user', content: prompt }], data }, 600_000);
+      'POST', `/api/browsers/${this.id}/chat`, { messages: [{ role: 'user', content: prompt }], data, secrets }, 600_000);
     // The server sends 200 up front to keep long runs alive, so failures arrive in the body.
     if (res.error) throw new OyaError(res.error, 500, res);
     return res.text;

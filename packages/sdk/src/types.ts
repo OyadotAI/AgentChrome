@@ -79,7 +79,11 @@ export interface PlaybookSummary extends Playbook {
   draft: (Playbook & { healedAt: string; healedFrom: number }) | null;
 }
 
-/** Values passed through to the page as `{{name}}` placeholders; the model never sees them. */
+/**
+ * Task values, referred to as `{{name}}` in prompts. As `data` the agent can read them
+ * (to split a name or pick the right option); as `secrets` it never sees them. Either
+ * way they are typed through placeholders, so playbooks store no values.
+ */
 export type RunData = Record<string, string | number>;
 
 export interface AttentionRequest {
@@ -105,8 +109,10 @@ export interface RunInfo {
 }
 
 export interface SubmitOptions {
-  /** Passed through as `{{name}}` placeholders; for a playbook, its variables. */
+  /** Task values the agent can read; for a playbook, its variables (secret ones included). */
   data?: RunData;
+  /** Prompts only: values the agent never sees, like passwords. A playbook already knows which of its variables are secret. */
+  secrets?: RunData;
   /** Playbooks only: let the agent finish a broken replay and save its fix as a draft. Default true. */
   autoHeal?: boolean;
   onSuccess?: (result: RunResult) => unknown;

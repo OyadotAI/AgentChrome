@@ -14,7 +14,7 @@ import * as runs from './src/runs.js';
 const page = [
   { id: 1, type: 'link', tag: 'a', text: 'Exam or Specialty Procedure', visible: true },
   { id: 2, type: 'input', tag: 'input', text: 'Member ID', domId: 'txtMember', visible: true },
-  { id: 3, type: 'option', tag: 'li', text: 'Blue Shield of California', visible: true },
+  { id: 3, type: 'option', tag: 'li', text: 'Acme Health Plan', visible: true },
   { id: 4, type: 'option', tag: 'li', text: 'Aetna', visible: true },
 ];
 
@@ -25,9 +25,16 @@ assert.equal(matchElement({ tag: 'button', domId: 'gone' }, page), null);
 assert.equal(matchElement({}, page), null, 'an unrecorded element never matches');
 
 // Data pass-through: the model reads placeholders, the page gets values.
-const data = { memberId: 'XED910973336', patient: 'Jill Dyck', sex: 'F' };
-assert.equal(redact('value="XED910973336" for Jill Dyck, sex F', data), 'value="{{memberId}}" for {{patient}}, sex F');
-assert.equal(fill('{{memberId}} / {{unknown}}', data), 'XED910973336 / {{unknown}}');
+const data = { memberId: 'ZZ0000000001', patient: 'John Smith', sex: 'M' };
+assert.equal(redact('value="ZZ0000000001" for John Smith, sex M', data), 'value="{{memberId}}" for {{patient}}, sex M');
+assert.equal(fill('{{memberId}} / {{unknown}}', data), 'ZZ0000000001 / {{unknown}}');
+
+// Filters let a run split and reformat a value and still replay with other data.
+assert.equal(fill('{{n|first}} / {{n|last}} / {{n|part:2}}', { n: 'John  Q Smith' }), 'John / Smith / Q');
+assert.equal(fill('{{dob|date:MM/DD/YYYY}} {{dob|date:YYYY}} {{dob|date:MMM D}}', { dob: 'Jan 5, 1970' }), '01/05/1970 1970 Jan 5');
+assert.equal(fill('{{dob|date:DD.MM.YY}}', { dob: '1970-01-05' }), '05.01.70');
+assert.equal(fill('{{p|digits}} {{p|upper}} {{p|nope}}', { p: '(555) 010-0x' }), '5550100 (555) 010-0X (555) 010-0x');
+assert.equal(fill('{{dob|date:YYYY}}', { dob: 'not a date' }), 'not a date', 'an unparseable date is typed as given');
 
 const steps = [
   { action: 'navigate', url: 'https://example.com/"q"', start: true },
@@ -37,23 +44,29 @@ const steps = [
   { action: 'click', el: { ...page[2], text: '{{insurer}}' } },
   { action: 'press_key', key: 'Enter' },
   { action: 'scroll', direction: 'down', amount: 400 },
+  { action: 'type', el: page[1], text: '{{memberId|digits}}' },
+  { action: 'select_option', el: { type: 'select', tag: 'select', domId: 'state' }, option: '{{state|upper}}' },
 ];
-assert.deepEqual(variablesOf(steps), ['memberId', 'insurer']);
-assert.deepEqual(missingVariables({ steps, defaults: { insurer: 'Aetna' } }, {}), ['memberId']);
+assert.deepEqual(variablesOf(steps), ['memberId', 'insurer', 'state']);
+assert.deepEqual(missingVariables({ steps, defaults: { insurer: 'Aetna' } }, {}), ['memberId', 'state']);
 
 const code = renderPlaywright({ name: 'radmd', steps });
-assert.ok(!code.includes('XED910973336'), 'values stay out of the generated code');
+assert.ok(!code.includes('ZZ0000000001'), 'values stay out of the generated code');
 
 // Run the export against a fake page to prove it parses and calls what it should.
 const calls = [];
-const loc = (desc) => ({ first: () => ({ click: async () => calls.push(['click', desc]), fill: async (v) => calls.push(['fill', desc, v]) }) });
+const loc = (desc) => ({ first: () => ({
+  click: async () => calls.push(['click', desc]),
+  fill: async (v) => calls.push(['fill', desc, v]),
+  selectOption: async (o) => calls.push(['select', desc, o.label]),
+}) });
 const fake = {
   goto: async (u) => calls.push(['goto', u]),
   getByText: loc, getByTestId: loc, getByLabel: loc, getByPlaceholder: loc, locator: loc,
   keyboard: { press: async (k) => calls.push(['press', k]) },
   mouse: { wheel: async (_, y) => calls.push(['wheel', y]) },
 };
-await new Function(code.replace('export default ', 'return '))()(fake, { memberId: 'NEW1', insurer: 'Aetna' });
+await new Function(code.replace('export default ', 'return '))()(fake, { memberId: 'NEW1', insurer: 'Aetna', state: 'ca' });
 assert.deepEqual(calls, [
   ['goto', 'https://example.com/"q"'],
   ['click', 'Exam or Specialty Procedure'],
@@ -62,6 +75,8 @@ assert.deepEqual(calls, [
   ['click', 'Aetna'],
   ['press', 'Enter'],
   ['wheel', 400],
+  ['fill', '[id="txtMember"]', '1'],
+  ['select', '[id="state"]', 'CA'],
 ]);
 
 // Human attention: the run parks, only its owner can see and answer it, then it finishes.
@@ -87,11 +102,15 @@ const { runChat, lastRun } = await import('./src/chat-service.js');
 const { registry } = await import('./src/connection-registry.js');
 const { createServer } = await import('node:http');
 
-const secrets = { name: 'Ada Lovelace', phone: '555-0100' };
+const taskData = { patient: 'Ada Lovelace', dob: 'Dec 10, 1815' };
+const secrets = { password: 's3cret-pass' };
 const turns = [
   { tool: 'analyze_page', args: {} },
-  { tool: 'type', args: { element_id: 1, text: '{{name}}' } },
-  { tool: 'keyboard_type', args: { text: '{{phone}}' } },
+  { tool: 'type', args: { element_id: 1, text: '{{patient|first}}' } },
+  { tool: 'type', args: { element_id: 2, text: '{{patient|last}}' } },
+  { tool: 'type', args: { element_id: 3, text: '{{dob|date:MM/DD/YYYY}}' } },
+  { tool: 'select_option', args: { element_id: 4, option: 'california' } },
+  { tool: 'keyboard_type', args: { text: '{{password}}' } },
   { tool: 'analyze_page', args: {} },
   { text: 'DONE: filled the form' },
 ];
@@ -114,35 +133,55 @@ process.env.OPENAI_API_KEY = 'sk-test';
 process.env.OPENAI_BASE_URL = `http://127.0.0.1:${llm.address().port}/v1`;
 
 const typed = [];
-let fieldValue = '';
+const selectEvents = [];
+// The in-page select script runs against this, exactly as evaluate_raw would run it.
+const stateSelect = {
+  tagName: 'SELECT', name: 'state', value: '', labels: [], getAttribute: () => null,
+  options: [{ text: 'Arizona', value: 'AZ' }, { text: 'California', value: 'CA' }, { text: 'North Carolina', value: 'NC' }],
+  dispatchEvent: (e) => selectEvents.push(e.type),
+};
+const fakeDocument = { querySelectorAll: () => [stateSelect], getElementById: (id) => (id === 'state' ? stateSelect : null) };
 registry.add('loop-browser', {
   ws: null, apiKey: 'loop-key', name: 'loop', clientType: 'cdp',
   driver: {
     send: async (action, params) => {
       if (action === 'list_tabs') return { ok: true, data: { tabs: [{ id: 't1', url: 'https://example.com/form', title: 'Form', active: true }] } };
       if (action === 'analyze') {
-        return { ok: true, data: { markdown: `[#1 input "Customer name"] value="${fieldValue}"`, elements: [{ id: 1, type: 'input', tag: 'input', text: 'Customer name', domId: 'custname', value: fieldValue, visible: true }] } };
+        return { ok: true, data: {
+          markdown: `form with ${typed.map(([, t]) => `value="${t}"`).join(' ')}`,
+          elements: [
+            { id: 1, type: 'input', tag: 'input', text: 'First name', domId: 'fname', visible: true },
+            { id: 2, type: 'input', tag: 'input', text: 'Last name', domId: 'lname', visible: true },
+            { id: 3, type: 'input', tag: 'input', text: 'Date of birth', domId: 'dob', visible: true },
+            { id: 4, type: 'select', tag: 'select', text: 'State', domId: 'state', visible: true },
+          ],
+        } };
       }
-      if (action === 'type' || action === 'keyboard_type') {
-        typed.push([action, params.text]);
-        if (action === 'type') fieldValue = params.text;
+      if (action === 'evaluate_raw') {
+        return { ok: true, data: { result: new Function('document', 'Event', `return ${params.expression}`)(fakeDocument, class { constructor(type) { this.type = type; } }) } };
       }
+      if (action === 'type' || action === 'keyboard_type') typed.push([action, params.text]);
       return { ok: true, data: {} };
     },
   },
 });
 
-const chat = await runChat('loop-browser', [{ role: 'user', content: 'Fill the form for {{name}}, phone {{phone}}.' }], { apiKey: 'loop-key', data: secrets });
+const chat = await runChat('loop-browser', [{ role: 'user', content: 'Register {{patient}} born {{dob}} in California, password {{password}}.' }], { apiKey: 'loop-key', data: taskData, secrets });
 llm.close();
 assert.equal(chat.text, 'DONE: filled the form');
-assert.deepEqual(typed, [['type', 'Ada Lovelace'], ['keyboard_type', '555-0100']], 'the page gets the real values');
+assert.deepEqual(typed, [['type', 'Ada'], ['type', 'Lovelace'], ['type', '12/10/1815'], ['keyboard_type', 's3cret-pass']], 'filters split and reformat; secrets are typed for real');
+assert.equal(stateSelect.value, 'CA', 'select_option picks the option by its text');
+assert.deepEqual(selectEvents, ['input', 'change']);
 assert.equal(llmBodies.length, turns.length);
-assert.ok(llmBodies.every((b) => !b.includes('Ada Lovelace') && !b.includes('555-0100')), 'the model never sees the values, even read back from the page');
+assert.ok(llmBodies[0].includes('Ada Lovelace'), 'data is visible to the model so it can reason about it');
+assert.ok(llmBodies.every((b) => !b.includes('s3cret-pass')), 'a secret never reaches the model, even read back from the page');
 assert.ok(JSON.parse(llmBodies[0]).messages[0].content.startsWith('You are a web automation agent'), 'the automation system prompt is sent');
 const recorded = lastRun('loop-browser').steps;
-assert.deepEqual(recorded.map((s) => s.action), ['navigate', 'type'], 'the start page and the replayable type; keyboard_type is not recorded');
-assert.equal(recorded[1].text, '{{name}}');
-assert.equal(recorded[1].el.domId, 'custname');
+assert.deepEqual(recorded.map((s) => s.action), ['navigate', 'type', 'type', 'type', 'select_option'], 'replayable steps; keyboard_type is not recorded');
+assert.deepEqual(recorded.slice(1, 4).map((s) => s.text), ['{{patient|first}}', '{{patient|last}}', '{{dob|date:MM/DD/YYYY}}'], 'steps keep placeholders and filters, never values');
+assert.equal(recorded[4].option, 'california');
+assert.equal(recorded[4].el.domId, 'state');
+assert.deepEqual(lastRun('loop-browser').secrets, ['password']);
 
 console.log('playbook: ok');
 process.exit(0);

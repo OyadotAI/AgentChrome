@@ -44,13 +44,16 @@ const answer = await browser.ask("What are the top 3 stories and their points?")
 console.log(answer);
 ```
 
-### Data pass-through: the model never sees your values
+### Data and secrets
 
 ```ts
-await browser.ask("Search for order {{orderNumber}} and download its invoice", {
-  data: { orderNumber: "1042" }, // typed into the page; the LLM only reads {{orderNumber}}
+await browser.ask("Log in as {{user}} with {{password}}, then book {{patient}} born {{dob}}", {
+  data: { patient: "John Smith", dob: "Jan 5, 1970" }, // the agent reads these
+  secrets: { user: "ops", password: process.env.PORTAL_PASSWORD! }, // the agent never sees these
 });
 ```
+
+The agent types every value as a placeholder, transforming it with filters when a form needs a piece or another format: `{{patient|first}}`, `{{patient|last}}`, `{{dob|date:MM/DD/YYYY}}`, `{{dob|date:YYYY}}`, `{{phone|digits}}`. A playbook saved from the run stores the placeholders, never the values.
 
 ### Playbooks: ask once, replay without the LLM
 

@@ -1355,12 +1355,12 @@ router.post('/browsers/:browserId/chat', authMiddleware, enforce('chat'), async 
   res.setTimeout(0);
 
   const { browserId } = req.params;
-  const { messages, data = {} } = req.body;
+  const { messages, data = {}, secrets = {} } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
   }
-  if (!validData(data)) return res.status(400).json({ error: 'data must map names to strings or numbers' });
+  if (!validData(data) || !validData(secrets)) return res.status(400).json({ error: 'data and secrets must map names to strings or numbers' });
 
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
@@ -1371,6 +1371,7 @@ router.post('/browsers/:browserId/chat', authMiddleware, enforce('chat'), async 
     const result = await runChat(browserId, messages, {
       apiKey: getKey(req),
       data,
+      secrets,
       onToolCall: ({ name, args }) => toolCalls.push({ name, args }),
       onText: () => {},
     });
@@ -1450,24 +1451,24 @@ router.post('/playbooks/:name/promote', authMiddleware, async (req, res) => {
 // Runs — submit a prompt or playbook in the background; the SDK polls and fires callbacks
 router.post('/browsers/:browserId/runs', authMiddleware, enforce('chat'), async (req, res) => {
   const { browserId } = req.params;
-  const { prompt, playbook, data = {}, autoHeal = true } = req.body || {};
+  const { prompt, playbook, data = {}, secrets = {}, autoHeal = true } = req.body || {};
   const key = getKey(req);
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
-  if (!validData(data)) return res.status(400).json({ error: 'data must map names to strings or numbers' });
+  if (!validData(data) || !validData(secrets)) return res.status(400).json({ error: 'data and secrets must map names to strings or numbers' });
   if ((typeof prompt === 'string') === (typeof playbook === 'string')) {
     return res.status(400).json({ error: 'Pass exactly one of prompt or playbook' });
   }
   const pb = playbook ? keyConfig.getPlaybook(key, playbook) : null;
   if (playbook && !pb) return res.status(404).json({ error: `No playbook named ${playbook}` });
-  const missing = pb ? playbooks.missingVariables(pb, data) : [];
+  const missing = pb ? playbooks.missingVariables(pb, { ...data, ...secrets }) : [];
   if (missing.length) return res.status(400).json({ error: `Missing data: ${missing.join(', ')}` });
 
   const run = runs.start(fingerprint(key), browserId, async ({ requestHuman }) => {
     const checkpoint = checkpointFor(key, browserId, requestHuman);
-    if (pb) return playbooks.play(key, browserId, pb, data, { autoHeal: autoHeal !== false, checkpoint, requestHuman });
-    const result = await runChat(browserId, [{ role: 'user', content: prompt }], { apiKey: key, data, checkpoint, requestHuman });
+    if (pb) return playbooks.play(key, browserId, pb, { ...data, ...secrets }, { autoHeal: autoHeal !== false, checkpoint, requestHuman });
+    const result = await runChat(browserId, [{ role: 'user', content: prompt }], { apiKey: key, data, secrets, checkpoint, requestHuman });
     if (result.limited) throw new Error('The agent hit its step limit without finishing');
     if (/^\s*FAILED:/i.test(result.text)) throw new Error(result.text.trim());
     return { text: result.text };

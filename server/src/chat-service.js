@@ -14,12 +14,13 @@ const SYSTEM_PROMPT = `You are a web automation agent, not a chat assistant. You
 HOW TO ACT
 1. Call analyze_page before any click or type. Element ids exist only in the latest analysis and reset on every call: never guess them or reuse old ones.
 2. After navigate, or any click or key that may change the page, call analyze_page again.
-3. Use element tools (click, type, press_key). Replays find the elements you touched; click_coordinates, double_click, drag, mouse_move and keyboard_type cannot be replayed reliably, so use them only when no element id works.
+3. Use element tools (click, type, select_option, press_key). Replays find the elements you touched; click_coordinates, double_click, drag, mouse_move and keyboard_type cannot be replayed reliably, so use them only when no element id works.
 4. If a tool says "Element not found", analyze again and retry with the new id.
 
 FORMS
 - Fill each field the task gives you, in page order, one at a time. Never invent a value the task does not provide; leave optional fields empty.
-- Dropdowns, radio groups and autocompletes: open or type, analyze, then click the option that matches. If type() reports AUTOCOMPLETE SUGGESTIONS ARE VISIBLE, analyze and click a suggestion instead of pressing Enter.
+- Native dropdowns (select elements): use select_option with the option's text. Custom dropdowns, radio groups and autocompletes: open or type, analyze, then click the option that matches.
+- Fit values to the fields: split a full name across first and last name fields, and put a date in the format or parts the form asks for. If type() reports AUTOCOMPLETE SUGGESTIONS ARE VISIBLE, analyze and click a suggestion instead of pressing Enter.
 - Before submitting, analyze and fix any validation message rather than resubmitting blindly.
 - Submit only if the task asks you to. After submitting, analyze the page and confirm success from what the site shows: a confirmation message, a reference number, or the next step of the flow.
 
@@ -35,7 +36,7 @@ FINISH
 // The last run per browser as replayable steps, for playbook.js. Element ids die
 // with each analysis, so steps keep the analyzer's stable metadata instead.
 // ponytail: in memory, oldest evicted past 1000 browsers; a run is lost on restart unless saved as a playbook.
-const RECORDED = new Set(['navigate', 'click', 'type', 'press_key', 'scroll', 'wait']);
+const RECORDED = new Set(['navigate', 'click', 'type', 'select_option', 'press_key', 'scroll', 'wait']);
 const runs = new Map(); // browserId -> { prompt, steps, elements }
 const stable = ({ type, tag, text, domId, name, ariaLabel, testId, placeholder, href } = {}) =>
   ({ type, tag, text, domId, name, ariaLabel, testId, placeholder, href });
@@ -44,9 +45,44 @@ export function lastRun(browserId) { return runs.get(browserId) || null; }
 
 const PAGE_CHANGING = new Set(['navigate', 'click', 'press_key']);
 
-/** `{{key}}` placeholders filled from data; unknown keys stay as typed. */
+/**
+ * Transforms a placeholder applies to its value, so a run can split or reformat a task
+ * value and still replay with other data: {{name|first}}, {{dob|date:MM/DD/YYYY}}.
+ * Self-contained arrow functions: renderPlaywright() copies their source into the export.
+ */
+export const FILTERS = {
+  first: (s) => s.trim().split(/\s+/)[0] || '',
+  last: (s) => s.trim().split(/\s+/).at(-1) || '',
+  part: (s, n) => s.trim().split(/\s+/)[Number(n) - 1] || '',
+  upper: (s) => s.toUpperCase(),
+  lower: (s) => s.toLowerCase(),
+  digits: (s) => s.replace(/\D/g, ''),
+  date: (s, format = 'MM/DD/YYYY') => {
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(s.trim());
+    const d = new Date(iso ? `${s.trim()}T00:00:00Z` : s);
+    if (Number.isNaN(d.getTime())) return s;
+    const [y, m, day] = iso ? [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()] : [d.getFullYear(), d.getMonth(), d.getDate()];
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const pad = (x) => String(x).padStart(2, '0');
+    const parts = { YYYY: String(y), YY: String(y).slice(-2), MMMM: months[m], MMM: months[m].slice(0, 3), MM: pad(m + 1), M: String(m + 1), DD: pad(day), D: String(day) };
+    return format.replace(/YYYY|YY|MMMM|MMM|MM|M|DD|D/g, (t) => parts[t]);
+  },
+};
+
+/** `{{key}}` or `{{key|filter|filter:arg}}`. */
+export const PLACEHOLDER = /\{\{(\w+)((?:\|\w+(?::[^|}]*)?)*)\}\}/g;
+
+/** "|first|date:MM/DD" -> [['first'], ['date', 'MM/DD']] */
+export const pipesOf = (raw = '') => raw.split('|').slice(1).map((p) => {
+  const i = p.indexOf(':');
+  return i < 0 ? [p] : [p.slice(0, i), p.slice(i + 1)];
+});
+
+/** Placeholders filled from values with their filters applied; unknown keys stay as typed. */
 export const fill = (text, data = {}) => (typeof text === 'string'
-  ? text.replace(/\{\{(\w+)\}\}/g, (m, k) => (data[k] != null ? String(data[k]) : m))
+  ? text.replace(PLACEHOLDER, (m, k, raw) => (data[k] != null
+    ? pipesOf(raw).reduce((s, [name, arg]) => (FILTERS[name] ? FILTERS[name](s, arg) : s), String(data[k]))
+    : m))
   : text);
 
 /** Data values turned back into their placeholders, so the model never reads them. */
@@ -57,6 +93,40 @@ export function redact(text, data = {}) {
     .sort((a, b) => b[1].length - a[1].length);
   for (const [k, v] of pairs) text = text.split(v).join(`{{${k}}}`);
   return text;
+}
+
+/**
+ * Choose a native <select> option by its text. Runs in the page's main world, where the
+ * analyzer's element ids do not reach, so the select is found by the stable handles analyze
+ * recorded. Every interpolated value is a JSON literal.
+ */
+const SELECT_OPTION_JS = (el, option) => `(() => {
+  const handle = ${JSON.stringify({ domId: el.domId, name: el.name, ariaLabel: el.ariaLabel, text: el.text })};
+  const want = ${JSON.stringify(String(option ?? ''))}.trim().toLowerCase();
+  const selects = [...document.querySelectorAll('select')];
+  const byId = handle.domId && document.getElementById(handle.domId);
+  const sel = (byId && byId.tagName === 'SELECT' && byId)
+    || (handle.name && selects.find((s) => s.name === handle.name))
+    || (handle.ariaLabel && selects.find((s) => s.getAttribute('aria-label') === handle.ariaLabel))
+    || (handle.text && selects.find((s) => (s.labels && s.labels[0] ? s.labels[0].textContent.trim() : '') === handle.text));
+  if (!sel) return { ok: false, error: 'dropdown not found on the page' };
+  const opts = [...sel.options];
+  const text = (o) => o.text.trim().toLowerCase();
+  const only = (list) => (list.length === 1 ? list[0] : null);
+  const pick = opts.find((o) => text(o) === want) || opts.find((o) => o.value.trim().toLowerCase() === want)
+    || only(opts.filter((o) => want && text(o).startsWith(want))) || only(opts.filter((o) => want && text(o).includes(want)));
+  if (!pick) return { ok: false, error: 'no single option matches', options: opts.map((o) => o.text.trim()).slice(0, 60) };
+  sel.value = pick.value;
+  sel.dispatchEvent(new Event('input', { bubbles: true }));
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+  return { ok: true, chosen: pick.text.trim() };
+})()`;
+
+// ponytail: top document only; selects inside iframes or shadow roots are not reached.
+export async function selectOptionIn(browserId, el, option) {
+  const r = await sendCommand(browserId, 'evaluate_raw', { expression: SELECT_OPTION_JS(el || {}, option) });
+  if (!r.ok) return { ok: false, error: r.error || 'select failed' };
+  return r.data?.result ?? r.data ?? { ok: false, error: 'select failed' };
 }
 
 const REQUEST_HUMAN = {
@@ -73,16 +143,17 @@ const REQUEST_HUMAN = {
   },
 };
 
-function recordStep(browserId, name, args, data) {
+function recordStep(browserId, name, args, values) {
   const run = runs.get(browserId);
   if (!run || !RECORDED.has(name)) return;
   const step = { action: name };
-  if (name === 'click' || name === 'type') {
+  if (name === 'click' || name === 'type' || name === 'select_option') {
     const el = stable(run.elements.find((e) => e.id === Number(args.element_id)));
-    for (const k of Object.keys(el)) el[k] = redact(el[k], data);
+    // Visible data and secrets alike: a playbook stores placeholders, never values.
+    for (const k of Object.keys(el)) el[k] = redact(el[k], values);
     step.el = el;
   }
-  for (const k of ['url', 'text', 'key', 'direction', 'amount', 'selector', 'timeout']) if (args[k] !== undefined) step[k] = args[k];
+  for (const k of ['url', 'text', 'option', 'key', 'direction', 'amount', 'selector', 'timeout']) if (args[k] !== undefined) step[k] = args[k];
   run.steps.push(step);
 }
 
@@ -141,6 +212,14 @@ async function executeTool(browserId, name, args) {
           return `Typed "${args.text}" into element ${args.element_id}. AUTOCOMPLETE SUGGESTIONS ARE VISIBLE — call analyze_page now to see and click a suggestion, or press Enter to submit as-is.`;
         }
         return `Typed "${args.text}" into element ${args.element_id}`;
+      }
+      case 'select_option': {
+        const el = runs.get(browserId)?.elements.find((e) => e.id === Number(args.element_id));
+        if (!el) return 'Error: Element not found. Call analyze_page and use a current id.';
+        const r = await selectOptionIn(browserId, el, args.option);
+        return r.ok
+          ? `Selected "${r.chosen}" in element ${args.element_id}`
+          : `Error: ${r.error}${r.options ? `. Options: ${r.options.join(' | ')}` : ''}`;
       }
       case 'screenshot': {
         const r = await sendCommand(browserId, 'screenshot');
@@ -220,7 +299,7 @@ async function executeTool(browserId, name, args) {
  * the model reads. `checkpoint` runs after page-changing tools; `requestHuman`, when
  * given, lets the agent ask a person and wait.
  */
-export async function runChat(browserId, messages, { apiKey, onToolCall, onText, data = {}, checkpoint, requestHuman } = {}) {
+export async function runChat(browserId, messages, { apiKey, onToolCall, onText, data = {}, secrets = {}, checkpoint, requestHuman } = {}) {
   // A runaway agent loop is the most expensive thing this control plane can do
   // on someone else's behalf, so the ceiling is checked before the first call.
   const budget = checkHourly('chatTokensPerHour', apiKey);
@@ -242,7 +321,9 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
   const MODEL = model;
 
   const prompt = messages.filter((m) => m.role === 'user').at(-1)?.content;
-  const run = { prompt: typeof prompt === 'string' ? redact(prompt, data) : '', steps: [], elements: [] };
+  // `data` the model reads; `secrets` it never does. Both are typed through placeholders.
+  const values = { ...data, ...secrets };
+  const run = { prompt: typeof prompt === 'string' ? redact(prompt, values) : '', steps: [], elements: [], secrets: Object.keys(secrets) };
   // The page the run starts on, so a playbook replays from the same place.
   const tabs = await sendCommand(browserId, 'list_tabs').catch(() => null);
   const startUrl = tabs?.data?.tabs?.find((t) => t.active)?.url;
@@ -251,15 +332,19 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
   runs.set(browserId, run);
   if (runs.size > 1000) runs.delete(runs.keys().next().value);
 
-  const keys = Object.keys(data);
+  const system = [SYSTEM_PROMPT];
+  if (Object.keys(values).length) {
+    system.push('TASK VALUES: type every task value as its {{placeholder}}, never as literal text, so the recorded playbook replays with other data. Transform a value with filters instead of retyping part of it: {{name|first}}, {{name|last}}, {{name|part:2}} (Nth word), {{x|upper}}, {{x|lower}}, {{x|digits}}, {{dob|date:MM/DD/YYYY}} (tokens YYYY YY MMMM MMM MM M DD D; separate month, day and year fields take {{dob|date:MM}}, {{dob|date:DD}}, {{dob|date:YYYY}}). select_option takes placeholders too.');
+  }
+  if (Object.keys(data).length) {
+    system.push(`DATA (you can read these to decide what to do):\n${Object.entries(data).map(([k, v]) => `{{${k}}} = ${JSON.stringify(String(v))}`).join('\n')}`);
+  }
+  if (Object.keys(secrets).length) {
+    system.push(`SECRETS (hidden from you): ${Object.keys(secrets).map((k) => `{{${k}}}`).join(', ')}. Type them as placeholders; the real value is filled in and reads back as the placeholder, so a field showing one is filled correctly. Filters work on them too.`);
+  }
   const allMessages = [
-    {
-      role: 'system',
-      content: keys.length
-        ? `${SYSTEM_PROMPT}\n\nDATA: the task's values are hidden from you. Type each one as its placeholder, exactly and whole: ${keys.map((k) => `{{${k}}}`).join(', ')}. The real value is filled in when typed and reads back as the placeholder, so a field showing its placeholder is filled correctly. You cannot see, reformat or split these values. To pick a dropdown option for one, type the placeholder into the field or search box if it has one; otherwise use request_human or stop.`
-        : SYSTEM_PROMPT,
-    },
-    ...messages.map((m) => ({ ...m, content: redact(m.content, data) })),
+    { role: 'system', content: system.join('\n\n') },
+    ...messages.map((m) => ({ ...m, content: redact(m.content, secrets) })),
   ];
 
   let iterations = 0;
@@ -343,15 +428,16 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
         try {
           result = name === 'request_human' && requestHuman
             ? `The person replied: ${await requestHuman({ reason: 'agent', message: String(args.message || '') })}`
-            : await executeTool(browserId, name, name === 'type' || name === 'keyboard_type' ? { ...args, text: fill(args.text, data) } : args);
+            : await executeTool(browserId, name, Object.fromEntries(Object.entries(args).map(([k, v]) => [k, ['text', 'option', 'url'].includes(k) ? fill(v, values) : v])));
         } catch (err) {
           result = `Error: ${err.message}`;
         }
         if (!String(result).startsWith('Error')) {
-          recordStep(browserId, name, args, data);
+          recordStep(browserId, name, args, values);
           if (PAGE_CHANGING.has(name)) await checkpoint?.();
         }
-        result = redact(result, data);
+        // ponytail: whole secret values are redacted; a filtered piece of one (its digits, a first name) read back from the page is not.
+        result = redact(result, secrets);
         toolResults.push({ tool_call_id: tc.id, content: result });
       }
       allMessages.push({

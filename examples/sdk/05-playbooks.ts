@@ -4,7 +4,7 @@ import { Oya } from '@oya-ai/browser';
 const oya = new Oya();
 await using browser = await oya.browser.start(); // stopped when the script exits, even on error
 
-// 1. Ask once. `data` reaches the page through {{placeholders}}; the model never sees the values.
+// 1. Ask once. The agent reads `data` and types it through {{placeholders}}; `secrets` it never sees.
 await browser.goto('https://httpbin.org/forms/post');
 console.log(await browser.ask(
   'Order a large pizza with bacon for {{name}}, phone {{phone}}, email {{email}}, then submit the order.',

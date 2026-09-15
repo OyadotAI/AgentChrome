@@ -70,6 +70,22 @@ Use element IDs with click/type tools. Includes page metadata, full content, and
   {
     type: 'function',
     function: {
+      name: 'select_option',
+      description: 'Choose an option in a native dropdown (a select element from analyze_page) by the option text you see. Accepts {{placeholders}} and filters.',
+      parameters: {
+        type: 'object',
+        properties: {
+          element_id: { type: 'number', description: 'The select element ID from analyze_page' },
+          option: { type: 'string', description: 'The visible text of the option to choose' },
+        },
+        required: ['element_id', 'option'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'screenshot',
       description: 'Capture a screenshot of the visible browser tab.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
