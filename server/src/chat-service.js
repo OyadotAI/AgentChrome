@@ -300,9 +300,14 @@ async function executeTool(browserId, name, args) {
  * given, lets the agent ask a person and wait.
  */
 export async function runChat(browserId, messages, { apiKey, onToolCall, onText, data = {}, secrets = {}, checkpoint, requestHuman } = {}) {
+  // Settings belong to the calling API key; a key that has set none falls
+  // back to the deployment-wide values.
+  const { openaiKey, baseUrl, model, own } = keyConfig.resolve(apiKey);
+
   // A runaway agent loop is the most expensive thing this control plane can do
   // on someone else's behalf, so the ceiling is checked before the first call.
-  const budget = checkHourly('chatTokensPerHour', apiKey);
+  // A key with its own LLM credential pays for its own tokens and has no ceiling.
+  const budget = own ? { allowed: true } : checkHourly('chatTokensPerHour', apiKey);
   if (!budget.allowed) {
     metrics.chatRequests.inc({ outcome: 'quota' });
     throw Object.assign(
@@ -310,10 +315,6 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
       { status: 429 },
     );
   }
-
-  // Settings belong to the calling API key; a key that has set none falls
-  // back to the deployment-wide values.
-  const { openaiKey, baseUrl, model } = keyConfig.resolve(apiKey);
   if (!openaiKey) {
     throw new Error('No LLM key configured for this API key. Add one in Settings, run `oya init`, or POST /api/config.');
   }
@@ -443,8 +444,10 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText,
       allMessages.push({
         role: 'assistant',
         content: msg.content ?? null,
+        // Spread, not rebuilt: Gemini 3 rejects the next turn unless each call's
+        // extra_content (its thought signature) comes back unchanged.
         tool_calls: toolCalls.map((tc) => ({
-          id: tc.id,
+          ...tc,
           type: 'function',
           function: { name: tc.function?.name, arguments: tc.function?.arguments ?? '{}' },
         })),

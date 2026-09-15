@@ -171,7 +171,13 @@ export class Oya {
     clearMfa: async (id: string): Promise<void> => { await this.http.request('DELETE', `/api/personas/${id}/mfa`); },
   };
 
-  /** This key's settings: LLM credentials, browser provider, solver. */
+  /**
+   * This key's settings: LLM credentials, browser provider, solver.
+   *
+   * Bring your own LLM key (it pays for its own tokens, so no hourly chat quota applies):
+   *   await oya.config.set({ llm_provider: 'gemini', openai_api_key: process.env.GEMINI_API_KEY });
+   * `llm_provider` is 'openai' | 'anthropic' | 'gemini'; `chat_model` overrides its default model.
+   */
   readonly config = {
     get: <T = Record<string, unknown>>(): Promise<T> => this.http.request<T>('GET', '/api/config'),
     set: <T = Record<string, unknown>>(values: Record<string, unknown>): Promise<T> =>

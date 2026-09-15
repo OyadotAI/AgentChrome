@@ -16,6 +16,7 @@ const SECTIONS = [
 const MODELS: Record<string, { id: string; label: string }[]> = {
   openai: [{ id: 'gpt-4o-mini', label: 'GPT-4o mini' }, { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini' }, { id: 'gpt-4.1', label: 'GPT-4.1' }],
   anthropic: [{ id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' }, { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' }],
+  gemini: [{ id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' }, { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' }, { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro (preview)' }],
 };
 const CREDENTIAL_LABELS: Record<string, string> = {
   anchor_api_key: 'Anchor API key', browserbase_api_key: 'Browserbase API key',
@@ -67,7 +68,8 @@ function SettingsEditor({ onClose, apiKey, onRerunSetup }: Props) {
     if (next === saved(field)) delete updated[field]; else updated[field] = next;
     return updated;
   });
-  const originalProvider = config?.llm_provider || (config?.effective.baseUrl?.includes('anthropic.com') ? 'anthropic' : 'openai');
+  const baseUrl = config?.effective.baseUrl || '';
+  const originalProvider = config?.llm_provider || (baseUrl.includes('anthropic.com') ? 'anthropic' : baseUrl.includes('generativelanguage.googleapis.com') ? 'gemini' : 'openai');
   const provider = value('llm_provider') || originalProvider;
   const providerChanged = provider !== originalProvider;
   const models = MODELS[provider] || [];
@@ -125,9 +127,9 @@ function SettingsEditor({ onClose, apiKey, onRerunSetup }: Props) {
               {section === 'model' && <>
                 <div className="mb-7"><p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-accent">Intelligence</p><h3 className="text-[22px] font-semibold tracking-[-0.035em]">Choose how Oya thinks.</h3><p className="mt-1.5 text-[13px] leading-6 text-text-muted">The model behind your browser conversations.</p></div>
                 <div className="space-y-5">
-                  <Row label="Provider" hint="Connect your AI account."><div role="group" aria-label="AI provider" className="grid grid-cols-2 gap-2">{LLM_PRESETS.map(p => <button key={p.id} type="button" aria-pressed={provider === p.id} onClick={() => chooseProvider(p.id)} className={`flex h-11 items-center justify-between rounded-lg border px-3.5 text-[13px] font-medium ${provider === p.id ? 'border-accent/50 bg-accent/[0.06] text-text' : 'border-border bg-bg-sunken text-text-muted hover:border-text-dim'}`}><span>{p.label}</span>{provider === p.id && <Check className="h-3.5 w-3.5 text-accent" />}</button>)}</div></Row>
+                  <Row label="Provider" hint="Connect your AI account."><div role="group" aria-label="AI provider" className="grid grid-cols-3 gap-2">{LLM_PRESETS.map(p => <button key={p.id} type="button" aria-pressed={provider === p.id} onClick={() => chooseProvider(p.id)} className={`flex h-11 items-center justify-between rounded-lg border px-3.5 text-[13px] font-medium ${provider === p.id ? 'border-accent/50 bg-accent/[0.06] text-text' : 'border-border bg-bg-sunken text-text-muted hover:border-text-dim'}`}><span>{p.label}</span>{provider === p.id && <Check className="h-3.5 w-3.5 text-accent" />}</button>)}</div></Row>
                   <Row id="settings-model" label="Model" hint="Use a preset or your own model ID."><Select id="settings-model" value={custom ? '__custom' : model} onChange={next => { if (next === '__custom') setCustomModel(true); else { setCustomModel(false); set('chat_model', next); } }}>{models.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}<option value="__custom">Custom model…</option></Select>{custom && <input aria-label="Custom model ID" className="settings-input mt-2 font-mono text-[12px]" value={model} placeholder="Enter a model ID" onChange={e => set('chat_model', e.target.value)} />}</Row>
-                  <Row id="settings-model-key" label="API key" hint={config.inherited && !providerChanged ? 'Using the server’s shared key.' : 'Your credential stays private.'}><Secret id="settings-model-key" value={draft.openai_api_key ?? ''} onChange={v => set('openai_api_key', v)} placeholder={!providerChanged && config.openai_api_key ? 'Saved · leave blank to keep' : LLM_PRESETS.find(p => p.id === provider)?.hint || 'Enter your API key'} />{needsModelKey && <p className="mt-2 text-[12px] leading-5 text-yellow">Enter a key for {provider === 'anthropic' ? 'Claude' : 'OpenAI'} to switch providers.</p>}</Row>
+                  <Row id="settings-model-key" label="API key" hint={config.inherited && !providerChanged ? 'Using the server’s shared key.' : 'Your credential stays private.'}><Secret id="settings-model-key" value={draft.openai_api_key ?? ''} onChange={v => set('openai_api_key', v)} placeholder={!providerChanged && config.openai_api_key ? 'Saved · leave blank to keep' : LLM_PRESETS.find(p => p.id === provider)?.hint || 'Enter your API key'} />{needsModelKey && <p className="mt-2 text-[12px] leading-5 text-yellow">Enter a key for {LLM_PRESETS.find(p => p.id === provider)?.label} to switch providers.</p>}</Row>
                 </div>
                 <details className="mt-6 border-t border-border pt-4"><summary className="cursor-pointer text-[12px] font-medium text-text-muted hover:text-text">Advanced connection</summary><div className="mt-4"><Row id="settings-base-url" label="API base URL" hint="For a compatible gateway."><input id="settings-base-url" className="settings-input font-mono text-[12px]" type="url" value={value('openai_base_url')} onChange={e => set('openai_base_url', e.target.value)} placeholder="Use provider default" /><p className="mt-2 text-[11.5px] leading-5 text-text-muted">A custom endpoint requires your own API key.</p></Row></div></details>
               </>}

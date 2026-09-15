@@ -9,13 +9,14 @@
  * browsers does this key have right now) or from usage.js (how much has it
  * spent this hour).
  *
- * Every limit is configurable; setting one to 0 disables it.
+ * Every limit is configurable; setting one to 0 or false disables it.
  */
 
 import { metrics } from './metrics.js';
 import * as usage from './usage.js';
 
 const num = (name, fallback) => {
+  if (process.env[name] === 'false') return 0;
   const v = Number(process.env[name]);
   return Number.isFinite(v) && v >= 0 ? v : fallback;
 };

@@ -51,6 +51,7 @@ export async function saveConfig(apiKey: string, values: Record<string, string>)
 export const LLM_PRESETS = [
   { id: 'anthropic', label: 'Claude', model: 'claude-sonnet-4-5', hint: 'sk-ant-...' },
   { id: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'sk-...' },
+  { id: 'gemini', label: 'Gemini', model: 'gemini-3.8-flash', hint: 'AIza...' },
 ];
 
 /** Whether a provider runs on our own infrastructure, and so can reuse desktop cookies. */

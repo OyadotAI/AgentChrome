@@ -139,7 +139,7 @@ const llm = createServer((req, res) => {
     const next = turns[llmBodies.length - 1];
     const message = next.text
       ? { role: 'assistant', content: next.text }
-      : { role: 'assistant', content: null, tool_calls: [{ id: `call_${llmBodies.length}`, type: 'function', function: { name: next.tool, arguments: JSON.stringify(next.args) } }] };
+      : { role: 'assistant', content: null, tool_calls: [{ id: `call_${llmBodies.length}`, type: 'function', function: { name: next.tool, arguments: JSON.stringify(next.args) }, extra_content: { google: { thought_signature: `sig_${llmBodies.length}` } } }] };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
   });
@@ -189,6 +189,8 @@ assert.deepEqual(typed, [['type', 'Ada'], ['type', 'Lovelace'], ['type', '12/10/
 assert.equal(stateSelect.value, 'CA', 'select_option picks the option by its text');
 assert.deepEqual(selectEvents, ['input', 'change']);
 assert.equal(llmBodies.length, turns.length);
+assert.equal(JSON.parse(llmBodies[1]).messages.find((m) => m.tool_calls)?.tool_calls[0].extra_content?.google?.thought_signature, 'sig_1',
+  "a tool call's thought signature goes back to the model unchanged (Gemini 3 rejects the turn without it)");
 assert.ok(llmBodies[0].includes('Ada Lovelace'), 'data is visible to the model so it can reason about it');
 assert.ok(llmBodies.every((b) => !b.includes('s3cret-pass')), 'a secret never reaches the model, even read back from the page');
 assert.ok(JSON.parse(llmBodies[0]).messages[0].content.startsWith('You are a web automation agent'), 'the automation system prompt is sent');

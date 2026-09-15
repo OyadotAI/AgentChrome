@@ -174,6 +174,7 @@ function writeEnv(path: string, body: string): void {
 const LLM_PRESETS: Record<string, { base: string; model: string; label: string }> = {
   anthropic: { base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5', label: 'Anthropic (Claude)' },
   openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', label: 'OpenAI' },
+  gemini: { base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash', label: 'Gemini (Google)' },
 };
 
 async function askLlm(): Promise<{ answers: Answers['llm']; key: string }> {
@@ -182,6 +183,7 @@ async function askLlm(): Promise<{ answers: Answers['llm']; key: string }> {
   const provider = await choose('Which LLM should agents use?', [
     { id: 'anthropic', label: 'Anthropic (Claude)' },
     { id: 'openai', label: 'OpenAI' },
+    { id: 'gemini', label: 'Gemini (Google)' },
     { id: 'compatible', label: 'An OpenAI-compatible endpoint', note: 'OpenRouter, Together, Groq, Azure' },
     { id: 'local', label: 'A local model', note: 'Ollama, vLLM, LM Studio' },
     { id: 'skip', label: 'Skip', note: 'no agent control; add it later with `oya config`' },

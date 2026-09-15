@@ -110,12 +110,19 @@ try {
   assert(exfil.baseUrl !== 'https://203.0.113.10/v1', 'a keyless tenant cannot redirect the deployment key');
   assert(exfil.baseUrl === serverBase, 'it falls back to the deployment-wide base URL');
   assert(exfil.openaiKey === serverKey, 'it still resolves the deployment-wide key');
+  assert(!exfil.own, 'a key on the deployment-wide LLM credential stays under the chat token quota');
 
   // With its own credential, the key's own endpoint is honoured.
   await keyConfig.set('k-own', { openai_api_key: 'sk-own', openai_base_url: 'https://203.0.113.20/v1' });
   const own = keyConfig.resolve('k-own');
   assert(own.openaiKey === 'sk-own', "a key's own LLM credential is used");
   assert(own.baseUrl === 'https://203.0.113.20/v1', "a key's own base URL is honoured with its own credential");
+  assert(own.own === true, 'a key with its own LLM credential is exempt from the chat token quota');
+
+  await keyConfig.set('k-gemini', { llm_provider: 'gemini', openai_api_key: 'AIza-own' });
+  const gemini = keyConfig.resolve('k-gemini');
+  assert(gemini.baseUrl === 'https://generativelanguage.googleapis.com/v1beta/openai' && gemini.model === 'gemini-3.8-flash',
+    'a Gemini key resolves to the Gemini endpoint and default model');
 
   // A blank own base URL must be ignored by BOTH layers. Before the fix get()
   // used ?? and resolve() used ||, so the dashboard showed blank while requests

@@ -171,15 +171,21 @@ async function cmdInit(flags: Flags): Promise<void> {
   const llm = await choose('Which LLM should agents use?', [
     { id: 'anthropic', label: 'Claude (Anthropic)' },
     { id: 'openai', label: 'OpenAI' },
+    { id: 'gemini', label: 'Gemini (Google)' },
     { id: 'skip', label: 'Skip', note: current.has_openai_key ? 'keep what is configured' : 'no agent control' },
   ]);
 
+  const presets: Record<string, { name: string; model: string }> = {
+    anthropic: { name: 'Anthropic', model: 'claude-sonnet-4-5' },
+    openai: { name: 'OpenAI', model: 'gpt-4o-mini' },
+    gemini: { name: 'Gemini', model: 'gemini-3.8-flash' },
+  };
   const updates: Record<string, unknown> = {};
   if (llm !== 'skip') {
     updates.llm_provider = llm;
-    const key = await askSecret(`${llm === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key:`);
+    const key = await askSecret(`${presets[llm].name} API key:`);
     if (key) updates.openai_api_key = key;
-    const model = await ask('Default model:', llm === 'anthropic' ? 'claude-sonnet-4-5' : 'gpt-4o-mini');
+    const model = await ask('Default model:', presets[llm].model);
     if (model) updates.chat_model = model;
   }
 

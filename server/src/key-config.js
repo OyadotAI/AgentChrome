@@ -38,7 +38,7 @@ const STORE = process.env.OYA_DATA_DIR
  *           object, and `envFor()` hands them one with the key's values on top.
  */
 export const FIELDS = {
-  llm_provider:           {},                                        // 'openai' | 'anthropic'
+  llm_provider:           {},                                        // 'openai' | 'anthropic' | 'gemini'
   openai_api_key:         { secret: true, envVar: 'OPENAI_API_KEY' },
   openai_base_url:        { validate: validateBaseUrl },
   chat_model:             {},
@@ -77,6 +77,7 @@ const LLM_DEFAULTS = {
   openai:    { base: 'https://api.openai.com/v1',    model: 'gpt-4o-mini' },
   // Anthropic's OpenAI-compatible endpoint, so one client path covers both.
   anthropic: { base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5' },
+  gemini:    { base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.8-flash' },
 };
 
 /** owner -> { field: value }. Secret fields hold sealed base64. */
@@ -154,6 +155,7 @@ export function resolve(apiKey) {
   const defaults = LLM_DEFAULTS[own.llm_provider] || LLM_DEFAULTS.openai;
   if (own.openai_api_key) {
     return {
+      own: true,
       openaiKey: own.openai_api_key,
       // A key's own base URL is only honoured alongside its own credential —
       // pairing a caller-supplied endpoint with the deployment's key would ship
