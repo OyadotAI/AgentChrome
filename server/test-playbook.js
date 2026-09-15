@@ -91,10 +91,26 @@ await new Promise((r) => setImmediate(r));
 assert.equal(runs.get('owner', run.id).status, 'succeeded');
 assert.deepEqual(runs.get('owner', run.id).result, { text: 'Gold' });
 
-const failing = runs.start('owner', 'b1', async () => { throw new Error('form rejected'); });
+const failing = runs.start('owner', 'b1', async () => { throw Object.assign(new Error('Chat token quota reached'), { status: 429 }); });
 await new Promise((r) => setImmediate(r));
 assert.equal(runs.get('owner', failing.id).status, 'failed');
-assert.equal(runs.get('owner', failing.id).error, 'form rejected');
+assert.equal(runs.get('owner', failing.id).error, 'Chat token quota reached');
+assert.equal(runs.get('owner', failing.id).errorStatus, 429, 'a failed run keeps its real status');
+
+// An hourly quota lifts when the hour turns, even if the blocked key records nothing since.
+const usage = await import('./src/usage.js');
+usage.record('quota-key', 'chat_input_tokens', 2_500_000);
+assert.equal(usage.current('quota-key').chat_input_tokens, 2_500_000);
+const RealDate = Date;
+globalThis.Date = class extends RealDate {
+  constructor(...args) { super(...(args.length ? args : [RealDate.now() + 3600_000])); }
+  static now() { return RealDate.now() + 3600_000; }
+};
+try {
+  assert.equal(usage.current('quota-key').chat_input_tokens, 0, "last hour's counters no longer count");
+} finally {
+  globalThis.Date = RealDate;
+}
 
 // The real agent loop: data reaches the page through placeholders, never reaches the model
 // (not even read back from the page), and is recorded as placeholders.

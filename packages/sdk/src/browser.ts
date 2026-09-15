@@ -144,10 +144,10 @@ export class Browser {
    * with filters like `{{name|first}}`, so a playbook saved from the run stores no values.
    */
   async ask(prompt: string, { data, secrets }: { data?: RunData; secrets?: RunData } = {}): Promise<string> {
-    const res = await this.http.request<{ text: string; error?: string }>(
+    const res = await this.http.request<{ text: string; error?: string; status?: number }>(
       'POST', `/api/browsers/${this.id}/chat`, { messages: [{ role: 'user', content: prompt }], data, secrets }, 600_000);
     // The server sends 200 up front to keep long runs alive, so failures arrive in the body.
-    if (res.error) throw new OyaError(res.error, 500, res);
+    if (res.error) throw new OyaError(res.error, res.status ?? 500, res);
     return res.text;
   }
 
@@ -168,9 +168,9 @@ export class Browser {
    * Play `'<name>:draft'` to try a draft before promoting it.
    */
   async play(name: string, data: RunData = {}, { autoHeal = true }: { autoHeal?: boolean } = {}): Promise<PlayResult> {
-    const res = await this.http.request<PlayResult & { error?: string }>(
+    const res = await this.http.request<PlayResult & { error?: string; status?: number }>(
       'POST', `/api/browsers/${this.id}/playbooks/${encodeURIComponent(name)}/play`, { variables: data, autoHeal }, 600_000);
-    if (res.error) throw new OyaError(res.error, 500, res);
+    if (res.error) throw new OyaError(res.error, res.status ?? 500, res);
     return res;
   }
 
@@ -312,7 +312,7 @@ export class Run {
         return result;
       }
       if (run.status === 'failed') {
-        const failure = new OyaError(run.error || 'Run failed', 500, run);
+        const failure = new OyaError(run.error || 'Run failed', run.errorStatus ?? 500, run);
         await call(() => cb.onFailure?.(failure));
         throw failure;
       }

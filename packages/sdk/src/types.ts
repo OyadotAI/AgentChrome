@@ -106,6 +106,8 @@ export interface RunInfo {
   attention: AttentionRequest | null;
   result?: RunResult;
   error?: string;
+  /** HTTP-style status of a failure: 429 when a quota stopped the run. */
+  errorStatus?: number;
 }
 
 export interface SubmitOptions {

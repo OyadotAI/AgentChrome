@@ -101,9 +101,12 @@ function settleOpenBrowsers() {
 /** Current hour's counters for one key. */
 export function current(apiKey) {
   const id = fingerprint(apiKey);
-  const b = buckets.get(id);
+  const hour = hourOf();
+  // A bucket only rolls over on its next write, and a key blocked by an hourly quota writes
+  // nothing, so an earlier hour's counters must read as zero here or the block never lifts.
+  const b = buckets.get(id)?.hour === hour ? buckets.get(id) : null;
   const openBrowsers = live.get(id)?.size || 0;
-  return { hour: b?.hour || hourOf(), openBrowsers, ...(b?.counters || Object.fromEntries(FIELDS.map((f) => [f, 0]))) };
+  return { hour, openBrowsers, ...(b?.counters || Object.fromEntries(FIELDS.map((f) => [f, 0]))) };
 }
 
 /** Every key with activity this hour. */

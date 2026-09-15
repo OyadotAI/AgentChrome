@@ -34,7 +34,7 @@ export function start(owner, browserId, work) {
 
   work({ requestHuman })
     .then((result) => Object.assign(run, { status: 'succeeded', result }))
-    .catch((err) => Object.assign(run, { status: 'failed', error: err.message }))
+    .catch((err) => Object.assign(run, { status: 'failed', error: err.message, errorStatus: err.status || 500 }))
     .finally(() => {
       Object.assign(run, { endedAt: Date.now(), attention: null, waiter: null });
       setTimeout(() => runs.delete(run.id), KEEP_MS).unref?.();

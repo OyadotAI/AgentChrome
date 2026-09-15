@@ -1390,7 +1390,8 @@ async function longJson(res, work) {
   try {
     res.end(JSON.stringify(await work()));
   } catch (err) {
-    res.end(JSON.stringify({ error: err.message }));
+    // The 200 is already sent, so the real status (429 for a quota) travels in the body.
+    res.end(JSON.stringify({ error: err.message, status: err.status || 500 }));
   } finally {
     clearInterval(keepalive);
   }
