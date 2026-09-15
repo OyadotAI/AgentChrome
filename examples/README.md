@@ -18,6 +18,7 @@ Every script needs `OYA_API_KEY`, and runs from this `examples/` folder. The mul
 | [`02-captcha.ts`](sdk/02-captcha.ts) | Automated reCAPTCHA detection and resolution | `npx tsx --env-file=.env sdk/02-captcha.ts` |
 | [`03-mfa.ts`](sdk/03-mfa.ts) | Two-factor authentication with sealed TOTP seeds and human live view fallback | `npx tsx --env-file=.env sdk/03-mfa.ts` |
 | [`04-personas.ts`](sdk/04-personas.ts) | Stable device identities: create, reuse, rotate, and clone fingerprints | `npx tsx --env-file=.env sdk/04-personas.ts` |
+| [`05-playbooks.ts`](sdk/05-playbooks.ts) | Ask once with hidden data, save it as a playbook, replay it without the LLM, and get callbacks with auto-heal | `npx tsx --env-file=.env sdk/05-playbooks.ts` |
 | [`demo.ts`](sdk/demo.ts) | 🎬 Interactive tour of every capability | `npx tsx --env-file=.env sdk/demo.ts` |
 
 ### 🎭 [`playwright/`](playwright/): bring your own tools

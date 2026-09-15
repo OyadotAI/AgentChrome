@@ -44,6 +44,45 @@ const answer = await browser.ask("What are the top 3 stories and their points?")
 console.log(answer);
 ```
 
+### Data pass-through: the model never sees your values
+
+```ts
+await browser.ask("Search for order {{orderNumber}} and download its invoice", {
+  data: { orderNumber: "1042" }, // typed into the page; the LLM only reads {{orderNumber}}
+});
+```
+
+### Playbooks: ask once, replay without the LLM
+
+```ts
+const pb = await browser.toPlaybook("download-invoice");
+console.log(pb.variables); // ["orderNumber"]
+console.log(pb.code);      // the same flow as Playwright
+
+// Later, on any browser. If the site changed, the agent finishes the task
+// and saves its fix as a draft ("download-invoice:draft").
+const result = await browser.play("download-invoice", { orderNumber: "2077" });
+if (result.healed) await oya.playbooks.promote("download-invoice"); // after reviewing it
+// autoHeal: false throws at the broken step instead.
+```
+
+### Submit and get called back
+
+```ts
+const run = await browser.submit({ playbook: "download-invoice" }, {
+  data: { orderNumber: "2077" },
+  onSuccess: (result) => console.log("done", result),
+  onFailure: (error) => console.error("failed", error.message),
+  // CAPTCHA or MFA it could not clear, the agent asking a question, or a replay it could not heal.
+  onHumanAttention: async (req) => {
+    console.log(req.reason, req.message, req.liveViewUrl);
+    await req.respond("done"); // or your answer, when req.reason === "agent"
+  },
+  onHealed: (result) => console.log("fix saved as", result.draft),
+});
+await run.done;
+```
+
 > **Universal Lifecycle:** If you are not using `await using`, manage lifecycle with `try / finally`:
 > ```ts
 > const browser = await oya.browser.start();

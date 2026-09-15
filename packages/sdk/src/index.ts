@@ -13,15 +13,15 @@
  */
 
 import { Http } from './client.js';
-import { Browser } from './browser.js';
+import { Browser, Run } from './browser.js';
 import {
   OyaError,
   type ControlOverview, type ControlSession, type ControlRole, type ControlCredential, type HumanInputAction, type ProjectSettings, type ControlEvent,
   type BrowserInfo, type Fingerprint, type MfaConfig, type OyaOptions,
-  type PersonaInfo, type PersonaPrefs, type ProxyInfo, type ProxyCreate, type StartOptions, type StartResult, type StopResult,
+  type PersonaInfo, type PersonaPrefs, type Playbook, type PlaybookSummary, type ProxyInfo, type ProxyCreate, type StartOptions, type StartResult, type StopResult,
 } from './types.js';
 
-export { Browser, OyaError };
+export { Browser, Run, OyaError };
 export * from './types.js';
 
 const DEFAULT_BASE_URL = 'https://browser.getoya.ai';
@@ -103,6 +103,17 @@ export class Oya {
     createWebhook: (url: string, types: string[] = []): Promise<{ id: string; secret: string }> => this.http.request('POST', '/api/control/webhooks', { url, types }),
     removeWebhook: (id: string): Promise<{ ok: boolean }> => this.http.request('DELETE', `/api/control/webhooks/${encodeURIComponent(id)}`),
     replayDelivery: (id: string): Promise<{ ok: boolean }> => this.http.request('POST', `/api/control/deliveries/${encodeURIComponent(id)}/replay`, {}),
+  };
+
+  /** Playbooks saved with `browser.toPlaybook()`. */
+  readonly playbooks = {
+    list: async (): Promise<PlaybookSummary[]> =>
+      (await this.http.request<{ playbooks: PlaybookSummary[] }>('GET', '/api/playbooks')).playbooks,
+    /** Delete a playbook and its draft, or only the draft with `'<name>:draft'`. */
+    remove: async (name: string): Promise<void> => { await this.http.request('DELETE', `/api/playbooks/${encodeURIComponent(name)}`); },
+    /** Replace a playbook with the draft a healed replay saved. Try it first with `browser.play('<name>:draft')`. */
+    promote: (name: string): Promise<Playbook> =>
+      this.http.request<Playbook>('POST', `/api/playbooks/${encodeURIComponent(name)}/promote`, {}),
   };
 
   /**

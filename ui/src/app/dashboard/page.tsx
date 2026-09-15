@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Monitor, Users, Activity, HelpCircle } from 'lucide-react';
+import { Monitor, Users, Activity, HelpCircle, Workflow } from 'lucide-react';
 import { useToast } from '@/components/dashboard/toast';
 import { api, errorMessage } from '@/lib/api-client';
 import { consoleCredential } from '@/lib/api';
@@ -14,6 +14,7 @@ import BrowserPanel from '@/components/dashboard/browser-panel';
 import PersonasTab from '@/components/dashboard/personas-tab';
 import PersonaDrawer from '@/components/dashboard/persona-drawer';
 import ControlTab from '@/components/dashboard/control-tab';
+import PlaybooksTab from '@/components/dashboard/playbooks-tab';
 import SettingsDialog from '@/components/dashboard/settings-dialog';
 import Onboarding from '@/components/dashboard/onboarding';
 import StartBrowser from '@/components/dashboard/start-browser';
@@ -25,11 +26,12 @@ import { Confirm } from '@/components/ui/dialog';
 import { loadConfig, isOyaProvider, type KeyConfig } from '@/components/dashboard/config';
 import type { BrowserRow, Fleet, Persona } from '@/components/dashboard/types';
 
-type MainTab = 'browsers' | 'personas' | 'control';
+type MainTab = 'browsers' | 'personas' | 'playbooks' | 'control';
 
 const TABS: { key: MainTab; label: string; icon: typeof Monitor }[] = [
   { key: 'browsers', label: 'Browsers', icon: Monitor },
   { key: 'personas', label: 'Profiles', icon: Users },
+  { key: 'playbooks', label: 'Playbooks', icon: Workflow },
   { key: 'control', label: 'Control', icon: Activity },
 ];
 
@@ -213,6 +215,7 @@ export default function DashboardPage() {
     { keys: 'mod+1', label: 'Browsers', group: 'Navigate', global: true, handler: () => setTab('browsers') },
     { keys: 'mod+2', label: 'Personas', group: 'Navigate', global: true, handler: () => setTab('personas') },
     { keys: 'mod+3', label: 'Control', group: 'Navigate', global: true, handler: () => setTab('control') },
+    { keys: 'mod+4', label: 'Playbooks', group: 'Navigate', global: true, handler: () => setTab('playbooks') },
     { keys: '?', label: 'This help', group: 'Navigate', handler: () => setShowHelp(true) },
     { keys: 'n', label: 'Start a browser', group: 'Fleet', handler: () => setShowStart(true) },
     { keys: '/', label: 'Filter the fleet', group: 'Fleet', handler: () => { setTab('browsers'); filterRef.current?.focus(); } },
@@ -279,6 +282,7 @@ export default function DashboardPage() {
                 <PersonasTab apiKey={apiKey} browsers={browsers} personas={personas} refresh={fetchPersonas}
                   openId={openPersona} onOpen={setOpenPersona} onShowBrowsers={showBrowsersFor} now={now} />
               )}
+              {tab === 'playbooks' && <PlaybooksTab key={project ?? ''} apiKey={apiKey} browsers={browsers} now={now} />}
               {tab === 'control' && <div className="h-full min-w-0 overflow-hidden"><ControlTab key={project ?? ''} apiKey={apiKey} /></div>}
             </div>
 

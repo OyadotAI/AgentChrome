@@ -1,5 +1,7 @@
 import type { Http } from './client.js';
-import type { Analysis, BrowserDetail, CaptchaResult, Element, MfaResult, StartResult, StopResult } from './types.js';
+import type {
+  Analysis, BrowserDetail, CaptchaResult, Element, MfaResult, Playbook, PlayResult, RunData, RunInfo, RunResult, StartResult, StopResult, SubmitOptions,
+} from './types.js';
 import { OyaError } from './types.js';
 
 /** Navigation is slow and the server disables its own timeout for it. */
@@ -135,11 +137,52 @@ export class Browser {
     return result;
   }
 
-  /** Natural-language control, using this key's configured model. */
-  async ask(prompt: string): Promise<string> {
-    const res = await this.http.request<{ text: string }>(
-      'POST', `/api/browsers/${this.id}/chat`, { messages: [{ role: 'user', content: prompt }] }, 600_000);
+  /**
+   * Natural-language control, using this key's configured model. Refer to `data`
+   * as `{{name}}` in the prompt: the agent types the placeholder, the page gets the
+   * value, and the model never sees it.
+   */
+  async ask(prompt: string, { data }: { data?: RunData } = {}): Promise<string> {
+    const res = await this.http.request<{ text: string; error?: string }>(
+      'POST', `/api/browsers/${this.id}/chat`, { messages: [{ role: 'user', content: prompt }], data }, 600_000);
+    // The server sends 200 up front to keep long runs alive, so failures arrive in the body.
+    if (res.error) throw new OyaError(res.error, 500, res);
     return res.text;
+  }
+
+  /**
+   * Save the last `ask()` on this browser as a named playbook. Values that came
+   * from the prompt (names, IDs, dates) become variables; `code` is the same
+   * flow as a Playwright module, to read or run yourself.
+   */
+  toPlaybook(name: string): Promise<Playbook> {
+    return this.http.request<Playbook>('POST', `/api/browsers/${this.id}/playbooks`, { name }, 120_000);
+  }
+
+  /**
+   * Replay a playbook with no LLM in the loop. Variables left out reuse the
+   * recorded values where there are any. If a step no longer fits the page and
+   * `autoHeal` is on (the default), the agent finishes the task and its fix is
+   * saved as a draft (`healed`, `draft`); off, the step's error is thrown.
+   * Play `'<name>:draft'` to try a draft before promoting it.
+   */
+  async play(name: string, data: RunData = {}, { autoHeal = true }: { autoHeal?: boolean } = {}): Promise<PlayResult> {
+    const res = await this.http.request<PlayResult & { error?: string }>(
+      'POST', `/api/browsers/${this.id}/playbooks/${encodeURIComponent(name)}/play`, { variables: data, autoHeal }, 600_000);
+    if (res.error) throw new OyaError(res.error, 500, res);
+    return res;
+  }
+
+  /**
+   * Start a prompt or playbook in the background and hear back through callbacks.
+   * `onHumanAttention` fires for an unsolved CAPTCHA, an unfinished MFA, the agent
+   * asking for help, or a replay the agent could not heal; the run waits (up to 30
+   * minutes) until you call `respond()`.
+   */
+  async submit(task: { prompt: string } | { playbook: string }, options: SubmitOptions = {}): Promise<Run> {
+    const { onSuccess, onFailure, onHumanAttention, onHealed, pollMs, ...body } = options;
+    const started = await this.http.request<RunInfo>('POST', `/api/browsers/${this.id}/runs`, { ...task, ...body });
+    return new Run(this.http, started.id, { onSuccess, onFailure, onHumanAttention, onHealed }, pollMs);
   }
 
   /**
@@ -211,4 +254,68 @@ export class Browser {
 
   /** @deprecated use stop() — close() only dropped the socket, and a cloud browser redialled. */
   async close(): Promise<void> { await this.stop(); }
+}
+
+type RunCallbacks = Pick<SubmitOptions, 'onSuccess' | 'onFailure' | 'onHumanAttention' | 'onHealed'>;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A submitted task. Callbacks fire as it changes; `done` settles when it ends. */
+export class Run {
+  readonly done: Promise<RunResult>;
+
+  constructor(private readonly http: Http, readonly id: string, callbacks: RunCallbacks, pollMs = 2_000) {
+    this.done = this.watch(callbacks, pollMs);
+    this.done.catch(() => {}); // callers may rely on onFailure alone
+  }
+
+  status(): Promise<RunInfo> {
+    return this.http.request<RunInfo>('GET', `/api/runs/${encodeURIComponent(this.id)}`);
+  }
+
+  /** Answer the open attention request: `'done'` after handling it by hand, or your reply to the agent. */
+  async respond(response = 'done'): Promise<void> {
+    await this.http.request('POST', `/api/runs/${encodeURIComponent(this.id)}/respond`, { response });
+  }
+
+  private async watch(cb: RunCallbacks, pollMs: number): Promise<RunResult> {
+    const call = async (fn: () => unknown) => {
+      try { await fn(); } catch (err) { console.error('[oya] run callback threw:', err); }
+    };
+    let seen: string | undefined;
+    for (let errors = 0; ;) {
+      let run: RunInfo;
+      try {
+        run = await this.status();
+        errors = 0;
+      } catch (err) {
+        if (++errors < 5) { await sleep(pollMs); continue; }
+        const failure = err instanceof OyaError ? err : new OyaError(String(err), 0, null);
+        await call(() => cb.onFailure?.(failure));
+        throw failure;
+      }
+
+      if (run.status === 'needs_attention' && run.attention && run.attention.id !== seen) {
+        seen = run.attention.id;
+        const request = {
+          ...run.attention,
+          liveViewUrl: run.attention.liveViewUrl && new URL(run.attention.liveViewUrl, this.http.baseUrl).href,
+          respond: (response?: string) => this.respond(response),
+        };
+        // Not awaited: a handler that waits on a person must not stall polling.
+        void call(() => cb.onHumanAttention?.(request));
+      }
+      if (run.status === 'succeeded') {
+        const result = run.result || {};
+        if (result.healed) await call(() => cb.onHealed?.(result));
+        await call(() => cb.onSuccess?.(result));
+        return result;
+      }
+      if (run.status === 'failed') {
+        const failure = new OyaError(run.error || 'Run failed', 500, run);
+        await call(() => cb.onFailure?.(failure));
+        throw failure;
+      }
+      await sleep(pollMs);
+    }
+  }
 }

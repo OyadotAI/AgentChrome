@@ -31,6 +31,60 @@ KEYBOARD SAFETY:
 
 Workflow: analyze_page → read element IDs → act (click/type/press_key) → if page changed → analyze_page again → continue.`;
 
+// The last run per browser as replayable steps, for playbook.js. Element ids die
+// with each analysis, so steps keep the analyzer's stable metadata instead.
+// ponytail: in memory, oldest evicted past 1000 browsers; a run is lost on restart unless saved as a playbook.
+const RECORDED = new Set(['navigate', 'click', 'type', 'press_key', 'scroll', 'wait']);
+const runs = new Map(); // browserId -> { prompt, steps, elements }
+const stable = ({ type, tag, text, domId, name, ariaLabel, testId, placeholder, href } = {}) =>
+  ({ type, tag, text, domId, name, ariaLabel, testId, placeholder, href });
+
+export function lastRun(browserId) { return runs.get(browserId) || null; }
+
+const PAGE_CHANGING = new Set(['navigate', 'click', 'press_key']);
+
+/** `{{key}}` placeholders filled from data; unknown keys stay as typed. */
+export const fill = (text, data = {}) => (typeof text === 'string'
+  ? text.replace(/\{\{(\w+)\}\}/g, (m, k) => (data[k] != null ? String(data[k]) : m))
+  : text);
+
+/** Data values turned back into their placeholders, so the model never reads them. */
+export function redact(text, data = {}) {
+  if (typeof text !== 'string') return text;
+  // ponytail: values under 3 characters are left alone; redacting them would blank unrelated text.
+  const pairs = Object.entries(data).map(([k, v]) => [k, String(v ?? '')]).filter(([, v]) => v.length >= 3)
+    .sort((a, b) => b[1].length - a[1].length);
+  for (const [k, v] of pairs) text = text.split(v).join(`{{${k}}}`);
+  return text;
+}
+
+const REQUEST_HUMAN = {
+  type: 'function',
+  function: {
+    name: 'request_human',
+    description: 'Ask a person for help when you are stuck: a question only the user can answer, a login you cannot pass, or something the tools cannot do. Waits for their reply.',
+    parameters: {
+      type: 'object',
+      properties: { message: { type: 'string', description: 'What you need and why' } },
+      required: ['message'],
+      additionalProperties: false,
+    },
+  },
+};
+
+function recordStep(browserId, name, args, data) {
+  const run = runs.get(browserId);
+  if (!run || !RECORDED.has(name)) return;
+  const step = { action: name };
+  if (name === 'click' || name === 'type') {
+    const el = stable(run.elements.find((e) => e.id === Number(args.element_id)));
+    for (const k of Object.keys(el)) el[k] = redact(el[k], data);
+    step.el = el;
+  }
+  for (const k of ['url', 'text', 'key', 'direction', 'amount', 'selector', 'timeout']) if (args[k] !== undefined) step[k] = args[k];
+  run.steps.push(step);
+}
+
 /**
  * Execute a tool by name and return the result as a string for the LLM.
  */
@@ -41,6 +95,8 @@ async function executeTool(browserId, name, args) {
         const r = await sendCommand(browserId, 'analyze');
         if (!r.ok) return `Error: ${r.error}`;
         const { markdown, elements, scroll, viewport, truncated } = r.data;
+        const run = runs.get(browserId);
+        if (run) run.elements = elements;
         const visible = elements.filter((e) => e.visible);
         const offscreen = elements.filter((e) => !e.visible);
         let index = `\n\n## Element Index (${elements.length} total, ${visible.length} visible)\n\n`;
@@ -136,7 +192,12 @@ async function executeTool(browserId, name, args) {
  * Run the agentic loop: LLM → tool calls → execute → feed back → repeat until done.
  * Streams the final text response.
  */
-export async function runChat(browserId, messages, { apiKey, onToolCall, onText } = {}) {
+/**
+ * `data` values are typed through `{{key}}` placeholders and redacted from everything
+ * the model reads. `checkpoint` runs after page-changing tools; `requestHuman`, when
+ * given, lets the agent ask a person and wait.
+ */
+export async function runChat(browserId, messages, { apiKey, onToolCall, onText, data = {}, checkpoint, requestHuman } = {}) {
   // A runaway agent loop is the most expensive thing this control plane can do
   // on someone else's behalf, so the ceiling is checked before the first call.
   const budget = checkHourly('chatTokensPerHour', apiKey);
@@ -157,9 +218,25 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
   const OPENAI_BASE = baseUrl;
   const MODEL = model;
 
+  const prompt = messages.filter((m) => m.role === 'user').at(-1)?.content;
+  const run = { prompt: typeof prompt === 'string' ? redact(prompt, data) : '', steps: [], elements: [] };
+  // The page the run starts on, so a playbook replays from the same place.
+  const tabs = await sendCommand(browserId, 'list_tabs').catch(() => null);
+  const startUrl = tabs?.data?.tabs?.find((t) => t.active)?.url;
+  if (/^https?:/.test(startUrl || '')) run.steps.push({ action: 'navigate', url: startUrl, start: true });
+  runs.delete(browserId);
+  runs.set(browserId, run);
+  if (runs.size > 1000) runs.delete(runs.keys().next().value);
+
+  const keys = Object.keys(data);
   const allMessages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...messages,
+    {
+      role: 'system',
+      content: keys.length
+        ? `${SYSTEM_PROMPT}\n\nDATA: the task's values are hidden from you. Type them as these placeholders, exactly: ${keys.map((k) => `{{${k}}}`).join(', ')}. The real value is filled in when typed and reads back as the placeholder.`
+        : SYSTEM_PROMPT,
+    },
+    ...messages.map((m) => ({ ...m, content: redact(m.content, data) })),
   ];
 
   let iterations = 0;
@@ -197,7 +274,7 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
       body: JSON.stringify({
         model: MODEL,
         messages: allMessages,
-        tools: BROWSER_TOOLS,
+        tools: requestHuman ? [...BROWSER_TOOLS, REQUEST_HUMAN] : BROWSER_TOOLS,
         tool_choice: 'auto',
         stream: false,
       }),
@@ -240,10 +317,17 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
         onToolCall?.({ name, args });
         let result;
         try {
-          result = await executeTool(browserId, name, args);
+          result = name === 'request_human' && requestHuman
+            ? `The person replied: ${await requestHuman({ reason: 'agent', message: String(args.message || '') })}`
+            : await executeTool(browserId, name, name === 'type' ? { ...args, text: fill(args.text, data) } : args);
         } catch (err) {
           result = `Error: ${err.message}`;
         }
+        if (!String(result).startsWith('Error')) {
+          recordStep(browserId, name, args, data);
+          if (PAGE_CHANGING.has(name)) await checkpoint?.();
+        }
+        result = redact(result, data);
         toolResults.push({ tool_call_id: tc.id, content: result });
       }
       allMessages.push({
@@ -268,5 +352,5 @@ export async function runChat(browserId, messages, { apiKey, onToolCall, onText 
     }
   }
 
-  return { text: 'Reached iteration limit.', toolCalls: [] };
+  return { text: 'Reached iteration limit.', toolCalls: [], limited: true };
 }

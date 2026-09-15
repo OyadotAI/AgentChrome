@@ -211,6 +211,45 @@ export function restoreRouting(pool) {
   }
 }
 
+// Playbooks ride the same sealed store as routing, one row each; their steps can
+// hold whatever the user typed. ponytail: in-memory per replica like the rest of
+// this store; move to a table if playbooks must appear on other replicas without a restart.
+const playbookField = (name) => `_playbook:${name}`;
+
+export async function savePlaybook(apiKey, name, playbook) {
+  const owner = ownerOf(apiKey);
+  store.set(owner, { ...(store.get(owner) || {}), [playbookField(name)]: sealText(scopeFor(owner), JSON.stringify(playbook)) });
+  dirty = true;
+  await flush();
+}
+
+export async function deletePlaybook(apiKey, name) {
+  const owner = ownerOf(apiKey);
+  const row = { ...(store.get(owner) || {}) };
+  delete row[playbookField(name)];
+  store.set(owner, row);
+  dirty = true;
+  await flush();
+}
+
+/** Every playbook and draft this key saved, named by the field they are stored under. */
+export function listPlaybooks(apiKey) {
+  const owner = ownerOf(apiKey);
+  const prefix = playbookField('');
+  return Object.entries(store.get(owner) || {})
+    .filter(([field]) => field.startsWith(prefix))
+    .map(([field]) => getPlaybook(apiKey, field.slice(prefix.length)))
+    .filter(Boolean);
+}
+
+export function getPlaybook(apiKey, name) {
+  const owner = ownerOf(apiKey);
+  const sealed = store.get(owner)?.[playbookField(name)];
+  if (!sealed) return null;
+  // Like reveal(): a row sealed under a rotated secret reads as absent instead of failing every listing.
+  try { return { ...JSON.parse(openText(scopeFor(owner), sealed)), name }; } catch { return null; }
+}
+
 // ── Persistence ──
 
 let writeQueue = Promise.resolve();

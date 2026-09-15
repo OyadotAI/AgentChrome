@@ -50,6 +50,75 @@ export interface StartResult {
   note?: string;
 }
 
+export interface Playbook {
+  name: string;
+  /** Inputs `play()` accepts; any left out reuse the recorded value. */
+  variables: string[];
+  steps: number;
+  /** The same flow as a Playwright module: `export default async function run(page, vars)`. */
+  code: string;
+}
+
+export interface PlayResult {
+  /** Steps replayed before finishing or handing over to the agent. */
+  steps: number;
+  total: number;
+  /** A step no longer fit the page and the agent finished the task. */
+  fellBack: boolean;
+  /** The agent's fix was saved as `draft`; promote it with `oya.playbooks.promote(name)`. */
+  healed?: boolean;
+  draft?: string;
+  /** The agent's summary, when it fell back. */
+  text?: string;
+}
+
+export interface PlaybookSummary extends Playbook {
+  createdAt: string | null;
+  promotedAt: string | null;
+  /** A healed replay's fix, waiting for `promote()` or `remove('<name>:draft')`. */
+  draft: (Playbook & { healedAt: string; healedFrom: number }) | null;
+}
+
+/** Values passed through to the page as `{{name}}` placeholders; the model never sees them. */
+export type RunData = Record<string, string | number>;
+
+export interface AttentionRequest {
+  id: string;
+  /** captcha / mfa: finish it in the live view. agent: the agent's question. heal_failed: replay and the agent both gave up. */
+  reason: 'captcha' | 'mfa' | 'agent' | 'heal_failed';
+  message: string;
+  liveViewUrl?: string;
+  at: number;
+}
+
+export type RunResult = Partial<PlayResult> & { text?: string };
+
+export interface RunInfo {
+  id: string;
+  browserId: string;
+  status: 'running' | 'needs_attention' | 'succeeded' | 'failed';
+  createdAt: number;
+  endedAt?: number;
+  attention: AttentionRequest | null;
+  result?: RunResult;
+  error?: string;
+}
+
+export interface SubmitOptions {
+  /** Passed through as `{{name}}` placeholders; for a playbook, its variables. */
+  data?: RunData;
+  /** Playbooks only: let the agent finish a broken replay and save its fix as a draft. Default true. */
+  autoHeal?: boolean;
+  onSuccess?: (result: RunResult) => unknown;
+  onFailure?: (error: OyaError) => unknown;
+  /** Call `respond()` once it is handled: `'done'` after finishing by hand, or your answer to the agent. */
+  onHumanAttention?: (request: AttentionRequest & { respond(response?: string): Promise<void> }) => unknown;
+  /** Fires before onSuccess when a replay was healed; `result.draft` names the draft. */
+  onHealed?: (result: RunResult) => unknown;
+  /** How often to check on the run. Default 2000. */
+  pollMs?: number;
+}
+
 export interface Element {
   id: number;
   type: string;

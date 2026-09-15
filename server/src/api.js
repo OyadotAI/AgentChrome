@@ -33,6 +33,8 @@ import * as personas from './personas.js';
 import * as proxies from './proxies.js';
 import * as captcha from './captcha.js';
 import * as mfa from './mfa.js';
+import * as playbooks from './playbook.js';
+import * as runs from './runs.js';
 import * as keyConfig from './key-config.js';
 import { PREF_OPTIONS } from './fingerprint.js';
 import * as pairing from './pairing.js';
@@ -897,6 +899,34 @@ async function evaluateIn(browserId, expression) {
   return result?.data?.result ?? result?.data ?? null;
 }
 
+// Anchor, Browserbase, Steel and Browser Use solve natively; solving again pays
+// twice and can race their own attempt.
+const NATIVE_CAPTCHA = ['anchor', 'browserbase', 'steel', 'browseruse'];
+
+/** Agent data and playbook variables: names to strings or numbers. */
+const validData = (d) => !!d && typeof d === 'object' && !Array.isArray(d)
+  && Object.entries(d).every(([k, v]) => /^\w{1,64}$/.test(k) && ['string', 'number'].includes(typeof v));
+
+/**
+ * Between page-changing steps of a run: clear a CAPTCHA or MFA prompt, or park the
+ * run on a person. ponytail: two detection evals per page-changing step.
+ */
+function checkpointFor(apiKey, browserId, requestHuman) {
+  const liveViewUrl = `/dashboard/?browser=${encodeURIComponent(browserId)}`;
+  const evaluate = (expr) => evaluateIn(browserId, expr);
+  return async () => {
+    const browser = registry.get(browserId);
+    const c = await captcha.handle(evaluate, { providerSolves: NATIVE_CAPTCHA.includes(browser?.provider), env: keyConfig.envFor(apiKey) }).catch(() => null);
+    if (c?.present && !c.solved && !c.invisible && c.method !== 'provider') {
+      await requestHuman({ reason: 'captcha', message: c.error || 'A CAPTCHA needs solving. Solve it in the live view, then respond.', liveViewUrl });
+    }
+    const m = await mfa.complete(evaluate, browser?.persona?.id || personas.defaultFor(apiKey).id, { liveViewUrl }).catch(() => null);
+    if (m?.present && !m.completed) {
+      await requestHuman({ reason: 'mfa', message: m.error || 'MFA needs completing in the live view.', liveViewUrl });
+    }
+  };
+}
+
 router.post('/browsers/:browserId/captcha', authMiddleware, enforce('command'), async (req, res) => {
   const { browserId } = req.params;
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
@@ -906,9 +936,7 @@ router.post('/browsers/:browserId/captcha', authMiddleware, enforce('command'), 
   try {
     const result = await captcha.handle((expr) => evaluateIn(browserId, expr), {
       solve: req.body?.solve !== false,
-      // Anchor, Browserbase and Steel solve natively; solving again pays twice
-      // and can race their own attempt.
-      providerSolves: ['anchor', 'browserbase', 'steel', 'browseruse'].includes(browser.provider),
+      providerSolves: NATIVE_CAPTCHA.includes(browser.provider),
       env: keyConfig.envFor(getKey(req)),
     });
     if (result.present) {
@@ -1327,27 +1355,136 @@ router.post('/browsers/:browserId/chat', authMiddleware, enforce('chat'), async 
   res.setTimeout(0);
 
   const { browserId } = req.params;
-  const { messages } = req.body;
+  const { messages, data = {} } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
   }
+  if (!validData(data)) return res.status(400).json({ error: 'data must map names to strings or numbers' });
 
   if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
     return res.status(404).json({ error: `Browser ${browserId} not connected` });
   }
 
   const toolCalls = [];
-  try {
+  await longJson(res, async () => {
     const result = await runChat(browserId, messages, {
       apiKey: getKey(req),
+      data,
       onToolCall: ({ name, args }) => toolCalls.push({ name, args }),
       onText: () => {},
     });
-    res.json({ text: result.text, toolCalls });
+    return { text: result.text, toolCalls };
+  });
+});
+
+/**
+ * Agent work can outlast Node fetch's 300s headers timeout (and proxy idle
+ * timeouts), so commit to 200 now and trickle whitespace; JSON.parse ignores it.
+ * Errors after this point can only travel in the body.
+ */
+async function longJson(res, work) {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  const keepalive = setInterval(() => res.write(' '), 15_000);
+  try {
+    res.end(JSON.stringify(await work()));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.end(JSON.stringify({ error: err.message }));
+  } finally {
+    clearInterval(keepalive);
   }
+}
+
+// Playbooks — save this browser's last ask() by name, then replay it without the LLM
+router.post('/browsers/:browserId/playbooks', authMiddleware, enforce('chat'), async (req, res) => {
+  const { browserId } = req.params;
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    return res.status(404).json({ error: `Browser ${browserId} not connected` });
+  }
+  try {
+    res.json(await playbooks.create(getKey(req), browserId, req.body?.name));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/browsers/:browserId/playbooks/:name/play', authMiddleware, enforce('chat'), async (req, res) => {
+  req.setTimeout(0);
+  res.setTimeout(0);
+
+  const { browserId, name } = req.params;
+  const variables = req.body?.variables ?? {};
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    return res.status(404).json({ error: `Browser ${browserId} not connected` });
+  }
+  if (!validData(variables)) return res.status(400).json({ error: 'variables must map names to strings or numbers' });
+  const pb = keyConfig.getPlaybook(getKey(req), name);
+  if (!pb) return res.status(404).json({ error: `No playbook named ${name}` });
+  const missing = playbooks.missingVariables(pb, variables);
+  if (missing.length) return res.status(400).json({ error: `Missing variables: ${missing.join(', ')}` });
+
+  await longJson(res, () => playbooks.play(getKey(req), browserId, pb, variables, { autoHeal: req.body?.autoHeal !== false }));
+});
+
+router.get('/playbooks', authMiddleware, (req, res) => {
+  res.json({ playbooks: playbooks.list(getKey(req)) });
+});
+
+router.delete('/playbooks/:name', authMiddleware, async (req, res) => {
+  try {
+    await playbooks.remove(getKey(req), req.params.name);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.post('/playbooks/:name/promote', authMiddleware, async (req, res) => {
+  try {
+    res.json(await playbooks.promote(getKey(req), req.params.name));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Runs — submit a prompt or playbook in the background; the SDK polls and fires callbacks
+router.post('/browsers/:browserId/runs', authMiddleware, enforce('chat'), async (req, res) => {
+  const { browserId } = req.params;
+  const { prompt, playbook, data = {}, autoHeal = true } = req.body || {};
+  const key = getKey(req);
+  if (!registry.isConnected(browserId) || !canAccess(req, browserId)) {
+    return res.status(404).json({ error: `Browser ${browserId} not connected` });
+  }
+  if (!validData(data)) return res.status(400).json({ error: 'data must map names to strings or numbers' });
+  if ((typeof prompt === 'string') === (typeof playbook === 'string')) {
+    return res.status(400).json({ error: 'Pass exactly one of prompt or playbook' });
+  }
+  const pb = playbook ? keyConfig.getPlaybook(key, playbook) : null;
+  if (playbook && !pb) return res.status(404).json({ error: `No playbook named ${playbook}` });
+  const missing = pb ? playbooks.missingVariables(pb, data) : [];
+  if (missing.length) return res.status(400).json({ error: `Missing data: ${missing.join(', ')}` });
+
+  const run = runs.start(fingerprint(key), browserId, async ({ requestHuman }) => {
+    const checkpoint = checkpointFor(key, browserId, requestHuman);
+    if (pb) return playbooks.play(key, browserId, pb, data, { autoHeal: autoHeal !== false, checkpoint, requestHuman });
+    const result = await runChat(browserId, [{ role: 'user', content: prompt }], { apiKey: key, data, checkpoint, requestHuman });
+    if (result.limited) throw new Error('The agent hit its step limit without finishing');
+    return { text: result.text };
+  });
+  res.status(202).json(run);
+});
+
+router.get('/runs/:runId', authMiddleware, (req, res) => {
+  const run = runs.get(fingerprint(getKey(req)), req.params.runId);
+  if (!run) return res.status(404).json({ error: 'No such run' });
+  res.json(run);
+});
+
+router.post('/runs/:runId/respond', authMiddleware, (req, res) => {
+  if (!runs.respond(fingerprint(getKey(req)), req.params.runId, req.body?.response)) {
+    return res.status(409).json({ error: 'This run is not waiting for a person' });
+  }
+  res.json({ ok: true });
 });
 
 // ─── Pool Endpoints ─────────────────────────────────────────────────────────
